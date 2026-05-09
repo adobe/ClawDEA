@@ -152,6 +152,15 @@ class DriftDetectionService(private val project: Project) {
             now: Instant,
             detectDreams: DreamDetectionRunner,
         ): DreamDetectionResult {
+            if (state.dreamLockOwner.isNotBlank()) {
+                return DreamDetectionResult(
+                    events = emptyList(),
+                    status = "not-run:lock-held",
+                    filteredCandidateCount = state.dreamFilteredCandidateCount,
+                    attempted = false,
+                    successful = false,
+                )
+            }
             val settings = DreamWikiSettings(
                 enabled = settingsState.enableKnowledgeLayer && settingsState.enableDreamWikiMaintenance,
                 minElapsedHours = settingsState.dreamWikiMinElapsedHours,

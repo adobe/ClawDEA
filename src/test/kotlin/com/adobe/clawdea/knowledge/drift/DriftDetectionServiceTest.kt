@@ -115,6 +115,7 @@ class DriftDetectionServiceTest {
         var capturedSettings: DreamWikiSettings? = null
         var capturedForce: Boolean? = null
         var capturedActiveTurn: Boolean? = null
+        var invoked = false
         val now = Instant.parse("2026-05-09T12:34:56Z")
 
         val result = DriftDetectionService.collectRaw(
@@ -131,6 +132,7 @@ class DriftDetectionServiceTest {
             now = now,
             runDreamScan = true,
             detectDreams = { _, _, settings, _, force, activeTurn ->
+                invoked = true
                 capturedSettings = settings
                 capturedForce = force
                 capturedActiveTurn = activeTurn
@@ -138,6 +140,7 @@ class DriftDetectionServiceTest {
             },
         )
 
+        assertTrue(invoked)
         assertTrue(result.events.last() is DriftEvent.DreamMissingConcept)
         assertEquals(dreamEvent, result.events.last())
         assertEquals(DreamWikiSettings(enabled = true, minElapsedHours = 12, minSignalUnits = 3, scanThrottleMinutes = 4), capturedSettings)
@@ -151,6 +154,38 @@ class DriftDetectionServiceTest {
         assertEquals("", result.newState.dreamLastFailedScanAt)
         assertEquals(7, result.newState.dreamProcessedSignalUnits)
         assertEquals(1, result.newState.dreamFilteredCandidateCount)
+    }
+
+    @Test fun `collectRaw explicit dream scan respects held dream lock`() {
+        val tmp = Files.createTempDirectory("svc-dream-locked")
+        val now = Instant.parse("2026-05-09T12:34:56Z")
+        var invoked = false
+
+        val result = DriftDetectionService.collectRaw(
+            projectRoot = tmp,
+            claudeDir = tmp.resolve(".claude"),
+            beforeState = DriftState(
+                dreamLockOwner = "other-window",
+                dreamProcessedSignalUnits = 2,
+                dreamObservedSignalUnits = 7,
+            ),
+            settingsState = ClawDEASettings.State(),
+            now = now,
+            runDreamScan = true,
+            detectDreams = { _, _, _, _, _, _ ->
+                invoked = true
+                DreamDetectionResult(emptyList(), "ok", 0, attempted = true, successful = true)
+            },
+        )
+
+        assertFalse(invoked)
+        assertEquals(emptyList<DriftEvent>(), result.events)
+        assertEquals("2026-05-09T12:34:56Z", result.newState.dreamLastDueCheckAt)
+        assertEquals("not-run:lock-held", result.newState.dreamLastStatus)
+        assertEquals("", result.newState.dreamLastRunAt)
+        assertEquals("", result.newState.dreamLastSuccessfulScanAt)
+        assertEquals("", result.newState.dreamLastFailedScanAt)
+        assertEquals(2, result.newState.dreamProcessedSignalUnits)
     }
 
     @Test fun `collectRaw explicit dream scan persists failed status timestamp`() {
