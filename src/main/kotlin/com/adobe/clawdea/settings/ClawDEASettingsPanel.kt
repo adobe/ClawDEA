@@ -153,9 +153,9 @@ class ClawDEASettingsPanel {
         toolTipText = "When on, high-confidence drift fixes (single-match code renames; manifest comment-out) apply silently; learn-on-probe-miss writes use Write/Edit instead of propose_*. When off, every change goes through diff review."
     }
     val enableDreamWikiMaintenanceCheckbox = JBCheckBox("Enable Dream wiki maintenance", true)
-    val dreamWikiMinElapsedHoursField = JBTextField("24", 6)
-    val dreamWikiMinSignalUnitsField = JBTextField("5", 6)
-    val dreamWikiScanThrottleMinutesField = JBTextField("10", 6)
+    val dreamWikiMinElapsedHoursField = JBTextField(DreamWikiSettingsParser.MIN_ELAPSED_HOURS_DEFAULT.toString(), 6)
+    val dreamWikiMinSignalUnitsField = JBTextField(DreamWikiSettingsParser.MIN_SIGNAL_UNITS_DEFAULT.toString(), 6)
+    val dreamWikiScanThrottleMinutesField = JBTextField(DreamWikiSettingsParser.SCAN_THROTTLE_MINUTES_DEFAULT.toString(), 6)
 
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
@@ -438,9 +438,9 @@ class ClawDEASettingsPanel {
         state.enableWorkspace = enableWorkspaceCheckbox.isSelected
         state.autoUpdateWiki = autoUpdateWikiCheckbox.isSelected
         state.enableDreamWikiMaintenance = enableDreamWikiMaintenanceCheckbox.isSelected
-        state.dreamWikiMinElapsedHours = parseIntField(dreamWikiMinElapsedHoursField, DREAM_MIN_ELAPSED_HOURS_DEFAULT)
-        state.dreamWikiMinSignalUnits = parseIntField(dreamWikiMinSignalUnitsField, DREAM_MIN_SIGNAL_UNITS_DEFAULT)
-        state.dreamWikiScanThrottleMinutes = parseIntField(dreamWikiScanThrottleMinutesField, DREAM_SCAN_THROTTLE_MINUTES_DEFAULT)
+        state.dreamWikiMinElapsedHours = parseIntField(dreamWikiMinElapsedHoursField, DreamWikiSettingsParser::minElapsedHours)
+        state.dreamWikiMinSignalUnits = parseIntField(dreamWikiMinSignalUnitsField, DreamWikiSettingsParser::minSignalUnits)
+        state.dreamWikiScanThrottleMinutes = parseIntField(dreamWikiScanThrottleMinutesField, DreamWikiSettingsParser::scanThrottleMinutes)
     }
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
@@ -470,9 +470,9 @@ class ClawDEASettingsPanel {
             enableWorkspaceCheckbox.isSelected != state.enableWorkspace ||
             autoUpdateWikiCheckbox.isSelected != state.autoUpdateWiki ||
             enableDreamWikiMaintenanceCheckbox.isSelected != state.enableDreamWikiMaintenance ||
-            normalizedIntField(dreamWikiMinElapsedHoursField, DREAM_MIN_ELAPSED_HOURS_DEFAULT) != state.dreamWikiMinElapsedHours ||
-            normalizedIntField(dreamWikiMinSignalUnitsField, DREAM_MIN_SIGNAL_UNITS_DEFAULT) != state.dreamWikiMinSignalUnits ||
-            normalizedIntField(dreamWikiScanThrottleMinutesField, DREAM_SCAN_THROTTLE_MINUTES_DEFAULT) != state.dreamWikiScanThrottleMinutes
+            normalizedIntField(dreamWikiMinElapsedHoursField, DreamWikiSettingsParser::minElapsedHours) != state.dreamWikiMinElapsedHours ||
+            normalizedIntField(dreamWikiMinSignalUnitsField, DreamWikiSettingsParser::minSignalUnits) != state.dreamWikiMinSignalUnits ||
+            normalizedIntField(dreamWikiScanThrottleMinutesField, DreamWikiSettingsParser::scanThrottleMinutes) != state.dreamWikiScanThrottleMinutes
     }
 
     fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
@@ -542,11 +542,11 @@ class ClawDEASettingsPanel {
         dreamWikiScanThrottleMinutesField.isEnabled = dreamEnabled
     }
 
-    private fun parseIntField(field: JBTextField, defaultValue: Int): Int =
-        normalizedIntField(field, defaultValue).also { field.text = it.toString() }
+    private fun parseIntField(field: JBTextField, parser: (String) -> Int): Int =
+        normalizedIntField(field, parser).also { field.text = it.toString() }
 
-    private fun normalizedIntField(field: JBTextField, defaultValue: Int): Int =
-        field.text.trim().toIntOrNull() ?: defaultValue
+    private fun normalizedIntField(field: JBTextField, parser: (String) -> Int): Int =
+        parser(field.text)
 
     private fun flushCurrentTableToTransient() {
         transientCatalogs[currentCatalogProvider] = modelTableModel.rows.map { it.copy() }.toMutableList()
@@ -594,11 +594,5 @@ class ClawDEASettingsPanel {
             rows.addAll(newRows.map { it.copy() })
             fireTableDataChanged()
         }
-    }
-
-    private companion object {
-        const val DREAM_MIN_ELAPSED_HOURS_DEFAULT = 24
-        const val DREAM_MIN_SIGNAL_UNITS_DEFAULT = 5
-        const val DREAM_SCAN_THROTTLE_MINUTES_DEFAULT = 10
     }
 }
