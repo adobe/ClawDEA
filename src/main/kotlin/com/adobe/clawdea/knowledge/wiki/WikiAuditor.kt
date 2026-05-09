@@ -40,8 +40,6 @@ data class WikiAuditReport(
 }
 
 class WikiAuditor(private val wikiPath: WikiPath) {
-    private val WIKILINK = Regex("""\[\[([^\]]+)\]\]""")
-
     fun audit(): WikiAuditReport {
         val root = wikiPath.rootDir
         if (!Files.isDirectory(root)) return WikiAuditReport(emptyList(), emptyList())
@@ -52,7 +50,7 @@ class WikiAuditor(private val wikiPath: WikiPath) {
 
         val indexPath = wikiPath.index()
         if (Files.exists(indexPath)) {
-            indexLinks += extractLinks(Files.readString(indexPath))
+            indexLinks += extractLinks("index.md", Files.readString(indexPath))
         }
 
         val conceptsDir = root.resolve("concepts")
@@ -64,7 +62,7 @@ class WikiAuditor(private val wikiPath: WikiPath) {
                     if (!name.endsWith(".md")) continue
                     val key = name.removeSuffix(".md")
                     concepts[key] = path
-                    pageLinks[key] = extractLinks(Files.readString(path))
+                    pageLinks[key] = extractLinks("concepts/$name", Files.readString(path))
                 }
             }
         }
@@ -93,6 +91,6 @@ class WikiAuditor(private val wikiPath: WikiPath) {
         return WikiAuditReport(orphans = orphans.sorted(), brokenLinks = brokenLinks)
     }
 
-    private fun extractLinks(text: String): Set<String> =
-        WIKILINK.findAll(text).map { it.groupValues[1].trim() }.toSet()
+    private fun extractLinks(pageRelativePath: String, text: String): Set<String> =
+        WikiLink.extractConceptLinks(pageRelativePath, text).map { it.targetSlug }.toSet()
 }

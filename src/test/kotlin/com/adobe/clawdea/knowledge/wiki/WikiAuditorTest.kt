@@ -49,4 +49,17 @@ class WikiAuditorTest {
         assertEquals(0, cleanReport.orphans.size)
         assertEquals(0, cleanReport.brokenLinks.size)
     }
+
+    @Test fun `standard markdown concept links count as wiki links`() {
+        val tmp = java.nio.file.Files.createTempDirectory("wiki-audit-md")
+        val wikiRoot = tmp.resolve("wiki")
+        java.nio.file.Files.createDirectories(wikiRoot.resolve("concepts"))
+        java.nio.file.Files.writeString(wikiRoot.resolve("index.md"), "- [Rollout Flow](concepts/rollout-flow.md)")
+        java.nio.file.Files.writeString(wikiRoot.resolve("concepts/rollout-flow.md"), "# Rollout Flow\n")
+
+        val report = WikiAuditor(WikiPath(wikiRoot)).audit()
+
+        assertEquals(emptyList<String>(), report.orphans)
+        assertEquals(0, report.brokenLinks.size)
+    }
 }
