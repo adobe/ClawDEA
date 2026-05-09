@@ -19,6 +19,7 @@ import com.google.gson.JsonParser
 
 object DreamOutputValidator {
 
+    private val ALLOWED_ROOT_FIELDS = setOf("candidates")
     private val ALLOWED_CANDIDATE_FIELDS = setOf(
         "kind",
         "title",
@@ -83,13 +84,14 @@ object DreamOutputValidator {
         }
 
         val rootObject = root.asJsonObject
+        val errors = mutableListOf<String>()
+        validateAllowedFields(rootObject, ALLOWED_ROOT_FIELDS, "Dream output", errors)
         val candidatesElement = rootObject.get("candidates")
         if (candidatesElement == null || !candidatesElement.isJsonArray) {
             return DreamValidationResult(emptyList(), listOf("Dream output must include a candidates array"))
         }
 
         val candidates = mutableListOf<DreamCandidate>()
-        val errors = mutableListOf<String>()
         candidatesElement.asJsonArray.forEachIndexed { index, element ->
             val candidate = validateCandidate(index, element, errors)
             if (candidate != null) candidates += candidate

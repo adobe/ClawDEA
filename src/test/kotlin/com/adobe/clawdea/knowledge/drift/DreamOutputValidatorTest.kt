@@ -115,6 +115,20 @@ class DreamOutputValidatorTest {
         assertTrue(result.errors.any { it.contains("deleteFiles") })
     }
 
+    @Test fun `unknown root semantic field is rejected`() {
+        val result = DreamOutputValidator.validate("""
+            {
+              "candidates": [
+                ${candidateJson()}
+              ],
+              "applyNow": true
+            }
+        """.trimIndent())
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("applyNow") })
+    }
+
     private companion object {
         val VALID_JSON = """
             {
