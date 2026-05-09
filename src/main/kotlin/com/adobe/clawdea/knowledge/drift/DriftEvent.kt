@@ -18,7 +18,7 @@ import java.nio.file.Path
  * `signature` used for dedup against the dismissed list and (for auto-apply)
  * to record successful fixes.
  */
-sealed class DriftEvent {
+abstract class DriftEvent {
     abstract val signature: String
 
     data class CodeRename(
@@ -36,5 +36,56 @@ sealed class DriftEvent {
         val lineHint: Int,
     ) : DriftEvent() {
         override val signature: String = "manifest-stale:$manifestPath:$repoKey"
+    }
+
+    data class DreamIndexCleanup(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+        val autoApplicable: Boolean,
+    ) : DriftEvent() {
+        override val signature: String = "dream-index-cleanup:$targetFile:$title"
+    }
+
+    data class DreamLinkNormalization(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+        val autoApplicable: Boolean,
+    ) : DriftEvent() {
+        override val signature: String = "dream-link-normalization:$targetFile:$title"
+    }
+
+    data class DreamSourceReferenceFix(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+        val autoApplicable: Boolean,
+    ) : DriftEvent() {
+        override val signature: String = "dream-source-ref-fix:$targetFile:$title"
+    }
+
+    data class DreamDuplicateConcept(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+    ) : DriftEvent() {
+        override val signature: String = "dream-duplicate-concept:$targetFile:$title"
+    }
+
+    data class DreamStaleConcept(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+    ) : DriftEvent() {
+        override val signature: String = "dream-stale-concept:$targetFile:$title"
+    }
+
+    data class DreamMissingConcept(
+        val targetFile: Path,
+        val title: String,
+        val patchPlan: String,
+    ) : DriftEvent() {
+        override val signature: String = "dream-missing-concept:$targetFile:$title"
     }
 }

@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import com.adobe.clawdea.knowledge.wiki.WikiLink
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -34,6 +35,14 @@ object DriftAutoApplier {
             val ok = when (event) {
                 is DriftEvent.CodeRename -> applyCodeRename(event)
                 is DriftEvent.ManifestStale -> applyManifestStale(event, today)
+                is DriftEvent.DreamLinkNormalization -> applyDreamLinkNormalization(event)
+                is DriftEvent.DreamIndexCleanup,
+                is DriftEvent.DreamSourceReferenceFix,
+                is DriftEvent.DreamDuplicateConcept,
+                is DriftEvent.DreamStaleConcept,
+                is DriftEvent.DreamMissingConcept,
+                -> false
+                else -> false
             }
             if (ok) applied += event
         }
@@ -59,6 +68,32 @@ object DriftAutoApplier {
         if (!line.contains("**${event.repoKey}**")) return false
         lines[idx] = "# $line  # auto-removed $today: path missing"
         return atomicWrite(event.manifestPath, lines.joinToString("\n"))
+    }
+
+    private fun applyDreamLinkNormalization(event: DriftEvent.DreamLinkNormalization): Boolean {
+        if (!event.autoApplicable) return false
+        val text = runCatching { Files.readString(event.targetFile) }.getOrNull() ?: return false
+        val pageRelativePath = relativizeWikiPage(event.targetFile)
+        val oldLinks = WikiLink.extractConceptLinks(pageRelativePath, text)
+            .filter { it.original.startsWith("[[") }
+        if (oldLinks.size != 1) return false
+
+        val oldLink = oldLinks.single()
+        val replacement = WikiLink.toMarkdownLink(pageRelativePath, oldLink.targetSlug)
+        val updated = text.replace(oldLink.original, replacement)
+        if (updated == text) return false
+        return atomicWrite(event.targetFile, updated)
+    }
+
+    private fun relativizeWikiPage(targetFile: Path): String {
+        val normalized = targetFile.normalize()
+        val names = (0 until normalized.nameCount).map { normalized.getName(it).toString() }
+        val wikiIndex = names.windowed(size = 2).indexOfFirst { it == listOf(".claude", "wiki") }
+        return if (wikiIndex >= 0) {
+            names.drop(wikiIndex + 2).joinToString("/")
+        } else {
+            normalized.fileName.toString()
+        }
     }
 
     private fun atomicWrite(target: Path, content: String): Boolean {

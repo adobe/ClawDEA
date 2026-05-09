@@ -54,6 +54,10 @@ class DriftBanner(
                 is DriftEvent.ManifestStale -> {
                     "✓ commented out stale manifest entry: ${event.repoKey} (path missing)"
                 }
+                is DriftEvent.DreamLinkNormalization -> {
+                    "✓ normalized wiki link: ${event.targetFile.fileName} · ${event.title}"
+                }
+                else -> "✓ applied wiki drift fix: ${event.signature}"
             }
         }
     }
