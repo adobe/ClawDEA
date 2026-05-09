@@ -78,10 +78,26 @@ object DriftAutoApplier {
         if (oldLinks.size != 1) return false
 
         val oldLink = oldLinks.single()
+        if (!Files.exists(conceptPageFor(event.targetFile, oldLink.targetSlug))) return false
         val replacement = WikiLink.toMarkdownLink(pageRelativePath, oldLink.targetSlug)
         val updated = text.replace(oldLink.original, replacement)
         if (updated == text) return false
         return atomicWrite(event.targetFile, updated)
+    }
+
+    private fun conceptPageFor(targetFile: Path, targetSlug: String): Path =
+        wikiRootFor(targetFile).resolve("concepts/$targetSlug.md").normalize()
+
+    private fun wikiRootFor(targetFile: Path): Path {
+        val normalized = targetFile.normalize()
+        val names = (0 until normalized.nameCount).map { normalized.getName(it).toString() }
+        val wikiIndex = names.windowed(size = 2).indexOfFirst { it == listOf(".claude", "wiki") }
+        return if (wikiIndex >= 0) {
+            normalized.root?.resolve(names.take(wikiIndex + 2).joinToString("/"))
+                ?: Path.of(names.take(wikiIndex + 2).joinToString("/"))
+        } else {
+            normalized.parent ?: Path.of("")
+        }
     }
 
     private fun relativizeWikiPage(targetFile: Path): String {

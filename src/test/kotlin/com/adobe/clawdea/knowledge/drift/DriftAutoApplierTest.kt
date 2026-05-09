@@ -95,8 +95,11 @@ class DriftAutoApplierTest {
     @Test fun `auto-applies one old wiki link normalization`() {
         val tmp = Files.createTempDirectory("auto")
         val index = tmp.resolve(".claude/wiki/index.md")
+        val targetConcept = tmp.resolve(".claude/wiki/concepts/rollout-flow.md")
         Files.createDirectories(index.parent)
+        Files.createDirectories(targetConcept.parent)
         Files.writeString(index, "See [[rollout-flow]]")
+        Files.writeString(targetConcept, "# Rollout Flow")
         val event = DriftEvent.DreamLinkNormalization(
             targetFile = index,
             title = "Normalize rollout link",
@@ -108,6 +111,25 @@ class DriftAutoApplierTest {
 
         assertEquals(listOf(event), applied)
         assertEquals("See [Rollout Flow](concepts/rollout-flow.md)", Files.readString(index))
+    }
+
+    @Test fun `does not auto-apply link normalization when target concept is missing`() {
+        val tmp = Files.createTempDirectory("auto")
+        val index = tmp.resolve(".claude/wiki/index.md")
+        Files.createDirectories(index.parent)
+        val original = "See [[rollout-flow]]"
+        Files.writeString(index, original)
+        val event = DriftEvent.DreamLinkNormalization(
+            targetFile = index,
+            title = "Normalize rollout link",
+            patchPlan = "Replace one old wikilink.",
+            autoApplicable = true,
+        )
+
+        val applied = DriftAutoApplier.apply(listOf(event), today = "2026-05-04")
+
+        assertEquals(emptyList<DriftEvent>(), applied)
+        assertEquals(original, Files.readString(index))
     }
 
     @Test fun `does not auto-apply substantive dream missing concept`() {
