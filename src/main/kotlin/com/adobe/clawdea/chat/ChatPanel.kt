@@ -994,6 +994,24 @@ class ChatPanel(
                         sb.appendLine("  - missing repo key: `${event.repoKey}` (line ${event.lineHint})")
                         sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
                     }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamIndexCleanup -> {
+                        appendDreamEvent(sb, "DreamIndexCleanup", event.targetFile, event.title, event.patchPlan)
+                    }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamLinkNormalization -> {
+                        appendDreamEvent(sb, "DreamLinkNormalization", event.targetFile, event.title, event.patchPlan)
+                    }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamSourceReferenceFix -> {
+                        appendDreamEvent(sb, "DreamSourceReferenceFix", event.targetFile, event.title, event.patchPlan)
+                    }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamDuplicateConcept -> {
+                        appendDreamEvent(sb, "DreamDuplicateConcept", event.targetFile, event.title, event.patchPlan)
+                    }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamStaleConcept -> {
+                        appendDreamEvent(sb, "DreamStaleConcept", event.targetFile, event.title, event.patchPlan)
+                    }
+                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamMissingConcept -> {
+                        appendDreamEvent(sb, "DreamMissingConcept", event.targetFile, event.title, event.patchPlan)
+                    }
                 }
             }
             sb.appendLine()
@@ -1025,6 +1043,18 @@ class ChatPanel(
             }
         })
         commandRegistry.register("/wiki-audit", com.adobe.clawdea.commands.handlers.WikiAuditCommandHandler(project))
+    }
+
+    private fun appendDreamEvent(
+        sb: StringBuilder,
+        eventName: String,
+        targetFile: java.nio.file.Path,
+        title: String,
+        patchPlan: String,
+    ) {
+        sb.appendLine("- **$eventName** in `${targetFile.fileName}`")
+        sb.appendLine("  - title: $title")
+        sb.appendLine("  - action: review and apply with `propose_edit` if appropriate: $patchPlan")
     }
 
     fun suggestInitIfMissingClaudeMd() = sessionManager.suggestInitIfMissingClaudeMd()

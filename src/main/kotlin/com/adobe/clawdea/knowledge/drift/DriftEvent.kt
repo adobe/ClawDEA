@@ -18,7 +18,7 @@ import java.nio.file.Path
  * `signature` used for dedup against the dismissed list and (for auto-apply)
  * to record successful fixes.
  */
-abstract class DriftEvent {
+sealed class DriftEvent {
     abstract val signature: String
 
     data class CodeRename(

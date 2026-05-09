@@ -57,7 +57,21 @@ class DriftBanner(
                 is DriftEvent.DreamLinkNormalization -> {
                     "✓ normalized wiki link: ${event.targetFile.fileName} · ${event.title}"
                 }
-                else -> "✓ applied wiki drift fix: ${event.signature}"
+                is DriftEvent.DreamIndexCleanup -> {
+                    "✓ applied Dream index cleanup: ${event.targetFile.fileName} · ${event.title}"
+                }
+                is DriftEvent.DreamSourceReferenceFix -> {
+                    "✓ applied Dream source reference fix: ${event.targetFile.fileName} · ${event.title}"
+                }
+                is DriftEvent.DreamDuplicateConcept -> {
+                    "✓ applied Dream duplicate concept update: ${event.targetFile.fileName} · ${event.title}"
+                }
+                is DriftEvent.DreamStaleConcept -> {
+                    "✓ applied Dream stale concept update: ${event.targetFile.fileName} · ${event.title}"
+                }
+                is DriftEvent.DreamMissingConcept -> {
+                    "✓ applied Dream missing concept update: ${event.targetFile.fileName} · ${event.title}"
+                }
             }
         }
     }

@@ -42,7 +42,6 @@ object DriftAutoApplier {
                 is DriftEvent.DreamStaleConcept,
                 is DriftEvent.DreamMissingConcept,
                 -> false
-                else -> false
             }
             if (ok) applied += event
         }
