@@ -12,6 +12,7 @@
 package com.adobe.clawdea.knowledge.notes
 
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class PromoteToWikiPromptBuilderTest {
@@ -74,5 +75,27 @@ class PromoteToWikiPromptBuilderTest {
         )
         assertTrue(out.contains("150"))
         assertTrue(out.lowercase().contains("concept page"))
+    }
+
+    @Test fun `prompt asks for standard markdown concept links`() {
+        val out = PromoteToWikiPromptBuilder.build(
+            sourceAbsolutePath = "/abs/note.md",
+            wikiRelativePath = ".claude/wiki",
+            sourceContent = "x",
+        )
+
+        assertTrue(out.contains("[Concept](concept.md)"))
+        assertTrue(out.contains("[Concept](concepts/concept.md)"))
+    }
+
+    @Test fun `prompt tells agents not to create wikilinks`() {
+        val out = PromoteToWikiPromptBuilder.build(
+            sourceAbsolutePath = "/abs/note.md",
+            wikiRelativePath = ".claude/wiki",
+            sourceContent = "x",
+        )
+
+        assertTrue(out.contains("Do NOT use `[[concept]]`"))
+        assertFalse(out.contains("[[wikilinks]]"))
     }
 }

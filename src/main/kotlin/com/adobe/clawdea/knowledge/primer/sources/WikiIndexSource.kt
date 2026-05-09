@@ -46,11 +46,13 @@ class WikiIndexSource : PrimerSource {
             val gapAction = if (autoUpdate) {
                 "**write a new concept page** at `$wikiDir/concepts/<slug>.md` directly with the " +
                     "`Write` tool (auto-update is enabled — silent learning). Then append a " +
-                    "matching bullet to `$wikiDir/index.md`."
+                    "matching bullet to `$wikiDir/index.md` with a standard Markdown link like " +
+                    "`[Title](concepts/<slug>.md)`."
             } else {
                 "**draft a new concept page** at `$wikiDir/concepts/<slug>.md` via " +
                     "`propose_write` so the user reviews the diff. Also extend `$wikiDir/index.md` " +
-                    "with a matching bullet via `propose_edit`."
+                    "with a matching bullet via `propose_edit` using a standard Markdown link like " +
+                    "`[Title](concepts/<slug>.md)`."
             }
             return """
                 |## How to use this wiki
@@ -75,6 +77,8 @@ class WikiIndexSource : PrimerSource {
                 |   $gapAction Concept pages are ~150–250 lines: purpose, key files with
                 |   line refs, control flow, gotchas. Skip page-creation only for one-file or
                 |   purely lexical tasks (rename, format, lint).
+                |
+                |   Use standard Markdown links between wiki pages; do not create new `[[concept]]` references.
                 |3. Mention any wiki gaps you observed in your final reply so the user knows
                 |   coverage improved (or where it still doesn't).
                 |

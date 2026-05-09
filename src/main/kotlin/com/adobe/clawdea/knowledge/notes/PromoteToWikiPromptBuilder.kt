@@ -31,7 +31,7 @@ object PromoteToWikiPromptBuilder {
         appendLine()
         appendLine("**Step 3 — index.** If you create a new concept page, also update `$wikiRelativePath/index.md` with a one-line entry under the appropriate section.")
         appendLine()
-        appendLine("**Format guide.** Concept pages are 150–250 lines: purpose, key files with line refs (use `find_files`/`find_usages` to verify symbols), control flow, gotchas. Reshape the note's prose to fit — strip personal phrasing, keep technical content.")
+        appendLine("**Format guide.** Concept pages are 150–250 lines: purpose, key files with line refs (use `find_files`/`find_usages` to verify symbols), control flow, gotchas. Use standard Markdown links for related concepts: from another concept page, `[Concept](concept.md)`; from the index, `[Concept](concepts/concept.md)`. Do NOT use `[[concept]]` wikilinks. Reshape the note's prose to fit — strip personal phrasing, keep technical content.")
         appendLine()
         appendLine("**Source preservation.** Do NOT delete or modify the source note at `$sourceAbsolutePath`. Only write to the wiki.")
     }

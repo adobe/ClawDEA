@@ -891,7 +891,7 @@ class ChatPanel(
             Use propose_write to create $targetPath with:
             - A single-line H1 heading naming the concept
             - A 1–2 paragraph summary of the insight
-            - Standard Markdown links to related concepts when relevant, e.g. `[Related Concept](related-concept.md)`
+            - Standard Markdown links to related concepts when relevant, e.g. `[Related Concept](related-concept.md)` from another concept page. Do NOT create new `[[concept]]` wikilinks.
             - Code references as standard markdown links to source files, e.g. `[ClassName](../../../src/main/kotlin/path/to/ClassName.kt)` (path relative to the wiki page; concept pages live three levels deep). Do NOT use the `{[ref:...|...]}` chat-only syntax in markdown files.
 
             Then use propose_edit (NOT the built-in Edit tool) to update .claude/wiki/index.md so it links $linkTarget,
@@ -919,10 +919,11 @@ class ChatPanel(
                5–10 concept areas worth documenting (main subsystems, key APIs, active
                feature work, architectural decisions worth capturing).
             3. Use propose_write (NOT Write) to create:
-               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each concept page, e.g. `[Concept](concepts/concept.md)`.
+               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each concept page, e.g. `[Title](concepts/<slug>.md)`.
                - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept. Each page:
                    * A single-line H1 heading naming the concept
                    * A 1-paragraph summary
+                   * Related concept links as standard Markdown links, e.g. `[Related Concept](related-concept.md)`. Do NOT create new `[[concept]]` wikilinks.
                    * Key entry-point class refs as standard markdown links to source files, e.g. `[ClassName](../../../src/main/kotlin/path/to/ClassName.kt)` (path relative to the wiki page; concept pages live three levels deep). Do NOT use the `{[ref:...|...]}` chat-only syntax in markdown files.
                    * Gotchas if any
                    Keep each page short — wikis grow organically.
