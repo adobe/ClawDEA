@@ -28,7 +28,9 @@ The fixture-replay tripwire's failure mode is "a PR shows up red," fitting the e
 
 ### Local Dream wiki maintenance
 
-IDE-local ClawDEA can use Claude Code Dreams as an opportunistic semantic detector for `.claude/wiki/`. Dream-backed checks feed the same drift banner and `/refresh-wiki` flow as deterministic wiki drift. Automatic and default checks run only when elapsed time, signal count, scan throttle, and the filesystem lock allow it; manual `/refresh-wiki --dream` bypasses due-time gates while still respecting safety, filesystem-lock, and active-turn constraints.
+IDE-local ClawDEA can use Claude Code Dreams as an opportunistic semantic detector for `.claude/wiki/`. Dream-backed status feeds the same drift banner and `/refresh-wiki` flow as deterministic wiki drift. Automatic and default drift rescans perform only a cheap Dream due check/status update; actual semantic Dream invocation happens through explicit `/refresh-wiki --dream` and any future idle/background runner, not plain startup or default rescan.
+
+Manual `/refresh-wiki --dream` bypasses elapsed, signal-count, and scan-throttle due gates, but still respects the Dream enable setting, filesystem lock, and active-turn safety.
 
 The Dream path never edits source files. When **Auto-update wiki on drift** is enabled, only deterministic low-risk wiki cleanup can auto-apply; substantive concept-page creation and rewrites continue through diff review.
 

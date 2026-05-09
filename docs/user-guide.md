@@ -249,8 +249,8 @@ For multi-repo work, `/seed-workspace` creates a manifest listing sibling repos 
 - **Enable knowledge layer** — main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools.
 - **Enable workspace manifest** — read sibling repos from `.clawdea-workspace.md` and surface them via `list_workspace_repos` / `read_sibling_*`.
 - **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently; learn-on-probe-miss writes use `Write`/`Edit` instead of `propose_*`. When off, every change goes through diff review.
-- **Enable Dream wiki maintenance** — independently enables Dream-backed semantic checks for `.claude/wiki/` drift.
-- **Dream min elapsed (hours)**, **Dream min signal units**, and **Dream scan throttle (minutes)** — tune how often automatic Dream maintenance becomes due. Lower values make ClawDEA check sooner; higher values reduce background scanning.
+- **Enable Dream wiki maintenance** — controls both automatic/default Dream due checks and explicit `/refresh-wiki --dream`. When off, Dream scans do not run.
+- **Dream min elapsed (hours)**, **Dream min signal units**, and **Dream scan throttle (minutes)** — tune when automatic/default Dream maintenance becomes due. Manual `/refresh-wiki --dream` bypasses these due gates, but still respects the enable setting, filesystem lock, and active-turn safety.
 
 ---
 
