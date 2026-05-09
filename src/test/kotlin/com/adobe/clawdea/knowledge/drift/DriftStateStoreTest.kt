@@ -38,6 +38,7 @@ class DriftStateStoreTest {
             state = DriftState(
                 dreamLastRunAt = "2026-05-09T09:00:00Z",
                 dreamLastSuccessfulScanAt = "2026-05-09T08:00:00Z",
+                dreamLastFailedScanAt = "2026-05-09T08:30:00Z",
                 dreamLastDueCheckAt = "2026-05-09T07:00:00Z",
                 dreamLastStatus = "completed",
                 dreamProcessedSignalUnits = 4,
@@ -49,6 +50,7 @@ class DriftStateStoreTest {
         val state = DriftStateStore.read(claudeDir = tmp)
         assertEquals("2026-05-09T09:00:00Z", state.dreamLastRunAt)
         assertEquals("2026-05-09T08:00:00Z", state.dreamLastSuccessfulScanAt)
+        assertEquals("2026-05-09T08:30:00Z", state.dreamLastFailedScanAt)
         assertEquals("2026-05-09T07:00:00Z", state.dreamLastDueCheckAt)
         assertEquals("completed", state.dreamLastStatus)
         assertEquals(4, state.dreamProcessedSignalUnits)
@@ -82,6 +84,7 @@ class DriftStateStoreTest {
         assertEquals(listOf("a"), state.dismissed)
         assertEquals("", state.dreamLastRunAt)
         assertEquals("", state.dreamLastSuccessfulScanAt)
+        assertEquals("", state.dreamLastFailedScanAt)
         assertEquals("", state.dreamLastDueCheckAt)
         assertEquals("", state.dreamLastStatus)
         assertEquals(0, state.dreamProcessedSignalUnits)

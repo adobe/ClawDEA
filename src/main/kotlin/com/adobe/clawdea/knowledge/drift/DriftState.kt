@@ -20,6 +20,7 @@ data class DriftState(
     val dismissed: List<String> = emptyList(),
     val dreamLastRunAt: String = "",
     val dreamLastSuccessfulScanAt: String = "",
+    val dreamLastFailedScanAt: String = "",
     val dreamLastDueCheckAt: String = "",
     val dreamLastStatus: String = "",
     val dreamProcessedSignalUnits: Int = 0,

@@ -53,11 +53,7 @@ object DreamDueGate {
     }
 
     private fun scanThrottleTimestamps(state: DriftState): List<String> {
-        val timestamps = mutableListOf(state.dreamLastDueCheckAt)
-        if (state.dreamLastStatus.isNotBlank() && state.dreamLastStatus != "ok") {
-            timestamps += state.dreamLastRunAt
-        }
-        return timestamps
+        return listOf(state.dreamLastDueCheckAt, state.dreamLastFailedScanAt)
     }
 
     private fun hasElapsed(timestamp: String, now: Instant, threshold: Duration): Boolean {

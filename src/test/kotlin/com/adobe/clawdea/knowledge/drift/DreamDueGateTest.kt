@@ -80,8 +80,7 @@ class DreamDueGateTest {
     @Test fun `not due when recent failed run is inside scan throttle`() {
         val decision = evaluate(state = readyState().copy(
             dreamLastDueCheckAt = "2026-05-09T11:00:00Z",
-            dreamLastRunAt = "2026-05-09T11:55:00Z",
-            dreamLastStatus = "timeout",
+            dreamLastFailedScanAt = "2026-05-09T11:55:00Z",
         ))
 
         assertFalse(decision.due)
@@ -91,7 +90,17 @@ class DreamDueGateTest {
     @Test fun `old failed run does not block when due check is old`() {
         val decision = evaluate(state = readyState().copy(
             dreamLastDueCheckAt = "2026-05-09T11:00:00Z",
-            dreamLastRunAt = "2026-05-09T11:30:00Z",
+            dreamLastFailedScanAt = "2026-05-09T11:30:00Z",
+        ))
+
+        assertTrue(decision.due)
+        assertEquals(emptyList<String>(), decision.reasons)
+    }
+
+    @Test fun `status alone does not trigger failed scan throttle`() {
+        val decision = evaluate(state = readyState().copy(
+            dreamLastDueCheckAt = "2026-05-09T11:00:00Z",
+            dreamLastRunAt = "2026-05-09T11:55:00Z",
             dreamLastStatus = "timeout",
         ))
 
