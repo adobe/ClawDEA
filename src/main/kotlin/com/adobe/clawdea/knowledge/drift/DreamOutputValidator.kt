@@ -19,6 +19,24 @@ import com.google.gson.JsonParser
 
 object DreamOutputValidator {
 
+    private val ALLOWED_CANDIDATE_FIELDS = setOf(
+        "kind",
+        "title",
+        "targetFiles",
+        "evidence",
+        "usefulness",
+        "contextCost",
+        "confidence",
+        "proposedAction",
+        "patchPlan",
+    )
+    private val ALLOWED_EVIDENCE_FIELDS = setOf("type", "ref", "summary")
+    private val LOW_RISK_KINDS = setOf(
+        DreamCandidateKind.INDEX_CLEANUP,
+        DreamCandidateKind.LINK_NORMALIZATION,
+        DreamCandidateKind.SOURCE_REFERENCE_FIX,
+    )
+
     private val KIND_BY_WIRE = mapOf(
         "missingConcept" to DreamCandidateKind.MISSING_CONCEPT,
         "staleConcept" to DreamCandidateKind.STALE_CONCEPT,
@@ -76,7 +94,7 @@ object DreamOutputValidator {
             val candidate = validateCandidate(index, element, errors)
             if (candidate != null) candidates += candidate
         }
-        return DreamValidationResult(candidates, errors)
+        return DreamValidationResult(if (errors.isEmpty()) candidates else emptyList(), errors)
     }
 
     private fun validateCandidate(index: Int, element: JsonElement, errors: MutableList<String>): DreamCandidate? {
@@ -87,15 +105,17 @@ object DreamOutputValidator {
 
         val obj = element.asJsonObject
         val candidateErrors = mutableListOf<String>()
+        validateAllowedFields(obj, ALLOWED_CANDIDATE_FIELDS, "Candidate $index", candidateErrors)
         val kind = readEnum(obj, "kind", KIND_BY_WIRE, "unsupported kind", index, candidateErrors)
         val title = readNonBlankString(obj, "title", index, candidateErrors)
-        val targetFiles = readNonEmptyStringArray(obj, "targetFiles", index, candidateErrors)
+        val targetFiles = readTargetFiles(obj, index, candidateErrors)
         val evidence = readEvidence(obj, index, candidateErrors)
         val usefulness = readNonBlankString(obj, "usefulness", index, candidateErrors)
         val contextCost = readEnum(obj, "contextCost", CONTEXT_COST_BY_WIRE, "unsupported contextCost", index, candidateErrors)
         val confidence = readEnum(obj, "confidence", CONFIDENCE_BY_WIRE, "unsupported confidence", index, candidateErrors)
         val proposedAction = readEnum(obj, "proposedAction", ACTION_BY_WIRE, "unsupported proposedAction", index, candidateErrors)
         val patchPlan = readNonBlankString(obj, "patchPlan", index, candidateErrors)
+        validateProposedAction(kind, contextCost, confidence, proposedAction, index, candidateErrors)
 
         if (candidateErrors.isNotEmpty()) {
             errors += candidateErrors
@@ -129,6 +149,12 @@ object DreamOutputValidator {
                 return@forEachIndexed
             }
             val evidenceObj = element.asJsonObject
+            validateAllowedFields(
+                evidenceObj,
+                ALLOWED_EVIDENCE_FIELDS,
+                "Candidate $candidateIndex evidence $evidenceIndex",
+                errors,
+            )
             val type = readEnum(
                 evidenceObj,
                 "type",
@@ -146,6 +172,49 @@ object DreamOutputValidator {
         }
 
         return if (evidence.size == array.size()) evidence else null
+    }
+
+    private fun readTargetFiles(obj: JsonObject, candidateIndex: Int, errors: MutableList<String>): List<String>? {
+        val targetFiles = readNonEmptyStringArray(obj, "targetFiles", candidateIndex, errors) ?: return null
+        val invalidTargets = targetFiles.filterNot { isSafeWikiTargetFile(it) }
+        invalidTargets.forEach {
+            errors += "Candidate $candidateIndex targetFiles entry must be a relative .claude/wiki/ path without traversal: $it"
+        }
+        return if (invalidTargets.isEmpty()) targetFiles else null
+    }
+
+    private fun isSafeWikiTargetFile(path: String): Boolean {
+        if (!path.startsWith(".claude/wiki/")) return false
+        if (path.contains("..")) return false
+        if (path.startsWith("/") || path.startsWith("\\") || WINDOWS_ABSOLUTE_PATH_RX.matches(path)) return false
+        return true
+    }
+
+    private fun validateProposedAction(
+        kind: DreamCandidateKind?,
+        contextCost: DreamContextCost?,
+        confidence: DreamConfidence?,
+        proposedAction: DreamProposedAction?,
+        candidateIndex: Int,
+        errors: MutableList<String>,
+    ) {
+        if (proposedAction != DreamProposedAction.APPLY_LOW_RISK) return
+        val validLowRisk = kind in LOW_RISK_KINDS &&
+            confidence == DreamConfidence.HIGH &&
+            contextCost != DreamContextCost.ADDS_CONTEXT
+        if (!validLowRisk) {
+            errors += "Candidate $candidateIndex applyLowRisk is only valid for high-confidence low-risk wiki maintenance candidates"
+        }
+    }
+
+    private fun validateAllowedFields(
+        obj: JsonObject,
+        allowedFields: Set<String>,
+        location: String,
+        errors: MutableList<String>,
+    ) {
+        val unknownFields = obj.keySet().filterNot { it in allowedFields }
+        unknownFields.forEach { errors += "$location contains unknown field: $it" }
     }
 
     private fun readNonEmptyStringArray(
@@ -214,4 +283,6 @@ object DreamOutputValidator {
 
     private fun JsonElement?.asStringOrNull(): String? =
         if (this != null && isJsonPrimitive && asJsonPrimitive.isString) asString else null
+
+    private val WINDOWS_ABSOLUTE_PATH_RX = Regex("""^[A-Za-z]:[\\/].*""")
 }

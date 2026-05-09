@@ -62,6 +62,59 @@ class DreamOutputValidatorTest {
         assertTrue(result.errors.any { it.contains("Malformed JSON") })
     }
 
+    @Test fun `mixed valid and invalid batch returns no candidates`() {
+        val result = DreamOutputValidator.validate("""
+            {
+              "candidates": [
+                ${candidateJson()},
+                ${candidateJson(evidence = "[]")}
+              ]
+            }
+        """.trimIndent())
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("evidence") })
+    }
+
+    @Test fun `absolute target file is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """["/Users/me/project/.claude/wiki/index.md"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("targetFiles") })
+    }
+
+    @Test fun `target file outside wiki is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """["src/main/kotlin/Foo.kt"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("targetFiles") })
+    }
+
+    @Test fun `missing concept with apply low risk is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            kind = "missingConcept",
+            contextCost = "neutral",
+            confidence = "high",
+            proposedAction = "applyLowRisk",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("applyLowRisk") })
+    }
+
+    @Test fun `unknown semantic field is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            extraFields = ""","deleteFiles":[".claude/wiki/index.md"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("deleteFiles") })
+    }
+
     private companion object {
         val VALID_JSON = """
             {
@@ -84,6 +137,44 @@ class DreamOutputValidatorTest {
                   "patchPlan": "Replace one old wikilink."
                 }
               ]
+            }
+        """.trimIndent()
+
+        fun jsonWithCandidate(candidate: String): String = """
+            {
+              "candidates": [
+                $candidate
+              ]
+            }
+        """.trimIndent()
+
+        fun candidateJson(
+            kind: String = "linkNormalization",
+            targetFiles: String = """[".claude/wiki/index.md"]""",
+            evidence: String = """
+                [
+                  {
+                    "type": "staleLink",
+                    "ref": ".claude/wiki/index.md",
+                    "summary": "old wikilink"
+                  }
+                ]
+            """.trimIndent(),
+            contextCost: String = "neutral",
+            confidence: String = "high",
+            proposedAction: String = "applyLowRisk",
+            extraFields: String = "",
+        ): String = """
+            {
+              "kind": "$kind",
+              "title": "Normalize rollout link",
+              "targetFiles": $targetFiles,
+              "evidence": $evidence,
+              "usefulness": "Keeps wiki references parseable.",
+              "contextCost": "$contextCost",
+              "confidence": "$confidence",
+              "proposedAction": "$proposedAction",
+              "patchPlan": "Replace one old wikilink."$extraFields
             }
         """.trimIndent()
     }
