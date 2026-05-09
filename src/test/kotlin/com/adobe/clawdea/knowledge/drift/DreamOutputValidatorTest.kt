@@ -62,7 +62,7 @@ class DreamOutputValidatorTest {
         assertTrue(result.errors.any { it.contains("Malformed JSON") })
     }
 
-    @Test fun `mixed valid and invalid batch returns no candidates`() {
+    @Test fun `mixed valid and invalid batch keeps valid candidates`() {
         val result = DreamOutputValidator.validate("""
             {
               "candidates": [
@@ -72,7 +72,8 @@ class DreamOutputValidatorTest {
             }
         """.trimIndent())
 
-        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertEquals(1, result.candidates.size)
+        assertEquals("Normalize rollout link", result.candidates.single().title)
         assertTrue(result.errors.any { it.contains("evidence") })
     }
 

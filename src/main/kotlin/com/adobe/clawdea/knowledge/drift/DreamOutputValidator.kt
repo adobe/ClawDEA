@@ -79,19 +79,23 @@ object DreamOutputValidator {
         }
 
         val rootObject = root.asJsonObject
-        val errors = mutableListOf<String>()
-        validateAllowedFields(rootObject, ALLOWED_ROOT_FIELDS, "Dream output", errors)
+        val rootErrors = mutableListOf<String>()
+        validateAllowedFields(rootObject, ALLOWED_ROOT_FIELDS, "Dream output", rootErrors)
         val candidatesElement = rootObject.get("candidates")
         if (candidatesElement == null || !candidatesElement.isJsonArray) {
             return DreamValidationResult(emptyList(), listOf("Dream output must include a candidates array"))
         }
+        if (rootErrors.isNotEmpty()) {
+            return DreamValidationResult(emptyList(), rootErrors)
+        }
 
+        val errors = mutableListOf<String>()
         val candidates = mutableListOf<DreamCandidate>()
         candidatesElement.asJsonArray.forEachIndexed { index, element ->
             val candidate = validateCandidate(index, element, errors)
             if (candidate != null) candidates += candidate
         }
-        return DreamValidationResult(if (errors.isEmpty()) candidates else emptyList(), errors)
+        return DreamValidationResult(candidates, errors)
     }
 
     private fun validateCandidate(index: Int, element: JsonElement, errors: MutableList<String>): DreamCandidate? {
