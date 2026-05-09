@@ -972,58 +972,24 @@ class ChatPanel(
             com.adobe.clawdea.knowledge.workspace.seed.SeedPromptBuilder.build(roots, suggested, suggestedDeps, existing)
         })
 
-        commandRegistry.register("/refresh-wiki", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
+        commandRegistry.register("/refresh-wiki", LocalHandler(
             CommandInfo("/refresh-wiki", "Review and fix detected wiki drift events", CommandCategory.BRIDGE),
-        ) { _ ->
-            val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
-            val (events, _) = service.rescan()
-            if (events.isEmpty()) {
-                return@BridgeExpandingHandler "(no drift events detected)"
+        ) { rawArgs, _ ->
+            val args = RefreshWikiArgs.parse(rawArgs)
+            if (args.statusOnly) {
+                appendHtml(renderer.renderInfoMessage(refreshWikiStatus()))
+                return@LocalHandler
             }
 
-            val sb = StringBuilder()
-            sb.appendLine("The following drift events were detected. Review each and apply fixes via `propose_edit`:")
-            sb.appendLine()
-            for (event in events) {
-                when (event) {
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> {
-                        sb.appendLine("- **CodeRename** in `${event.wikiPage.fileName}`")
-                        sb.appendLine("  - broken link: `${event.brokenLink}`")
-                        if (event.suggestedReplacement != null) {
-                            sb.appendLine("  - suggested replacement: `${event.suggestedReplacement}`")
-                            sb.appendLine("  - action: confirm the replacement is the right target, then `propose_edit` `${event.wikiPage}` to update the link.")
-                        } else {
-                            sb.appendLine("  - no unique basename match was found; either search for the moved file via `find_files` and `propose_edit` the wiki page, or remove the broken link.")
-                        }
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> {
-                        sb.appendLine("- **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
-                        sb.appendLine("  - missing repo key: `${event.repoKey}` (line ${event.lineHint})")
-                        sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamIndexCleanup -> {
-                        appendDreamEvent(sb, "DreamIndexCleanup", event.targetFile, event.title, event.patchPlan)
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamLinkNormalization -> {
-                        appendDreamEvent(sb, "DreamLinkNormalization", event.targetFile, event.title, event.patchPlan)
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamSourceReferenceFix -> {
-                        appendDreamEvent(sb, "DreamSourceReferenceFix", event.targetFile, event.title, event.patchPlan)
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamDuplicateConcept -> {
-                        appendDreamEvent(sb, "DreamDuplicateConcept", event.targetFile, event.title, event.patchPlan)
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamStaleConcept -> {
-                        appendDreamEvent(sb, "DreamStaleConcept", event.targetFile, event.title, event.patchPlan)
-                    }
-                    is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamMissingConcept -> {
-                        appendDreamEvent(sb, "DreamMissingConcept", event.targetFile, event.title, event.patchPlan)
-                    }
+            appendHtml(renderer.renderInfoMessage("Refreshing wiki drift..."))
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { refreshWiki(args) }
+                if (result.sendToBridge) {
+                    dispatchSendToBridge(result.text, renderInChat = false)
+                } else {
+                    appendHtml(renderer.renderInfoMessage(result.text))
                 }
             }
-            sb.appendLine()
-            sb.appendLine("After fixing each event, the user accepts/rejects via the diff dialog as usual.")
-            sb.toString()
         })
 
         // Index query commands
@@ -1052,16 +1018,120 @@ class ChatPanel(
         commandRegistry.register("/wiki-audit", com.adobe.clawdea.commands.handlers.WikiAuditCommandHandler(project))
     }
 
+    private data class RefreshWikiCommandResult(
+        val text: String,
+        val sendToBridge: Boolean,
+    )
+
+    private fun refreshWiki(args: RefreshWikiArgs): RefreshWikiCommandResult {
+        if (args.applyLowRisk && !ClawDEASettings.getInstance().state.autoUpdateWiki) {
+            return RefreshWikiCommandResult(
+                "Applying low-risk wiki drift fixes requires enabling Auto-update wiki on drift.",
+                sendToBridge = false,
+            )
+        }
+
+        val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
+        val (events, _) = if (args.forceDream) {
+            service.runDreamScanNow()
+        } else {
+            service.rescan()
+        }
+
+        if (args.applyLowRisk) {
+            return RefreshWikiCommandResult(formatAppliedWikiDrift(service.lastAppliedEvents()), sendToBridge = false)
+        }
+
+        if (events.isEmpty()) {
+            return RefreshWikiCommandResult("(no drift events detected)", sendToBridge = false)
+        }
+
+        return RefreshWikiCommandResult(buildRefreshWikiPrompt(events), sendToBridge = true)
+    }
+
+    private fun refreshWikiStatus(): String {
+        val basePath = project.basePath ?: return "Dream wiki status: project path unavailable."
+        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(java.nio.file.Paths.get(basePath).resolve(".claude"))
+        fun valueOrNever(value: String): String = value.ifBlank { "never" }
+        return "Dream wiki status: last run ${valueOrNever(state.dreamLastRunAt)}; " +
+            "last successful scan ${valueOrNever(state.dreamLastSuccessfulScanAt)}; " +
+            "last status ${state.dreamLastStatus.ifBlank { "none" }}; " +
+            "filtered candidates ${state.dreamFilteredCandidateCount}."
+    }
+
+    private fun formatAppliedWikiDrift(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
+        if (events.isEmpty()) return "No low-risk wiki drift fixes were applied."
+        val summary = events.joinToString(", ") { event ->
+            when (event) {
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> "CodeRename ${event.wikiPage.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> "ManifestStale ${event.repoKey}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamIndexCleanup -> "DreamIndexCleanup ${event.targetFile.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamLinkNormalization -> "DreamLinkNormalization ${event.targetFile.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamSourceReferenceFix -> "DreamSourceReferenceFix ${event.targetFile.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamDuplicateConcept -> "DreamDuplicateConcept ${event.targetFile.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamStaleConcept -> "DreamStaleConcept ${event.targetFile.fileName}"
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamMissingConcept -> "DreamMissingConcept ${event.targetFile.fileName}"
+            }
+        }
+        return "Applied ${events.size} low-risk wiki drift fix(es): $summary."
+    }
+
+    private fun buildRefreshWikiPrompt(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
+        val sb = StringBuilder()
+        sb.appendLine("The following drift events were detected. Review each and apply fixes via `propose_edit` or `propose_write`:")
+        sb.appendLine()
+        for (event in events) {
+            when (event) {
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> {
+                    sb.appendLine("- **CodeRename** in `${event.wikiPage.fileName}`")
+                    sb.appendLine("  - broken link: `${event.brokenLink}`")
+                    if (event.suggestedReplacement != null) {
+                        sb.appendLine("  - suggested replacement: `${event.suggestedReplacement}`")
+                        sb.appendLine("  - action: confirm the replacement is the right target, then `propose_edit` `${event.wikiPage}` to update the link.")
+                    } else {
+                        sb.appendLine("  - no unique basename match was found; either search for the moved file via `find_files` and `propose_edit` the wiki page, or remove the broken link.")
+                    }
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> {
+                    sb.appendLine("- **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
+                    sb.appendLine("  - missing repo key: `${event.repoKey}` (line ${event.lineHint})")
+                    sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamIndexCleanup -> {
+                    appendDreamEvent(sb, "DreamIndexCleanup", event.targetFile, event.title, "use `propose_edit` to clean up the wiki index: ${event.patchPlan}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamLinkNormalization -> {
+                    appendDreamEvent(sb, "DreamLinkNormalization", event.targetFile, event.title, "use `propose_edit` to normalize the link: ${event.patchPlan}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamSourceReferenceFix -> {
+                    appendDreamEvent(sb, "DreamSourceReferenceFix", event.targetFile, event.title, "use `propose_edit` to fix stale source references: ${event.patchPlan}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamDuplicateConcept -> {
+                    appendDreamEvent(sb, "DreamDuplicateConcept", event.targetFile, event.title, "review the overlap, then use `propose_edit` to merge or redirect content if appropriate: ${event.patchPlan}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamStaleConcept -> {
+                    appendDreamEvent(sb, "DreamStaleConcept", event.targetFile, event.title, "verify the concept is stale, then use `propose_edit` to update or remove it: ${event.patchPlan}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.DreamMissingConcept -> {
+                    appendDreamEvent(sb, "DreamMissingConcept", event.targetFile, event.title, "use `propose_write` to draft the missing concept page if it is still useful: ${event.patchPlan}")
+                }
+            }
+        }
+        sb.appendLine()
+        sb.appendLine("After fixing each event, the user accepts/rejects via the diff dialog as usual.")
+        return sb.toString()
+    }
+
     private fun appendDreamEvent(
         sb: StringBuilder,
         eventName: String,
         targetFile: java.nio.file.Path,
         title: String,
-        patchPlan: String,
+        action: String,
     ) {
         sb.appendLine("- **$eventName** in `${targetFile.fileName}`")
         sb.appendLine("  - title: $title")
-        sb.appendLine("  - action: review and apply with `propose_edit` if appropriate: $patchPlan")
+        sb.appendLine("  - action: $action")
     }
 
     fun suggestInitIfMissingClaudeMd() = sessionManager.suggestInitIfMissingClaudeMd()
