@@ -18,7 +18,7 @@
 # `gh issue list --label claude-code-drift --search 'cli-flags' ...` provides.
 #
 # See docs/superpowers/specs/2026-04-29-claude-code-drift-monitoring-design.md
-# and umbrella issue #91.
+# and umbrella issue #11.
 
 - id: cli-version
   source: { type: npm, package: '@anthropic-ai/claude-code' }

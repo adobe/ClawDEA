@@ -92,7 +92,7 @@ for (const entry of watchlist) {
     '',
     'Filed automatically by the drift watcher (`.github/workflows/claude-code-drift.yml`). ' +
       'Triage: keep open and convert to a real implementation issue, or close as wontfix. ' +
-      'See umbrella #91.',
+      'See umbrella #11.',
   ].join('\n');
 
   if (entry.triage === 'issue') {
@@ -198,7 +198,7 @@ function getOrCreateDriftNoiseIssue() {
     'claude-code-drift',
     '--body',
     'Rolling issue for low-priority Claude Code drift signals. The drift watcher ' +
-      'appends a comment per detected change in noise-triaged surfaces. See umbrella #91.',
+      'appends a comment per detected change in noise-triaged surfaces. See umbrella #11.',
   ]);
   driftNoiseIssueNumber = created.number;
   return driftNoiseIssueNumber;

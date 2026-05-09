@@ -1,7 +1,7 @@
 name: claude-code-drift
 
 # Runs every Monday 09:00 UTC against the drift-snapshot tag (force-pushed by
-# this workflow on each successful run). See umbrella #91 / issue #118.
+# this workflow on each successful run). See umbrella #11 / issue #31.
 on:
   schedule:
     - cron: '0 9 * * MON'

@@ -72,7 +72,7 @@ Each entry describes one Claude Code surface. Format:
   - `{ type: url, url: '<https url>' }` — fetches via curl, runs through `strip_html` (drops `<script>`/`<style>` blocks, normalizes prose, filters bundle hashes / deploy IDs).
   - `{ type: npm, package: '<name>' }` — runs `npm view <name> version`.
 - `match` — JavaScript-flavored regex (compiled with the `m` flag). When a line in the *new* snapshot matches and was *not* present in the previous snapshot, the entry fires.
-- `triage` — `issue` files a new GitHub issue; `noise` appends a comment to the rolling drift-noise issue (#129).
+- `triage` — `issue` files a new GitHub issue; `noise` appends a comment to the rolling drift-noise issue (#33).
 
 **Adding a new entry.** Edit `watchlist.yaml`, push. The next scheduled run picks it up. There's nothing else to wire — `fetch-sources.sh` iterates entries dynamically.
 
@@ -151,7 +151,7 @@ Every such issue contains:
 2. **If noise:** close as `not planned` with a brief explanation, and tighten the regex or add a filter to `strip_html` (in `scripts/drift/fetch-sources.sh`) to prevent recurrence.
 3. **If signal:** convert it into a real implementation issue with the right tier label (`tier-1-hardening` / `tier-2-ux` / `tier-3-surfaces`), or close as `wontfix` if ClawDEA explicitly chooses not to adopt.
 
-The rolling drift-noise issue (#129) gets one comment per `triage: noise` watchlist hit. Scan it monthly. If a comment looks substantive, file a real follow-up.
+The rolling drift-noise issue (#33) gets one comment per `triage: noise` watchlist hit. Scan it monthly. If a comment looks substantive, file a real follow-up.
 
 ---
 
@@ -256,7 +256,7 @@ If an entry keeps filing false positives:
 
 ## Reference
 
-- **Umbrella issue:** [#91](https://github.com/adobe/ClawDEA/issues/91)
+- **Umbrella issue:** [#11](https://github.com/adobe/ClawDEA/issues/11)
 - **Design spec:** `docs/superpowers/specs/2026-04-29-claude-code-drift-monitoring-design.md`
 - **Audited CLI baseline:** v2.1.123 (published 2026-04-29)
-- **Related issues:** #93 (parser refactor, merged), #95 (deprecation watchlist, merged), #118 (drift digest, merged), #119 (Saturday refresh, deferred), #120 (replay test, merged)
+- **Related issues:** #31 (drift digest), #32 (Saturday refresh, deferred)
