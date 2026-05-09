@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import java.security.MessageDigest
 import java.nio.file.Path
 
 object DreamEventMapper {
@@ -18,6 +19,7 @@ object DreamEventMapper {
     fun toEvent(projectRoot: Path, candidate: DreamCandidate): DriftEvent {
         val targetFile = projectRoot.resolve(candidate.targetFiles.first()).normalize()
         val autoApplicable = isAutoApplicable(candidate)
+        val identity = evidenceIdentity(candidate)
 
         return when (candidate.kind) {
             DreamCandidateKind.INDEX_CLEANUP -> DriftEvent.DreamIndexCleanup(
@@ -25,36 +27,58 @@ object DreamEventMapper {
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
                 autoApplicable = false,
+                identity = identity,
             )
             DreamCandidateKind.LINK_NORMALIZATION -> DriftEvent.DreamLinkNormalization(
                 targetFile = targetFile,
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
                 autoApplicable = autoApplicable,
+                identity = identity,
             )
             DreamCandidateKind.SOURCE_REFERENCE_FIX -> DriftEvent.DreamSourceReferenceFix(
                 targetFile = targetFile,
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
                 autoApplicable = false,
+                identity = identity,
             )
             DreamCandidateKind.DUPLICATE_CONCEPT -> DriftEvent.DreamDuplicateConcept(
                 targetFile = targetFile,
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
+                identity = identity,
             )
             DreamCandidateKind.STALE_CONCEPT -> DriftEvent.DreamStaleConcept(
                 targetFile = targetFile,
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
+                identity = identity,
             )
             DreamCandidateKind.MISSING_CONCEPT -> DriftEvent.DreamMissingConcept(
                 targetFile = targetFile,
                 title = candidate.title,
                 patchPlan = candidate.patchPlan,
+                identity = identity,
             )
         }
     }
+
+    private fun evidenceIdentity(candidate: DreamCandidate): String {
+        val canonicalEvidence = candidate.evidence
+            .map { "${it.type.name.lowercase()}:${normalizeEvidenceRef(it.ref)}" }
+            .sorted()
+            .joinToString("|")
+        return sha256(canonicalEvidence).take(12)
+    }
+
+    private fun normalizeEvidenceRef(ref: String): String =
+        ref.trim().replace('\\', '/')
+
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
 
     private fun isAutoApplicable(candidate: DreamCandidate): Boolean {
         val targetFile = candidate.targetFiles.singleOrNull() ?: return false
