@@ -20,7 +20,7 @@ internal object DreamWikiSettingsParser {
         parse(text, defaultValue = MIN_ELAPSED_HOURS_DEFAULT, allowZero = true)
 
     fun minSignalUnits(text: String): Int =
-        parse(text, defaultValue = MIN_SIGNAL_UNITS_DEFAULT, allowZero = false)
+        parse(text, defaultValue = MIN_SIGNAL_UNITS_DEFAULT, allowZero = true)
 
     fun scanThrottleMinutes(text: String): Int =
         parse(text, defaultValue = SCAN_THROTTLE_MINUTES_DEFAULT, allowZero = true)

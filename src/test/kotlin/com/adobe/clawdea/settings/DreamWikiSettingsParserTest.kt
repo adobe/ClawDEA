@@ -24,11 +24,11 @@ class DreamWikiSettingsParserTest {
         assertEquals(48, DreamWikiSettingsParser.minElapsedHours("48"))
     }
 
-    @Test fun `min signal units allows only positive values`() {
+    @Test fun `min signal units allows zero and positive values`() {
         assertEquals(5, DreamWikiSettingsParser.minSignalUnits(""))
         assertEquals(5, DreamWikiSettingsParser.minSignalUnits("abc"))
         assertEquals(5, DreamWikiSettingsParser.minSignalUnits("-1"))
-        assertEquals(5, DreamWikiSettingsParser.minSignalUnits("0"))
+        assertEquals(0, DreamWikiSettingsParser.minSignalUnits("0"))
         assertEquals(7, DreamWikiSettingsParser.minSignalUnits("7"))
     }
 
