@@ -19,7 +19,8 @@ data class DreamDueDecision(val due: Boolean, val reasons: List<String>)
 object DreamDueGate {
 
     fun evaluate(
-        enabled: Boolean,
+        knowledgeLayerEnabled: Boolean,
+        dreamMaintenanceEnabled: Boolean,
         now: Instant,
         state: DriftState,
         minElapsedHours: Int,
@@ -29,7 +30,8 @@ object DreamDueGate {
         lockHeld: Boolean,
     ): DreamDueDecision {
         val reasons = mutableListOf<String>()
-        if (!enabled) reasons += "disabled"
+        if (!knowledgeLayerEnabled) reasons += "knowledge-layer-disabled"
+        if (!dreamMaintenanceEnabled) reasons += "dream-maintenance-disabled"
         if (activeTurn) reasons += "active-turn"
         if (lockHeld) reasons += "lock-held"
         if (!hasElapsed(state.dreamLastSuccessfulScanAt, now, Duration.ofHours(minElapsedHours.toLong()))) {

@@ -21,69 +21,70 @@ class DreamDueGateTest {
 
     private val now = Instant.parse("2026-05-09T12:00:00Z")
 
-    @Test fun `not due when dream maintenance is disabled`() {
-        val decision = DreamDueGate.evaluate(
-            enabled = false,
-            now = now,
-            state = readyState(),
-            minElapsedHours = 24,
-            minSignalUnits = 5,
-            scanThrottleMinutes = 10,
-            activeTurn = false,
-            lockHeld = false,
-        )
+    @Test fun `not due when knowledge layer is disabled`() {
+        val decision = evaluate(knowledgeLayerEnabled = false)
 
         assertFalse(decision.due)
-        assertEquals(listOf("disabled"), decision.reasons)
+        assertEquals(listOf("knowledge-layer-disabled"), decision.reasons)
+    }
+
+    @Test fun `not due when dream maintenance is disabled`() {
+        val decision = evaluate(dreamMaintenanceEnabled = false)
+
+        assertFalse(decision.due)
+        assertEquals(listOf("dream-maintenance-disabled"), decision.reasons)
     }
 
     @Test fun `due when enough time and signal accumulated`() {
-        val decision = DreamDueGate.evaluate(
-            enabled = true,
-            now = now,
-            state = readyState(),
-            minElapsedHours = 24,
-            minSignalUnits = 5,
-            scanThrottleMinutes = 10,
-            activeTurn = false,
-            lockHeld = false,
-        )
+        val decision = evaluate()
 
         assertTrue(decision.due)
         assertEquals(emptyList<String>(), decision.reasons)
     }
 
     @Test fun `not due when active turn is running`() {
-        val decision = DreamDueGate.evaluate(
-            enabled = true,
-            now = now,
-            state = readyState(),
-            minElapsedHours = 24,
-            minSignalUnits = 5,
-            scanThrottleMinutes = 10,
-            activeTurn = true,
-            lockHeld = false,
-        )
+        val decision = evaluate(activeTurn = true)
 
         assertFalse(decision.due)
         assertTrue(decision.reasons.contains("active-turn"))
     }
 
+    @Test fun `not due when lock is held`() {
+        val decision = evaluate(lockHeld = true)
+
+        assertFalse(decision.due)
+        assertTrue(decision.reasons.contains("lock-held"))
+    }
+
+    @Test fun `not due when minimum elapsed time has not passed`() {
+        val decision = evaluate(state = readyState().copy(dreamLastSuccessfulScanAt = "2026-05-09T00:00:00Z"))
+
+        assertFalse(decision.due)
+        assertTrue(decision.reasons.contains("elapsed-time"))
+    }
+
+    @Test fun `not due when accumulated signal is insufficient`() {
+        val decision = evaluate(state = readyState().copy(dreamProcessedSignalUnits = 3, dreamObservedSignalUnits = 7))
+
+        assertFalse(decision.due)
+        assertTrue(decision.reasons.contains("insufficient-signal"))
+    }
+
+    @Test fun `not due when scan throttle has not elapsed`() {
+        val decision = evaluate(state = readyState().copy(dreamLastDueCheckAt = "2026-05-09T11:55:00Z"))
+
+        assertFalse(decision.due)
+        assertTrue(decision.reasons.contains("scan-throttle"))
+    }
+
     @Test fun `malformed timestamps do not block due when other gates pass`() {
-        val decision = DreamDueGate.evaluate(
-            enabled = true,
-            now = now,
+        val decision = evaluate(
             state = DriftState(
                 dreamLastSuccessfulScanAt = "not-a-timestamp",
                 dreamLastDueCheckAt = "also-not-a-timestamp",
                 dreamProcessedSignalUnits = 2,
                 dreamObservedSignalUnits = 8,
             ),
-            minElapsedHours = 24,
-            minSignalUnits = 5,
-            scanThrottleMinutes = 10,
-            activeTurn = false,
-            lockHeld = false,
         )
 
         assertTrue(decision.due)
@@ -91,15 +92,11 @@ class DreamDueGateTest {
     }
 
     @Test fun `zero thresholds can make due pass with no prior timestamps`() {
-        val decision = DreamDueGate.evaluate(
-            enabled = true,
-            now = now,
+        val decision = evaluate(
             state = DriftState(),
             minElapsedHours = 0,
             minSignalUnits = 0,
             scanThrottleMinutes = 0,
-            activeTurn = false,
-            lockHeld = false,
         )
 
         assertTrue(decision.due)
@@ -111,5 +108,26 @@ class DreamDueGateTest {
         dreamLastDueCheckAt = "2026-05-09T11:00:00Z",
         dreamProcessedSignalUnits = 3,
         dreamObservedSignalUnits = 9,
+    )
+
+    private fun evaluate(
+        knowledgeLayerEnabled: Boolean = true,
+        dreamMaintenanceEnabled: Boolean = true,
+        state: DriftState = readyState(),
+        minElapsedHours: Int = 24,
+        minSignalUnits: Int = 5,
+        scanThrottleMinutes: Int = 10,
+        activeTurn: Boolean = false,
+        lockHeld: Boolean = false,
+    ): DreamDueDecision = DreamDueGate.evaluate(
+        knowledgeLayerEnabled = knowledgeLayerEnabled,
+        dreamMaintenanceEnabled = dreamMaintenanceEnabled,
+        now = now,
+        state = state,
+        minElapsedHours = minElapsedHours,
+        minSignalUnits = minSignalUnits,
+        scanThrottleMinutes = scanThrottleMinutes,
+        activeTurn = activeTurn,
+        lockHeld = lockHeld,
     )
 }
