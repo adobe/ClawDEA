@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
+  <defs>
+    <linearGradient id="spark" x1="0" y1="0" x2="13" y2="13" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F0B090"/>
+      <stop offset="100%" stop-color="#E89878"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Claude-derived starburst (simplified for 13px) -->
+  <path d="M 6.5,1
+           Q 8,3.9    11.3,3.75
+           Q 8.5,6.5  11.3,9.25
+           Q 8,9.1    6.5,12
+           Q 5,9.1    1.7,9.25
+           Q 4.5,6.5  1.7,3.75
+           Q 5,3.9    6.5,1
+           Z"
+        fill="url(#spark)"/>
+</svg>

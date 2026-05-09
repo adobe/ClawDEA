@@ -1,0 +1,100 @@
+# Claude Code drift watchlist.
+#
+# Each entry describes a Claude Code surface ClawDEA depends on (or could
+# benefit from). The drift workflow (.github/workflows/claude-code-drift.yml)
+# diffs the captured snapshot against the previous one (stored in the moving
+# git tag `drift-snapshot`); when a regex below matches a line that changed
+# since the previous snapshot, an issue is filed (triage: issue) or a comment
+# is appended to a single rolling drift-noise issue (triage: noise).
+#
+# Sources:
+#   { type: command, cmd: '<shell command>' }   - output captured as text
+#   { type: url, url: '<https url>' }           - fetched, HTML stripped to text
+#   { type: npm, package: '<name>' }            - `npm view <name> version`
+#
+# All issues are labelled `claude-code-drift`. The id field is the taxonomy
+# (cli-flags-deprecation, mcp-config-schema, etc.); the issue title encodes
+# it. Avoid sub-category labels — they don't add filterability beyond what
+# `gh issue list --label claude-code-drift --search 'cli-flags' ...` provides.
+#
+# See docs/superpowers/specs/2026-04-29-claude-code-drift-monitoring-design.md
+# and umbrella issue #91.
+
+- id: cli-version
+  source: { type: npm, package: '@anthropic-ai/claude-code' }
+  match: '.*'
+  triage: issue
+
+- id: cli-flags-passed
+  source: { type: command, cmd: 'claude --help' }
+  match: 'output-format|input-format|include-partial-messages|mcp-config|permission-prompt-tool|disallowedTools|append-system-prompt|--resume|--print|--verbose'
+  triage: issue
+
+- id: cli-flags-new
+  source: { type: command, cmd: 'claude --help' }
+  match: '^\s*--[a-zA-Z][a-zA-Z0-9-]+'
+  triage: issue
+
+# Issue #95: catch [DEPRECATED] annotations on any flag — motivating example
+# was --mcp-debug being marked deprecated in v2.1.123 in favor of --debug.
+# Fires on any line containing the bracketed marker so future deprecations
+# of flags ClawDEA passes (or could adopt) surface as a Tier-1 issue.
+- id: cli-flags-deprecation
+  source: { type: command, cmd: 'claude --help' }
+  match: '\[DEPRECATED'
+  triage: issue
+
+- id: auth-subcommand
+  source: { type: command, cmd: 'claude auth --help' }
+  match: '.*'
+  triage: issue
+
+- id: auth-login-flags
+  source: { type: command, cmd: 'claude auth login --help' }
+  match: '.*'
+  triage: issue
+
+- id: mcp-subcommand
+  source: { type: command, cmd: 'claude mcp --help' }
+  match: '.*'
+  triage: issue
+
+# Docs URLs are kept but pass through fetch-sources.sh's strip_html(), which
+# (a) drops <script>/<style> blocks entirely so Next.js __next_f.push blobs
+# can't pollute the snapshot, (b) inserts newlines at structural close tags
+# so prose context is preserved, and (c) filters residual deploy-IDs and
+# bundle-hash paths. Without that pass, the first scheduled run filed #128
+# off pure CDN noise. With it, the diff is on prose only.
+
+- id: stream-json-schema
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
+  match: '\b(stream-json|tool_use|tool_result|text_delta|message_start|message_stop|partial)\b'
+  triage: issue
+
+- id: mcp-config-schema
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/mcp' }
+  match: 'mcpServers|alwaysLoad|"command"|"url"|"type"|"transport"|"headers"'
+  triage: issue
+
+- id: hooks-schema
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/hooks' }
+  match: 'PreToolUse|PostToolUse|Stop|SessionStart|SessionEnd|UserPromptSubmit|PreCompact|Notification|--include-hook-events'
+  triage: issue
+
+- id: settings-json-schema
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/settings' }
+  match: '.*'
+  triage: noise
+
+- id: plugin-subcommand
+  source: { type: command, cmd: 'claude plugin --help' }
+  match: '.*'
+  triage: noise
+
+# Issue #112: fires only when one of the six tools ClawDEA's denylist
+# redirects (Grep, Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed,
+# removed, or annotated [DEPRECATED] in `claude --help`.
+- id: builtin-tool-redirect-watcher
+  source: { type: command, cmd: 'claude --help' }
+  match: '\b(Grep|Glob|Edit|Write|MultiEdit|NotebookEdit)\b.*\[DEPRECATED'
+  triage: issue

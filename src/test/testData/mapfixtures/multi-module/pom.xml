@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example.app.frontend</groupId>
+    <artifactId>modules-reactor</artifactId>
+    <version>3.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <modules>
+        <module>bundles/acme-modules-api</module>
+        <module>bundles/acme-modules-core</module>
+        <!-- comment in modules -->
+        <module>content</module>
+    </modules>
+</project>

@@ -1,0 +1,206 @@
+<!-- src/main/resources/META-INF/plugin.xml -->
+<idea-plugin url="https://github.com/adobe/ClawDEA">
+    <id>com.adobe.clawdea</id>
+    <name>ClawDEA</name>
+    <vendor url="https://www.adobe.com" email="Grp-opensourceoffice@adobe.com">Adobe</vendor>
+    <description><![CDATA[
+<p>Native <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> integration for IntelliJ IDEA &mdash;
+an AI pair programmer that reads your code indices, runs diagnostics, proposes edits, and drives the debugger,
+all without leaving the IDE.</p>
+
+<p>See the <a href="https://github.com/adobe/ClawDEA#clawdea">project README</a>
+for a live demo of Claude autonomously debugging a Java application &mdash; breakpoints,
+stepping, variable inspection, and runtime mutation.</p>
+
+<h2>Features</h2>
+
+<ul>
+  <li><b>Chat panel</b> &mdash; Streams Claude responses with Markdown, code blocks, tool-use cards, and clickable
+  code references that navigate directly to source. Supports Auto, Plan, and Ask modes.</li>
+
+  <li><b>MCP code-index server</b> &mdash; A local server exposes IntelliJ's indices as MCP tools: find files,
+  usages, callers, implementations, supertypes, resolve symbols, and read compiler diagnostics &mdash; faster
+  and more accurate than filesystem grep.</li>
+
+  <li><b>Debugger integration</b> &mdash; 21 MCP tools let Claude drive IntelliJ's debugger: launch sessions,
+  set breakpoints (with conditions and log expressions), step through code, inspect and expand variables,
+  evaluate expressions, and modify values at runtime. Breakpoint ownership tracking ensures your breakpoints
+  are never touched.</li>
+
+  <li><b>Edit review</b> &mdash; When &ldquo;Auto-accept Edits&rdquo; is off, each proposed change opens a native
+  IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that bypass MCP are caught by a fallback
+  layer with inline buttons and file revert.</li>
+
+  <li><b>Inline completions</b> &mdash; Tab-completions powered by the Claude API, using editor context
+  gathered by the context engine.</li>
+
+  <li><b>Intention actions</b> (Alt+Enter) &mdash; Explain, Optimize, Generate Test, Security Check,
+  Add Documentation, Refactor with Instructions, Ask Claude, Fix with Claude.</li>
+
+  <li><b>Slash commands &amp; skills</b> &mdash; Built-in commands (<code>/stop</code>, <code>/clear</code>,
+  <code>/mode</code>, <code>/cost</code>, <code>/compact</code>, <code>/resume</code>) plus Claude Code
+  skills discovered at runtime.</li>
+
+  <li><b>Session resume</b> &mdash; Pick up a previous Claude Code session with full conversation history
+  replayed in the chat panel.</li>
+</ul>
+
+<h2>Getting Started</h2>
+
+<ol>
+  <li>Install the <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a>:
+  <code>npm install -g @anthropic-ai/claude-code</code></li>
+  <li>Open <b>Settings &rarr; Tools &rarr; ClawDEA</b> and configure your API key, sign in with a Claude
+  subscription, or set up AWS Bedrock / Google Vertex credentials.</li>
+  <li>Open the chat panel and start coding.</li>
+</ol>
+
+<h2>Requirements</h2>
+
+<ul>
+  <li>IntelliJ IDEA 2026.1+</li>
+  <li>Java 21</li>
+  <li>Claude Code CLI installed</li>
+  <li>Anthropic API key, Claude subscription, or AWS Bedrock / Google Vertex credentials</li>
+</ul>
+    ]]></description>
+
+    <change-notes><![CDATA[
+<p>Initial public release of ClawDEA for IntelliJ IDEA 2026.1.</p>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Settings -->
+        <applicationService
+            serviceImplementation="com.adobe.clawdea.settings.ClawDEASettings"/>
+
+        <!-- Auth Manager -->
+        <applicationService
+            serviceImplementation="com.adobe.clawdea.auth.AuthManager"/>
+
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.adobe.clawdea.settings.ClawDEASettingsConfigurable"
+            id="com.adobe.clawdea.settings"
+            displayName="ClawDEA"/>
+
+        <!-- Context Engine -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.context.ContextEngine"/>
+
+        <!-- Filesystem Refresh Coordinator -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.chat.FilesystemRefreshCoordinator"/>
+
+        <!-- Chat Auto-Resume State -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.chat.session.ChatAutoResumeState"/>
+
+        <!-- MCP Server -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.mcp.McpServer"/>
+
+        <!-- Debug Bridge -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.debug.DebugBridge"/>
+
+        <!-- Drift Detection -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.knowledge.drift.DriftDetectionService"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.knowledge.drift.DriftStartupActivity"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.mcp.McpServerStartupActivity"/>
+
+        <!-- Claude Gateway -->
+        <applicationService
+            serviceImplementation="com.adobe.clawdea.gateway.ClaudeGateway"/>
+
+        <!-- Inline Completions -->
+        <inline.completion.provider
+            implementation="com.adobe.clawdea.completions.ClawDEACompletionProvider"/>
+
+        <!-- Intention Actions (Alt+Enter) -->
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.ExplainCodeAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.OptimizeCodeAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.GenerateTestAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.SecurityCheckAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.AddDocumentationAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.RefactorWithInstructionsAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.intentions.AskClaudeAction</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+        <intentionAction>
+            <className>com.adobe.clawdea.actions.quickfix.FixWithClaudeIntention</className>
+            <category>ClawDEA</category>
+        </intentionAction>
+
+        <!-- Chat Tool Window -->
+        <toolWindow
+            id="ClawDEA"
+            anchor="right"
+            secondary="true"
+            canCloseContents="true"
+            icon="/icons/clawdea.svg"
+            factoryClass="com.adobe.clawdea.chat.ChatToolWindowFactory"/>
+
+        <!-- Notifications -->
+        <notificationGroup
+            id="ClawDEA"
+            displayType="BALLOON"/>
+    </extensions>
+
+    <actions>
+        <!-- Context Menu Group -->
+        <group id="ClawDEA.EditorPopupMenu"
+               class="com.adobe.clawdea.actions.menu.ClawDEAActionGroup"
+               text="ClawDEA"
+               popup="true">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </group>
+
+        <action id="ClawDEA.ToggleChatPanel"
+                class="com.adobe.clawdea.actions.shortcuts.ToggleChatPanelAction"
+                text="Toggle ClawDEA Chat"
+                description="Toggle focus between editor and ClawDEA chat panel">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="ClawDEA.NewChatSession"
+                class="com.adobe.clawdea.actions.shortcuts.NewChatSessionAction"
+                text="New ClawDEA Chat Session"
+                description="Open a new ClawDEA chat session tab">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="ClawDEA.AbortResponse"
+                class="com.adobe.clawdea.actions.shortcuts.PauseOrAbortAction"
+                text="Pause or Abort ClawDEA Response"
+                description="Pause the current Claude response; press again to fully abort">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

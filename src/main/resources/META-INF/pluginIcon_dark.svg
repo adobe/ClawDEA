@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <defs>
+    <linearGradient id="spark" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F0B090"/>
+      <stop offset="100%" stop-color="#E89878"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Claude-derived starburst -->
+  <path d="M 20,4
+           Q 24.5,12.2  33.9,12
+           Q 29,20      33.9,28
+           Q 24.5,27.8  20,36
+           Q 15.5,27.8  6.1,28
+           Q 11,20      6.1,12
+           Q 15.5,12.2  20,4
+           Z"
+        fill="url(#spark)"/>
+
+  <!-- Code brackets < > -->
+  <g stroke="#FFFFFF" stroke-opacity="0.92" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <polyline points="18,17 14.5,20 18,23"/>
+    <polyline points="22,17 25.5,20 22,23"/>
+  </g>
+</svg>

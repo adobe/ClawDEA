@@ -1,0 +1,78 @@
+name: claude-code-drift
+
+# Runs every Monday 09:00 UTC against the drift-snapshot tag (force-pushed by
+# this workflow on each successful run). See umbrella #91 / issue #118.
+on:
+  schedule:
+    - cron: '0 9 * * MON'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install yq
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Install Claude Code CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Install diff-and-file deps
+        working-directory: scripts/drift
+        run: npm ci
+
+      - name: Capture current snapshot
+        run: scripts/drift/fetch-sources.sh > /tmp/snapshot.json
+
+      - name: Read previous snapshot from drift-snapshot tag
+        run: |
+          if git rev-parse --verify drift-snapshot >/dev/null 2>&1; then
+            git show drift-snapshot:.drift-snapshot.json > /tmp/prev_snapshot.json
+          else
+            echo '{}' > /tmp/prev_snapshot.json
+          fi
+
+      - name: Diff and file issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/drift/diff-and-file.mjs \
+            --previous-file /tmp/prev_snapshot.json \
+            --current-file /tmp/snapshot.json \
+            --watchlist scripts/drift/watchlist.yaml \
+            --owner ${{ github.repository_owner }} \
+            --repo ${{ github.event.repository.name }}
+
+      - name: Update drift-snapshot tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Build an orphan commit holding only the snapshot, then re-point the
+          # drift-snapshot tag at it. Force-push so the tag tracks the latest
+          # state without accumulating history.
+          git checkout --orphan _drift_snapshot_tmp
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          # Wipe working tree but keep .git and the snapshot we just captured.
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+          cp /tmp/snapshot.json .drift-snapshot.json
+          git add .drift-snapshot.json
+          git commit -m "drift snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)" --quiet
+          git tag -f drift-snapshot
+          git push --force origin drift-snapshot

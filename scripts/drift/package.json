@@ -1,0 +1,16 @@
+{
+  "name": "clawdea-drift",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Claude Code drift watcher: diffs current vs previous snapshot and files issues against the ClawDEA repo. Consumed by .github/workflows/claude-code-drift.yml.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "diff": "node diff-and-file.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "4.1.0"
+  }
+}

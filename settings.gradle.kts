@@ -1,0 +1,20 @@
+// settings.gradle.kts
+import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
+
+plugins {
+    id("org.jetbrains.intellij.platform.settings") version "2.13.1"
+}
+
+rootProject.name = "ClawDEA"
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+
+    repositories {
+        mavenCentral()
+
+        intellijPlatform {
+            defaultRepositories()
+        }
+    }
+}

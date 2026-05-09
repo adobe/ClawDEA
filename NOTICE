@@ -1,0 +1,31 @@
+ClawDEA
+Copyright 2026 Adobe
+
+This product includes software developed at Adobe (https://www.adobe.com/).
+
+---
+
+This product interoperates with, but does not include or redistribute, the
+following third-party software. References below are included for informational
+purposes only; the products remain under their respective licenses and
+trademark policies.
+
+  * Claude Code CLI (https://docs.anthropic.com/en/docs/claude-code) — Anthropic, PBC.
+    "Claude" and "Claude Code" are trademarks of Anthropic, PBC. References to
+    these names in this plugin are factual identifiers of the third-party
+    command-line tool this plugin integrates with, and are not claims of
+    affiliation with or endorsement by Anthropic.
+
+  * IntelliJ Platform SDK (https://plugins.jetbrains.com/docs/intellij/) —
+    JetBrains s.r.o. "IntelliJ", "IntelliJ IDEA", and "JetBrains" are
+    trademarks of JetBrains s.r.o.
+
+This product implements the Model Context Protocol (MCP) specification
+published by Anthropic (https://modelcontextprotocol.io/).
+
+---
+
+This product depends on the following bundled third-party libraries at runtime:
+
+  * Gson (https://github.com/google/gson) — Google Inc.
+    Licensed under the Apache License, Version 2.0.

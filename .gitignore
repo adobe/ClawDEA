@@ -1,0 +1,52 @@
+### IntelliJ IDEA ###
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+.kotlin
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+### IDE / Plugin sandbox ###
+.idea/
+.intellijPlatform/
+
+### Claude Code / Superpowers ###
+.claude/
+.superpowers/
+
+# Node module caches under scripts/drift (managed via package-lock.json + `npm ci`).
+scripts/drift/node_modules/
+
+### Internal planning / development scratch ###
+docs/superpowers/
+*.log
+!gradle/wrapper/*.log
