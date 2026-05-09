@@ -152,6 +152,10 @@ class ClawDEASettingsPanel {
     val autoUpdateWikiCheckbox = JBCheckBox("Auto-update wiki on drift", false).apply {
         toolTipText = "When on, high-confidence drift fixes (single-match code renames; manifest comment-out) apply silently; learn-on-probe-miss writes use Write/Edit instead of propose_*. When off, every change goes through diff review."
     }
+    val enableDreamWikiMaintenanceCheckbox = JBCheckBox("Enable Dream wiki maintenance", true)
+    val dreamWikiMinElapsedHoursField = JBTextField("24", 6)
+    val dreamWikiMinSignalUnitsField = JBTextField("5", 6)
+    val dreamWikiScanThrottleMinutesField = JBTextField("10", 6)
 
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
@@ -194,6 +198,10 @@ class ClawDEASettingsPanel {
         .addComponent(enableKnowledgeLayerCheckbox, 1)
         .addComponent(enableWorkspaceCheckbox, 2)
         .addComponent(autoUpdateWikiCheckbox, 2)
+        .addComponent(enableDreamWikiMaintenanceCheckbox, 2)
+        .addLabeledComponent(JBLabel("Dream min elapsed (hours):"), dreamWikiMinElapsedHoursField, 2, false)
+        .addLabeledComponent(JBLabel("Dream min signal units:"), dreamWikiMinSignalUnitsField, 2, false)
+        .addLabeledComponent(JBLabel("Dream scan throttle (minutes):"), dreamWikiScanThrottleMinutesField, 2, false)
         .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
@@ -236,9 +244,10 @@ class ClawDEASettingsPanel {
         }
         checkConnectionButton.addActionListener { doCheckConnection() }
         enableKnowledgeLayerCheckbox.addItemListener {
-            val enabled = enableKnowledgeLayerCheckbox.isSelected
-            enableWorkspaceCheckbox.isEnabled = enabled
-            autoUpdateWikiCheckbox.isEnabled = enabled
+            updateKnowledgeLayerEnabledState()
+        }
+        enableDreamWikiMaintenanceCheckbox.addItemListener {
+            updateKnowledgeLayerEnabledState()
         }
         showProviderCard()
         updateApiKeyLabel()
@@ -393,8 +402,11 @@ class ClawDEASettingsPanel {
         enableKnowledgeLayerCheckbox.isSelected = state.enableKnowledgeLayer
         enableWorkspaceCheckbox.isSelected = state.enableWorkspace
         autoUpdateWikiCheckbox.isSelected = state.autoUpdateWiki
-        enableWorkspaceCheckbox.isEnabled = state.enableKnowledgeLayer
-        autoUpdateWikiCheckbox.isEnabled = state.enableKnowledgeLayer
+        enableDreamWikiMaintenanceCheckbox.isSelected = state.enableDreamWikiMaintenance
+        dreamWikiMinElapsedHoursField.text = state.dreamWikiMinElapsedHours.toString()
+        dreamWikiMinSignalUnitsField.text = state.dreamWikiMinSignalUnits.toString()
+        dreamWikiScanThrottleMinutesField.text = state.dreamWikiScanThrottleMinutes.toString()
+        updateKnowledgeLayerEnabledState()
         showProviderCard()
         updateApiKeyLabel()
     }
@@ -425,6 +437,10 @@ class ClawDEASettingsPanel {
         state.enableKnowledgeLayer = enableKnowledgeLayerCheckbox.isSelected
         state.enableWorkspace = enableWorkspaceCheckbox.isSelected
         state.autoUpdateWiki = autoUpdateWikiCheckbox.isSelected
+        state.enableDreamWikiMaintenance = enableDreamWikiMaintenanceCheckbox.isSelected
+        state.dreamWikiMinElapsedHours = parseIntField(dreamWikiMinElapsedHoursField, DREAM_MIN_ELAPSED_HOURS_DEFAULT)
+        state.dreamWikiMinSignalUnits = parseIntField(dreamWikiMinSignalUnitsField, DREAM_MIN_SIGNAL_UNITS_DEFAULT)
+        state.dreamWikiScanThrottleMinutes = parseIntField(dreamWikiScanThrottleMinutesField, DREAM_SCAN_THROTTLE_MINUTES_DEFAULT)
     }
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
@@ -452,7 +468,11 @@ class ClawDEASettingsPanel {
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
             enableKnowledgeLayerCheckbox.isSelected != state.enableKnowledgeLayer ||
             enableWorkspaceCheckbox.isSelected != state.enableWorkspace ||
-            autoUpdateWikiCheckbox.isSelected != state.autoUpdateWiki
+            autoUpdateWikiCheckbox.isSelected != state.autoUpdateWiki ||
+            enableDreamWikiMaintenanceCheckbox.isSelected != state.enableDreamWikiMaintenance ||
+            normalizedIntField(dreamWikiMinElapsedHoursField, DREAM_MIN_ELAPSED_HOURS_DEFAULT) != state.dreamWikiMinElapsedHours ||
+            normalizedIntField(dreamWikiMinSignalUnitsField, DREAM_MIN_SIGNAL_UNITS_DEFAULT) != state.dreamWikiMinSignalUnits ||
+            normalizedIntField(dreamWikiScanThrottleMinutesField, DREAM_SCAN_THROTTLE_MINUTES_DEFAULT) != state.dreamWikiScanThrottleMinutes
     }
 
     fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
@@ -511,6 +531,23 @@ class ClawDEASettingsPanel {
         completionsModelCombo.selectedIndex = if (idx >= 0) idx else 0
     }
 
+    private fun updateKnowledgeLayerEnabledState() {
+        val knowledgeEnabled = enableKnowledgeLayerCheckbox.isSelected
+        val dreamEnabled = knowledgeEnabled && enableDreamWikiMaintenanceCheckbox.isSelected
+        enableWorkspaceCheckbox.isEnabled = knowledgeEnabled
+        autoUpdateWikiCheckbox.isEnabled = knowledgeEnabled
+        enableDreamWikiMaintenanceCheckbox.isEnabled = knowledgeEnabled
+        dreamWikiMinElapsedHoursField.isEnabled = dreamEnabled
+        dreamWikiMinSignalUnitsField.isEnabled = dreamEnabled
+        dreamWikiScanThrottleMinutesField.isEnabled = dreamEnabled
+    }
+
+    private fun parseIntField(field: JBTextField, defaultValue: Int): Int =
+        normalizedIntField(field, defaultValue).also { field.text = it.toString() }
+
+    private fun normalizedIntField(field: JBTextField, defaultValue: Int): Int =
+        field.text.trim().toIntOrNull() ?: defaultValue
+
     private fun flushCurrentTableToTransient() {
         transientCatalogs[currentCatalogProvider] = modelTableModel.rows.map { it.copy() }.toMutableList()
     }
@@ -557,5 +594,11 @@ class ClawDEASettingsPanel {
             rows.addAll(newRows.map { it.copy() })
             fireTableDataChanged()
         }
+    }
+
+    private companion object {
+        const val DREAM_MIN_ELAPSED_HOURS_DEFAULT = 24
+        const val DREAM_MIN_SIGNAL_UNITS_DEFAULT = 5
+        const val DREAM_SCAN_THROTTLE_MINUTES_DEFAULT = 10
     }
 }

@@ -32,6 +32,28 @@ class DriftStateStoreTest {
         assertEquals("2026-05-04T10:00:00Z", state.lastScanAt)
     }
 
+    @Test fun `write then read round-trips dream state fields`() {
+        val tmp = Files.createTempDirectory("drift")
+        DriftStateStore.write(claudeDir = tmp,
+            state = DriftState(
+                dreamLastRunAt = "2026-05-09T09:00:00Z",
+                dreamLastSuccessfulScanAt = "2026-05-09T08:00:00Z",
+                dreamLastDueCheckAt = "2026-05-09T07:00:00Z",
+                dreamLastStatus = "completed",
+                dreamProcessedSignalUnits = 4,
+                dreamObservedSignalUnits = 11,
+                dreamFilteredCandidateCount = 2,
+            ))
+        val state = DriftStateStore.read(claudeDir = tmp)
+        assertEquals("2026-05-09T09:00:00Z", state.dreamLastRunAt)
+        assertEquals("2026-05-09T08:00:00Z", state.dreamLastSuccessfulScanAt)
+        assertEquals("2026-05-09T07:00:00Z", state.dreamLastDueCheckAt)
+        assertEquals("completed", state.dreamLastStatus)
+        assertEquals(4, state.dreamProcessedSignalUnits)
+        assertEquals(11, state.dreamObservedSignalUnits)
+        assertEquals(2, state.dreamFilteredCandidateCount)
+    }
+
     @Test fun `update modifies state atomically`() {
         val tmp = Files.createTempDirectory("drift")
         DriftStateStore.write(claudeDir = tmp,
@@ -45,5 +67,21 @@ class DriftStateStoreTest {
         val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
         Files.writeString(wikiDir.resolve(".drift-state.json"), "{not json}")
         assertEquals(emptyList<String>(), DriftStateStore.read(claudeDir = tmp).dismissed)
+    }
+
+    @Test fun `read defaults dream fields for old state JSON`() {
+        val tmp = Files.createTempDirectory("drift")
+        val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
+        Files.writeString(wikiDir.resolve(".drift-state.json"), """{"lastScanAt":"2026-05-04T10:00:00Z","dismissed":["a"]}""")
+        val state = DriftStateStore.read(claudeDir = tmp)
+        assertEquals("2026-05-04T10:00:00Z", state.lastScanAt)
+        assertEquals(listOf("a"), state.dismissed)
+        assertEquals("", state.dreamLastRunAt)
+        assertEquals("", state.dreamLastSuccessfulScanAt)
+        assertEquals("", state.dreamLastDueCheckAt)
+        assertEquals("", state.dreamLastStatus)
+        assertEquals(0, state.dreamProcessedSignalUnits)
+        assertEquals(0, state.dreamObservedSignalUnits)
+        assertEquals(0, state.dreamFilteredCandidateCount)
     }
 }

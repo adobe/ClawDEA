@@ -18,4 +18,11 @@ package com.adobe.clawdea.knowledge.drift
 data class DriftState(
     val lastScanAt: String = "",
     val dismissed: List<String> = emptyList(),
+    val dreamLastRunAt: String = "",
+    val dreamLastSuccessfulScanAt: String = "",
+    val dreamLastDueCheckAt: String = "",
+    val dreamLastStatus: String = "",
+    val dreamProcessedSignalUnits: Int = 0,
+    val dreamObservedSignalUnits: Int = 0,
+    val dreamFilteredCandidateCount: Int = 0,
 )
