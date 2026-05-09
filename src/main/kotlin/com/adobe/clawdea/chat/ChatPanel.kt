@@ -872,7 +872,14 @@ class ChatPanel(
                 "Draft a wiki page about \"$topic\" based on our recent conversation."
             }
             val targetPath = if (topic.isEmpty()) ".claude/wiki/concepts/<kebab-case-name>.md" else ".claude/wiki/concepts/$topic.md"
-            val linkTarget = if (topic.isEmpty()) "[[<concept>]]" else "[[$topic]]"
+            val linkTarget = if (topic.isEmpty()) {
+                "[Concept](concepts/<kebab-case-name>.md)"
+            } else {
+                val title = topic.split('-', ' ')
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ") { it.replaceFirstChar { char -> char.titlecase() } }
+                "[$title](concepts/$topic.md)"
+            }
             """
             $opening
 
@@ -884,7 +891,7 @@ class ChatPanel(
             Use propose_write to create $targetPath with:
             - A single-line H1 heading naming the concept
             - A 1–2 paragraph summary of the insight
-            - [[wikilinks]] to related concepts when relevant
+            - Standard Markdown links to related concepts when relevant, e.g. `[Related Concept](related-concept.md)`
             - Code references as standard markdown links to source files, e.g. `[ClassName](../../../src/main/kotlin/path/to/ClassName.kt)` (path relative to the wiki page; concept pages live three levels deep). Do NOT use the `{[ref:...|...]}` chat-only syntax in markdown files.
 
             Then use propose_edit (NOT the built-in Edit tool) to update .claude/wiki/index.md so it links $linkTarget,
@@ -912,7 +919,7 @@ class ChatPanel(
                5–10 concept areas worth documenting (main subsystems, key APIs, active
                feature work, architectural decisions worth capturing).
             3. Use propose_write (NOT Write) to create:
-               - .claude/wiki/index.md — a TOC with a short intro plus [[wikilinks]] to each concept page.
+               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each concept page, e.g. `[Concept](concepts/concept.md)`.
                - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept. Each page:
                    * A single-line H1 heading naming the concept
                    * A 1-paragraph summary

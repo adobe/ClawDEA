@@ -71,44 +71,39 @@ object DriftAutoApplier {
 
     private fun applyDreamLinkNormalization(event: DriftEvent.DreamLinkNormalization): Boolean {
         if (!event.autoApplicable) return false
+        val wikiRoot = wikiRootFor(event.targetFile) ?: return false
+        val pageRelativePath = relativizeWikiPage(event.targetFile) ?: return false
         val text = runCatching { Files.readString(event.targetFile) }.getOrNull() ?: return false
-        val pageRelativePath = relativizeWikiPage(event.targetFile)
         val oldLinks = WikiLink.extractConceptLinks(pageRelativePath, text)
             .filter { it.original.startsWith("[[") }
         if (oldLinks.size != 1) return false
 
         val oldLink = oldLinks.single()
-        if (!Files.exists(conceptPageFor(event.targetFile, oldLink.targetSlug))) return false
+        if (!Files.exists(conceptPageFor(wikiRoot, oldLink.targetSlug))) return false
         val replacement = WikiLink.toMarkdownLink(pageRelativePath, oldLink.targetSlug)
         val updated = text.replace(oldLink.original, replacement)
         if (updated == text) return false
         return atomicWrite(event.targetFile, updated)
     }
 
-    private fun conceptPageFor(targetFile: Path, targetSlug: String): Path =
-        wikiRootFor(targetFile).resolve("concepts/$targetSlug.md").normalize()
+    private fun conceptPageFor(wikiRoot: Path, targetSlug: String): Path =
+        wikiRoot.resolve("concepts/$targetSlug.md").normalize()
 
-    private fun wikiRootFor(targetFile: Path): Path {
+    private fun wikiRootFor(targetFile: Path): Path? {
         val normalized = targetFile.normalize()
         val names = (0 until normalized.nameCount).map { normalized.getName(it).toString() }
         val wikiIndex = names.windowed(size = 2).indexOfFirst { it == listOf(".claude", "wiki") }
-        return if (wikiIndex >= 0) {
-            normalized.root?.resolve(names.take(wikiIndex + 2).joinToString("/"))
-                ?: Path.of(names.take(wikiIndex + 2).joinToString("/"))
-        } else {
-            normalized.parent ?: Path.of("")
-        }
+        if (wikiIndex < 0) return null
+        val wikiRoot = names.take(wikiIndex + 2).joinToString("/")
+        return normalized.root?.resolve(wikiRoot) ?: Path.of(wikiRoot)
     }
 
-    private fun relativizeWikiPage(targetFile: Path): String {
+    private fun relativizeWikiPage(targetFile: Path): String? {
         val normalized = targetFile.normalize()
         val names = (0 until normalized.nameCount).map { normalized.getName(it).toString() }
         val wikiIndex = names.windowed(size = 2).indexOfFirst { it == listOf(".claude", "wiki") }
-        return if (wikiIndex >= 0) {
-            names.drop(wikiIndex + 2).joinToString("/")
-        } else {
-            normalized.fileName.toString()
-        }
+        if (wikiIndex < 0) return null
+        return names.drop(wikiIndex + 2).joinToString("/")
     }
 
     private fun atomicWrite(target: Path, content: String): Boolean {

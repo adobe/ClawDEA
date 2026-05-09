@@ -132,6 +132,28 @@ class DriftAutoApplierTest {
         assertEquals(original, Files.readString(index))
     }
 
+    @Test fun `does not auto-apply link normalization outside wiki boundary`() {
+        val tmp = Files.createTempDirectory("auto")
+        val page = tmp.resolve("notes/page.md")
+        val targetConcept = tmp.resolve("notes/concepts/rollout-flow.md")
+        Files.createDirectories(page.parent)
+        Files.createDirectories(targetConcept.parent)
+        val original = "See [[rollout-flow]]"
+        Files.writeString(page, original)
+        Files.writeString(targetConcept, "# Rollout Flow")
+        val event = DriftEvent.DreamLinkNormalization(
+            targetFile = page,
+            title = "Normalize rollout link",
+            patchPlan = "Replace one old wikilink.",
+            autoApplicable = true,
+        )
+
+        val applied = DriftAutoApplier.apply(listOf(event), today = "2026-05-04")
+
+        assertEquals(emptyList<DriftEvent>(), applied)
+        assertEquals(original, Files.readString(page))
+    }
+
     @Test fun `does not auto-apply substantive dream missing concept`() {
         val tmp = Files.createTempDirectory("auto")
         val page = tmp.resolve(".claude/wiki/concepts/rollout-flow.md")

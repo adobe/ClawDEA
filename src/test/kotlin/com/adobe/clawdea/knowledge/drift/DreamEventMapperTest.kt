@@ -38,7 +38,7 @@ class DreamEventMapperTest {
         assertEquals("Normalize rollout link", event.title)
         assertEquals("Replace one old wikilink.", event.patchPlan)
         assertTrue(event.autoApplicable)
-        assertEquals("dream-link-normalization:/repo/.claude/wiki/index.md:Normalize rollout link", event.signature)
+        assertEquals("dream-link-normalization:index.md", event.signature)
     }
 
     @Test fun `maps missingConcept to missing concept event`() {
@@ -58,7 +58,7 @@ class DreamEventMapperTest {
         event as DriftEvent.DreamMissingConcept
         assertEquals(projectRoot.resolve(".claude/wiki/concepts/rollout-flow.md").normalize(), event.targetFile)
         assertEquals("Add rollout concept", event.title)
-        assertEquals("dream-missing-concept:/repo/.claude/wiki/concepts/rollout-flow.md:Add rollout concept", event.signature)
+        assertEquals("dream-missing-concept:concepts/rollout-flow.md", event.signature)
     }
 
     @Test fun `indexCleanup with applyLowRisk is not autoApplicable`() {
@@ -77,7 +77,7 @@ class DreamEventMapperTest {
         assertTrue(event is DriftEvent.DreamIndexCleanup)
         event as DriftEvent.DreamIndexCleanup
         assertFalse(event.autoApplicable)
-        assertEquals("dream-index-cleanup:/repo/.claude/wiki/index.md:Tighten index", event.signature)
+        assertEquals("dream-index-cleanup:index.md", event.signature)
     }
 
     private fun candidate(
