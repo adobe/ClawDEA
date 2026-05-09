@@ -91,11 +91,15 @@ class DriftBanner(
             return
         }
         val n = current.size
-        val plural = if (n == 1) "ref" else "refs"
+        val label = if (current.any { it.isDreamEvent() }) {
+            if (n == 1) "maintenance suggestion" else "maintenance suggestions"
+        } else {
+            if (n == 1) "stale ref" else "stale refs"
+        }
         val html = """
             <div id="drift-banner" class="drift-banner">
                 <span class="drift-banner-icon">⚠</span>
-                <span class="drift-banner-text">wiki has $n stale $plural</span>
+                <span class="drift-banner-text">wiki has $n $label</span>
                 <span class="drift-banner-action" data-action="drift-action" data-drift-action="refresh">/refresh-wiki to review</span>
                 <span class="drift-banner-sep">·</span>
                 <span class="drift-banner-action" data-action="drift-action" data-drift-action="dismiss">dismiss</span>
@@ -103,6 +107,20 @@ class DriftBanner(
         """.trimIndent()
         updateHtml(html)
     }
+
+    private fun DriftEvent.isDreamEvent(): Boolean =
+        when (this) {
+            is DriftEvent.DreamDuplicateConcept,
+            is DriftEvent.DreamIndexCleanup,
+            is DriftEvent.DreamLinkNormalization,
+            is DriftEvent.DreamMissingConcept,
+            is DriftEvent.DreamSourceReferenceFix,
+            is DriftEvent.DreamStaleConcept,
+            -> true
+            is DriftEvent.CodeRename,
+            is DriftEvent.ManifestStale,
+            -> false
+        }
 
     companion object {
         private val LOG = Logger.getInstance(DriftBanner::class.java)

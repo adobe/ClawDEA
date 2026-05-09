@@ -18,6 +18,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.time.Instant
 
 @Service(Service.Level.PROJECT)
 class DriftDetectionService(private val project: Project) {
@@ -37,12 +38,18 @@ class DriftDetectionService(private val project: Project) {
             return emptyList<DriftEvent>() to emptyList()
         }
         val claudeDir = Paths.get(basePath).resolve(".claude")
-        val raw = collectRaw(Paths.get(basePath), claudeDir)
         val state = DriftStateStore.read(claudeDir)
-        val filtered = filterDismissed(raw, state)
-        val autoUpdate = ClawDEASettings.getInstance().state.autoUpdateWiki
-        val (remaining, applied) = applyAndDismiss(filtered, autoUpdate, state, DriftAutoApplier.todayIso())
-        if (autoUpdate && applied.events.isNotEmpty()) {
+        val settings = ClawDEASettings.getInstance().state
+        val collection = collectRaw(
+            projectRoot = Paths.get(basePath),
+            claudeDir = claudeDir,
+            beforeState = state,
+            settingsState = settings,
+            now = Instant.now(),
+        )
+        val filtered = filterDismissed(collection.events, collection.newState)
+        val (remaining, applied) = applyAndDismiss(filtered, settings.autoUpdateWiki, collection.newState, DriftAutoApplier.todayIso())
+        if (applied.newState != state) {
             DriftStateStore.write(claudeDir, applied.newState)
         }
         lastEvents = remaining
@@ -74,25 +81,109 @@ class DriftDetectionService(private val project: Project) {
         }
     }
 
-    private fun collectRaw(projectRoot: Path, claudeDir: Path): List<DriftEvent> {
-        val out = mutableListOf<DriftEvent>()
-        val wikiDir = claudeDir.resolve("wiki")
-        out += CodeRenameDetector.detect(
-            wikiDir = wikiDir,
-            sourceRoots = listOf(
-                projectRoot.resolve("src/main/kotlin"),
-                projectRoot.resolve("src/main/java"),
-            ),
-        )
-        val manifestPath = WorkspaceDiscovery.discover(projectRoot)
-        if (manifestPath != null) {
-            out += ManifestStaleDetector.detect(manifestPath)
-        }
-        return out
-    }
-
     companion object {
         private val LOG = Logger.getInstance(DriftDetectionService::class.java)
+
+        internal data class RawCollection(val events: List<DriftEvent>, val newState: DriftState)
+
+        internal fun interface DreamDetectionRunner {
+            fun detect(
+                projectRoot: Path,
+                state: DriftState,
+                settings: DreamWikiSettings,
+                now: Instant,
+                force: Boolean,
+                activeTurn: Boolean,
+            ): DreamDetectionResult
+        }
+
+        internal fun collectRaw(
+            projectRoot: Path,
+            claudeDir: Path,
+            beforeState: DriftState,
+            settingsState: ClawDEASettings.State,
+            now: Instant,
+            detectDreams: DreamDetectionRunner = DreamDetectionRunner { root, state, settings, instant, force, activeTurn ->
+                DreamWikiDetector().detect(
+                    projectRoot = root,
+                    state = state,
+                    settings = settings,
+                    now = instant,
+                    force = force,
+                    activeTurn = activeTurn,
+                )
+            },
+        ): RawCollection {
+            val out = mutableListOf<DriftEvent>()
+            val wikiDir = claudeDir.resolve("wiki")
+            out += CodeRenameDetector.detect(
+                wikiDir = wikiDir,
+                sourceRoots = listOf(
+                    projectRoot.resolve("src/main/kotlin"),
+                    projectRoot.resolve("src/main/java"),
+                ),
+            )
+            val manifestPath = WorkspaceDiscovery.discover(projectRoot)
+            if (manifestPath != null) {
+                out += ManifestStaleDetector.detect(manifestPath)
+            }
+
+            val dreamResult = detectDreamEvents(projectRoot, beforeState, settingsState, now, detectDreams)
+            out += dreamResult.events
+
+            return RawCollection(
+                events = out,
+                newState = updateDreamState(beforeState, dreamResult, now),
+            )
+        }
+
+        private fun detectDreamEvents(
+            projectRoot: Path,
+            state: DriftState,
+            settingsState: ClawDEASettings.State,
+            now: Instant,
+            detectDreams: DreamDetectionRunner,
+        ): DreamDetectionResult {
+            val settings = DreamWikiSettings(
+                enabled = settingsState.enableKnowledgeLayer && settingsState.enableDreamWikiMaintenance,
+                minElapsedHours = settingsState.dreamWikiMinElapsedHours,
+                minSignalUnits = settingsState.dreamWikiMinSignalUnits,
+                scanThrottleMinutes = settingsState.dreamWikiScanThrottleMinutes,
+            )
+            return try {
+                detectDreams.detect(
+                    projectRoot = projectRoot,
+                    state = state,
+                    settings = settings,
+                    now = now,
+                    force = false,
+                    activeTurn = false,
+                )
+            } catch (e: Throwable) {
+                LOG.warn("Dream wiki detection failed: ${e.message}")
+                DreamDetectionResult(emptyList(), "error:${e.javaClass.simpleName}:${e.message.orEmpty()}", 0)
+            }
+        }
+
+        private fun updateDreamState(
+            beforeState: DriftState,
+            result: DreamDetectionResult,
+            now: Instant,
+        ): DriftState {
+            val nowText = now.toString()
+            val scannedSuccessfully = result.status == "ok"
+            return beforeState.copy(
+                dreamLastDueCheckAt = nowText,
+                dreamLastStatus = result.status,
+                dreamLastSuccessfulScanAt = if (scannedSuccessfully) nowText else beforeState.dreamLastSuccessfulScanAt,
+                dreamProcessedSignalUnits = if (scannedSuccessfully) {
+                    beforeState.dreamObservedSignalUnits
+                } else {
+                    beforeState.dreamProcessedSignalUnits
+                },
+                dreamFilteredCandidateCount = result.filteredCandidateCount,
+            )
+        }
 
         internal fun filterDismissed(raw: List<DriftEvent>, state: DriftState): List<DriftEvent> {
             val dismissed = state.dismissed.toSet()
