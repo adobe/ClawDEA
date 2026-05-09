@@ -32,11 +32,6 @@ object DreamOutputValidator {
         "patchPlan",
     )
     private val ALLOWED_EVIDENCE_FIELDS = setOf("type", "ref", "summary")
-    private val LOW_RISK_KINDS = setOf(
-        DreamCandidateKind.INDEX_CLEANUP,
-        DreamCandidateKind.LINK_NORMALIZATION,
-        DreamCandidateKind.SOURCE_REFERENCE_FIX,
-    )
 
     private val KIND_BY_WIRE = mapOf(
         "missingConcept" to DreamCandidateKind.MISSING_CONCEPT,
@@ -117,7 +112,7 @@ object DreamOutputValidator {
         val confidence = readEnum(obj, "confidence", CONFIDENCE_BY_WIRE, "unsupported confidence", index, candidateErrors)
         val proposedAction = readEnum(obj, "proposedAction", ACTION_BY_WIRE, "unsupported proposedAction", index, candidateErrors)
         val patchPlan = readNonBlankString(obj, "patchPlan", index, candidateErrors)
-        validateProposedAction(kind, contextCost, confidence, proposedAction, index, candidateErrors)
+        validateProposedAction(kind, targetFiles, contextCost, confidence, proposedAction, index, candidateErrors)
 
         if (candidateErrors.isNotEmpty()) {
             errors += candidateErrors
@@ -188,12 +183,16 @@ object DreamOutputValidator {
     private fun isSafeWikiTargetFile(path: String): Boolean {
         if (!path.startsWith(".claude/wiki/")) return false
         if (path.contains("..")) return false
+        if (path.contains("\\")) return false
         if (path.startsWith("/") || path.startsWith("\\") || WINDOWS_ABSOLUTE_PATH_RX.matches(path)) return false
+        if (path == ".claude/wiki/") return false
+        if (!path.endsWith(".md")) return false
         return true
     }
 
     private fun validateProposedAction(
         kind: DreamCandidateKind?,
+        targetFiles: List<String>?,
         contextCost: DreamContextCost?,
         confidence: DreamConfidence?,
         proposedAction: DreamProposedAction?,
@@ -201,11 +200,13 @@ object DreamOutputValidator {
         errors: MutableList<String>,
     ) {
         if (proposedAction != DreamProposedAction.APPLY_LOW_RISK) return
-        val validLowRisk = kind in LOW_RISK_KINDS &&
+        val validLowRisk = kind == DreamCandidateKind.LINK_NORMALIZATION &&
             confidence == DreamConfidence.HIGH &&
-            contextCost != DreamContextCost.ADDS_CONTEXT
+            contextCost != DreamContextCost.ADDS_CONTEXT &&
+            targetFiles?.size == 1 &&
+            isSafeWikiTargetFile(targetFiles.single())
         if (!validLowRisk) {
-            errors += "Candidate $candidateIndex applyLowRisk is only valid for high-confidence low-risk wiki maintenance candidates"
+            errors += "Candidate $candidateIndex applyLowRisk is only valid for one high-confidence linkNormalization markdown wiki target"
         }
     }
 

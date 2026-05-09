@@ -106,6 +106,54 @@ class DreamOutputValidatorTest {
         assertTrue(result.errors.any { it.contains("applyLowRisk") })
     }
 
+    @Test fun `index cleanup with apply low risk is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            kind = "indexCleanup",
+            contextCost = "shrinks-context",
+            confidence = "high",
+            proposedAction = "applyLowRisk",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("applyLowRisk") })
+    }
+
+    @Test fun `link normalization with multiple targets and apply low risk is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """[".claude/wiki/index.md", ".claude/wiki/concepts/rollout.md"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("applyLowRisk") })
+    }
+
+    @Test fun `backslash target is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """[".claude/wiki\\index.md"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("targetFiles") })
+    }
+
+    @Test fun `wiki directory target is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """[".claude/wiki/"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("targetFiles") })
+    }
+
+    @Test fun `non markdown target is rejected`() {
+        val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
+            targetFiles = """[".claude/wiki/index.txt"]""",
+        )))
+
+        assertEquals(emptyList<DreamCandidate>(), result.candidates)
+        assertTrue(result.errors.any { it.contains("targetFiles") })
+    }
+
     @Test fun `unknown semantic field is rejected`() {
         val result = DreamOutputValidator.validate(jsonWithCandidate(candidateJson(
             extraFields = ""","deleteFiles":[".claude/wiki/index.md"]""",
