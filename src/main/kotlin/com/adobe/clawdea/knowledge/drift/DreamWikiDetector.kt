@@ -13,6 +13,7 @@ package com.adobe.clawdea.knowledge.drift
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.charset.StandardCharsets
 import java.time.Instant
 
 data class DreamWikiSettings(
@@ -51,7 +52,8 @@ class DreamWikiDetector(
                 minSignalUnits = settings.minSignalUnits,
                 scanThrottleMinutes = settings.scanThrottleMinutes,
                 activeTurn = activeTurn,
-                lockHeld = state.dreamLockOwner.isNotBlank(),
+                lockHeld = state.dreamLockOwner.isNotBlank() ||
+                    DriftDetectionService.isDreamFilesystemLockHeld(projectRoot.resolve(".claude"), now),
             )
             if (!decision.due) {
                 return DreamDetectionResult(
@@ -88,7 +90,10 @@ class DreamWikiDetector(
             )
         }
 
-        val scored = DreamCandidateScorer.filterAndRank(validation.candidates)
+        val scored = DreamCandidateScorer.filterAndRank(
+            validation.candidates,
+            indexOverContextCap = isIndexOverContextCap(projectRoot.resolve(".claude/wiki/index.md")),
+        )
         return DreamDetectionResult(
             events = scored.map { DreamEventMapper.toEvent(projectRoot, it) },
             status = "ok",
@@ -100,11 +105,11 @@ class DreamWikiDetector(
 
     private fun buildPrompt(projectRoot: Path): String {
         val indexPath = projectRoot.resolve(".claude/wiki/index.md")
-        val index = if (Files.isRegularFile(indexPath)) {
-            Files.readString(indexPath).take(INDEX_CHAR_CAP)
-        } else {
-            ""
-        }
+        val index = readCappedText(indexPath, INDEX_CHAR_CAP)
+        val wikiContext = buildWikiPageContext(projectRoot.resolve(".claude/wiki"))
+        val repoState = readCappedText(projectRoot.resolve(".claude/REPO_STATE.md"), REPO_STATE_CHAR_CAP)
+        val notes = readCappedText(projectRoot.resolve(".claude/notes/CURRENT.md"), NOTES_CHAR_CAP)
+        val links = collectWikiLinks(projectRoot.resolve(".claude/wiki"))
 
         return """
             You are maintaining the ClawDEA project wiki for future LLM navigation.
@@ -118,10 +123,122 @@ class DreamWikiDetector(
 
             .claude/wiki/index.md:
             $index
+
+            Wiki page context:
+            $wikiContext
+
+            .claude/REPO_STATE.md:
+            $repoState
+
+            .claude/notes/CURRENT.md:
+            $notes
+
+            Existing wiki source/reference links:
+            $links
         """.trimIndent()
     }
 
+    private fun buildWikiPageContext(wikiDir: Path): String {
+        if (!Files.isDirectory(wikiDir)) return ""
+        val stream = Files.walk(wikiDir)
+        val pages = try {
+            stream
+                .filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".md") }
+                .filter { path -> isConceptOrSourcePage(wikiDir.relativize(path).toString()) }
+                .sorted()
+                .limit(MAX_WIKI_CONTEXT_FILES.toLong())
+                .toList()
+        } finally {
+            stream.close()
+        }
+        return pages.joinToString("\n\n") { path ->
+            val relative = ".claude/wiki/${wikiDir.relativize(path).toString().replace('\\', '/')}"
+            "$relative:\n${summarizeMarkdown(readCappedText(path, PAGE_READ_CHAR_CAP))}"
+        }.take(WIKI_CONTEXT_CHAR_CAP)
+    }
+
+    private fun isConceptOrSourcePage(relativePath: String): Boolean {
+        val normalized = relativePath.replace('\\', '/')
+        return normalized.startsWith("concepts/") || normalized.startsWith("source/")
+    }
+
+    private fun summarizeMarkdown(text: String): String {
+        val lines = text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        val headings = lines.filter { it.startsWith("#") }.take(MAX_HEADINGS_PER_PAGE)
+        val excerpts = lines.filterNot { it.startsWith("#") }.take(MAX_EXCERPT_LINES_PER_PAGE)
+        return (headings + excerpts).joinToString("\n").take(PAGE_SUMMARY_CHAR_CAP)
+    }
+
+    private fun collectWikiLinks(wikiDir: Path): String {
+        if (!Files.isDirectory(wikiDir)) return ""
+        val links = linkedSetOf<String>()
+        val stream = Files.walk(wikiDir)
+        try {
+            stream
+                .filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".md") }
+                .sorted()
+                .limit(MAX_LINK_SCAN_FILES.toLong())
+                .forEach { path ->
+                    LINK_RX.findAll(readCappedText(path, PAGE_READ_CHAR_CAP))
+                        .map { it.groupValues[1].trim() }
+                        .filter { it.isNotBlank() && isUsefulReferenceLink(it) }
+                        .take(MAX_LINKS_PER_PAGE)
+                        .forEach { links += it }
+                }
+        } finally {
+            stream.close()
+        }
+        return links.take(MAX_REFERENCE_LINKS).joinToString("\n").take(REFERENCE_LINKS_CHAR_CAP)
+    }
+
+    private fun isUsefulReferenceLink(link: String): Boolean =
+        link.startsWith(".") ||
+            link.startsWith("/") ||
+            link.contains("src/") ||
+            SOURCE_EXTENSION_RX.containsMatchIn(link)
+
+    private fun readCappedText(path: Path, charCap: Int): String {
+        if (!Files.isRegularFile(path)) return ""
+        val byteCap = (charCap * 4).coerceAtLeast(charCap)
+        return try {
+            Files.newInputStream(path).use { input ->
+                val buffer = ByteArray(byteCap)
+                val bytesRead = input.read(buffer)
+                if (bytesRead <= 0) "" else String(buffer, 0, bytesRead, StandardCharsets.UTF_8).take(charCap)
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun isIndexOverContextCap(indexPath: Path): Boolean {
+        if (!Files.isRegularFile(indexPath)) return false
+        return try {
+            Files.size(indexPath) > INDEX_CONTEXT_BYTE_CAP ||
+                readCappedText(indexPath, INDEX_CONTEXT_LINE_SCAN_CHAR_CAP).lineSequence().take(INDEX_CONTEXT_LINE_CAP + 1).count() > INDEX_CONTEXT_LINE_CAP
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private companion object {
-        const val INDEX_CHAR_CAP = 11_500
+        const val INDEX_CHAR_CAP = 6_000
+        const val REPO_STATE_CHAR_CAP = 2_000
+        const val NOTES_CHAR_CAP = 2_000
+        const val PAGE_READ_CHAR_CAP = 2_000
+        const val WIKI_CONTEXT_CHAR_CAP = 3_500
+        const val PAGE_SUMMARY_CHAR_CAP = 700
+        const val REFERENCE_LINKS_CHAR_CAP = 1_500
+        const val MAX_WIKI_CONTEXT_FILES = 12
+        const val MAX_HEADINGS_PER_PAGE = 6
+        const val MAX_EXCERPT_LINES_PER_PAGE = 3
+        const val MAX_LINK_SCAN_FILES = 40
+        const val MAX_LINKS_PER_PAGE = 6
+        const val MAX_REFERENCE_LINKS = 50
+        const val INDEX_CONTEXT_LINE_CAP = 200
+        const val INDEX_CONTEXT_BYTE_CAP = 25 * 1024L
+        const val INDEX_CONTEXT_LINE_SCAN_CHAR_CAP = 32_000
+        val LINK_RX = Regex("""\[[^\]]+]\(([^)#]+)(?:#[^)]*)?\)""")
+        val SOURCE_EXTENSION_RX = Regex("""\.(kt|java|js|ts|tsx|jsx|md)$""")
     }
 }

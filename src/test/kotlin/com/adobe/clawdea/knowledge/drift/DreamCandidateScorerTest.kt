@@ -16,15 +16,15 @@ import org.junit.Test
 
 class DreamCandidateScorerTest {
 
-    @Test fun `drops low confidence add-context candidates`() {
+    @Test fun `drops low confidence candidates`() {
         val kept = candidate(
             kind = DreamCandidateKind.STALE_CONCEPT,
             contextCost = DreamContextCost.NEUTRAL,
-            confidence = DreamConfidence.LOW,
+            confidence = DreamConfidence.MEDIUM,
         )
         val dropped = candidate(
-            kind = DreamCandidateKind.MISSING_CONCEPT,
-            contextCost = DreamContextCost.ADDS_CONTEXT,
+            kind = DreamCandidateKind.STALE_CONCEPT,
+            contextCost = DreamContextCost.NEUTRAL,
             confidence = DreamConfidence.LOW,
             evidence = listOf(evidence("one"), evidence("two")),
         )
@@ -113,10 +113,6 @@ class DreamCandidateScorerTest {
     }
 
     @Test fun `orders confidence within otherwise equal candidates`() {
-        val low = candidate(
-            kind = DreamCandidateKind.STALE_CONCEPT,
-            confidence = DreamConfidence.LOW,
-        )
         val medium = candidate(
             kind = DreamCandidateKind.STALE_CONCEPT,
             confidence = DreamConfidence.MEDIUM,
@@ -126,13 +122,13 @@ class DreamCandidateScorerTest {
             confidence = DreamConfidence.HIGH,
         )
 
-        assertEquals(listOf(high, medium, low), DreamCandidateScorer.filterAndRank(listOf(low, medium, high)))
+        assertEquals(listOf(high, medium), DreamCandidateScorer.filterAndRank(listOf(medium, high)))
     }
 
     @Test fun `caps ranked candidates to requested maximum`() {
-        val low = candidate(
-            kind = DreamCandidateKind.STALE_CONCEPT,
-            confidence = DreamConfidence.LOW,
+        val third = candidate(
+            kind = DreamCandidateKind.DUPLICATE_CONCEPT,
+            confidence = DreamConfidence.MEDIUM,
         )
         val medium = candidate(
             kind = DreamCandidateKind.STALE_CONCEPT,
@@ -143,7 +139,21 @@ class DreamCandidateScorerTest {
             confidence = DreamConfidence.HIGH,
         )
 
-        assertEquals(listOf(high, medium), DreamCandidateScorer.filterAndRank(listOf(low, medium, high), maxCandidates = 2))
+        assertEquals(listOf(third, high), DreamCandidateScorer.filterAndRank(listOf(medium, third, high), maxCandidates = 2))
+    }
+
+    @Test fun `drops oversized patch plans`() {
+        val kept = candidate(
+            kind = DreamCandidateKind.STALE_CONCEPT,
+            confidence = DreamConfidence.MEDIUM,
+        )
+        val dropped = candidate(
+            kind = DreamCandidateKind.STALE_CONCEPT,
+            confidence = DreamConfidence.HIGH,
+            patchPlan = "x".repeat(4_001),
+        )
+
+        assertEquals(listOf(kept), DreamCandidateScorer.filterAndRank(listOf(dropped, kept)))
     }
 
     private fun candidate(kind: DreamCandidateKind): DreamCandidate = candidate(
@@ -158,6 +168,7 @@ class DreamCandidateScorerTest {
         confidence: DreamConfidence = DreamConfidence.HIGH,
         title: String = kind.name,
         evidence: List<DreamEvidence> = listOf(evidence("one")),
+        patchPlan: String = "Report the candidate.",
     ): DreamCandidate = DreamCandidate(
         kind = kind,
         title = title,
@@ -167,7 +178,7 @@ class DreamCandidateScorerTest {
         contextCost = contextCost,
         confidence = confidence,
         proposedAction = DreamProposedAction.REPORT_ONLY,
-        patchPlan = "Report the candidate.",
+        patchPlan = patchPlan,
     )
 
     private fun evidence(ref: String): DreamEvidence = DreamEvidence(

@@ -151,6 +151,117 @@ class DreamWikiDetectorTest {
         assertTrue(result.successful)
     }
 
+    @Test fun `low confidence candidates do not map to events`() {
+        val invocation = RecordingDreamInvocation(validOutput(candidateJson = candidateJson(confidence = "low", proposedAction = "reportOnly")))
+
+        val result = DreamWikiDetector(invocation).detect(
+            projectRoot = projectRootWithIndex("index content"),
+            state = DriftState(),
+            settings = DreamWikiSettings(enabled = true),
+            now = now,
+            force = true,
+            activeTurn = false,
+        )
+
+        assertEquals(emptyList<DriftEvent>(), result.events)
+        assertEquals("ok", result.status)
+        assertEquals(1, result.filteredCandidateCount)
+    }
+
+    @Test fun `oversized patch plans do not map to events`() {
+        val invocation = RecordingDreamInvocation(validOutput(candidateJson = candidateJson(patchPlan = "x".repeat(4_001))))
+
+        val result = DreamWikiDetector(invocation).detect(
+            projectRoot = projectRootWithIndex("index content"),
+            state = DriftState(),
+            settings = DreamWikiSettings(enabled = true),
+            now = now,
+            force = true,
+            activeTurn = false,
+        )
+
+        assertEquals(emptyList<DriftEvent>(), result.events)
+        assertEquals("ok", result.status)
+        assertEquals(1, result.filteredCandidateCount)
+    }
+
+    @Test fun `add-context index candidates do not map to events when index is over cap`() {
+        val longIndex = (1..201).joinToString("\n") { "- [Entry $it](concepts/$it.md)" }
+        val invocation = RecordingDreamInvocation(
+            validOutput(
+                candidateJson = candidateJson(
+                    kind = "missingConcept",
+                    targetFile = ".claude/wiki/index.md",
+                    contextCost = "adds-context",
+                    proposedAction = "proposeDiff",
+                    evidenceCount = 2,
+                    patchPlan = "Add another index entry.",
+                ),
+            ),
+        )
+
+        val result = DreamWikiDetector(invocation).detect(
+            projectRoot = projectRootWithIndex(longIndex),
+            state = DriftState(),
+            settings = DreamWikiSettings(enabled = true),
+            now = now,
+            force = true,
+            activeTurn = false,
+        )
+
+        assertEquals(emptyList<DriftEvent>(), result.events)
+        assertEquals("ok", result.status)
+        assertEquals(1, result.filteredCandidateCount)
+    }
+
+    @Test fun `prompt includes bounded local wiki repo state notes and references`() {
+        val root = projectRootWithIndex("# Wiki\n\n- [Drift](concepts/drift.md)")
+        val concept = root.resolve(".claude/wiki/concepts/drift.md")
+        Files.createDirectories(concept.parent)
+        Files.writeString(
+            concept,
+            """
+            # Drift Detector
+
+            Short useful excerpt about drift maintenance.
+
+            ## Signals
+
+            See [DreamWikiDetector](../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/DreamWikiDetector.kt)
+            ${"z".repeat(2_000)}
+            SHOULD_NOT_APPEAR
+            """.trimIndent(),
+        )
+        Files.writeString(root.resolve(".claude/REPO_STATE.md"), "# Repo State\n\nDream work is active.")
+        Files.createDirectories(root.resolve(".claude/notes"))
+        Files.writeString(root.resolve(".claude/notes/CURRENT.md"), "# Notes\n\nRemember dream guardrails.")
+        val invocation = RecordingDreamInvocation(DreamInvocationResult.Available("""{"candidates": []}"""))
+
+        DreamWikiDetector(invocation).detect(
+            projectRoot = root,
+            state = DriftState(),
+            settings = DreamWikiSettings(enabled = true),
+            now = now,
+            force = true,
+            activeTurn = false,
+        )
+
+        val prompt = invocation.prompt
+        assertTrue(prompt.contains("Wiki page context:"))
+        assertTrue(prompt.contains(".claude/wiki/concepts/drift.md"))
+        assertTrue(prompt.contains("# Drift Detector"))
+        assertTrue(prompt.contains("Short useful excerpt"))
+        assertTrue(prompt.contains("## Signals"))
+        assertTrue(prompt.contains(".claude/REPO_STATE.md:"))
+        assertTrue(prompt.contains("Dream work is active."))
+        assertTrue(prompt.contains(".claude/notes/CURRENT.md:"))
+        assertTrue(prompt.contains("Remember dream guardrails."))
+        assertTrue(prompt.contains("Existing wiki source/reference links:"))
+        assertTrue(prompt.contains("../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/DreamWikiDetector.kt"))
+        assertFalse(prompt.contains("SHOULD_NOT_APPEAR"))
+        assertTrue(prompt.length < 18_000)
+    }
+
     private fun projectRootWithIndex(indexContent: String): Path {
         val root = Files.createTempDirectory("dream-detector")
         val wikiDir = root.resolve(".claude/wiki")
@@ -208,6 +319,39 @@ class DreamWikiDetectorTest {
           "patchPlan": "Add a new page."
         }
     """.trimIndent()
+
+    private fun candidateJson(
+        kind: String = "linkNormalization",
+        targetFile: String = ".claude/wiki/index.md",
+        contextCost: String = "neutral",
+        confidence: String = "high",
+        proposedAction: String = "applyLowRisk",
+        evidenceCount: Int = 1,
+        patchPlan: String = "Replace legacy wikilinks with Markdown links.",
+    ): String {
+        val evidence = (1..evidenceCount).joinToString(",") { index ->
+            """
+            {
+              "type": "staleLink",
+              "ref": ".claude/wiki/index.md#$index",
+              "summary": "Index still uses legacy wikilinks."
+            }
+            """.trimIndent()
+        }
+        return """
+            {
+              "kind": "$kind",
+              "title": "Normalize concept links",
+              "targetFiles": ["$targetFile"],
+              "evidence": [$evidence],
+              "usefulness": "Keeps wiki references parseable for future navigation.",
+              "contextCost": "$contextCost",
+              "confidence": "$confidence",
+              "proposedAction": "$proposedAction",
+              "patchPlan": "$patchPlan"
+            }
+        """.trimIndent()
+    }
 
     private class RecordingDreamInvocation(private val result: DreamInvocationResult) : DreamInvocation {
         var called: Boolean = false

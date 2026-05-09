@@ -1081,17 +1081,20 @@ class ChatPanel(
 
     private fun refreshWikiStatus(): String {
         val basePath = project.basePath ?: return "Dream wiki status: project path unavailable."
-        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(java.nio.file.Paths.get(basePath).resolve(".claude"))
+        val claudeDir = java.nio.file.Paths.get(basePath).resolve(".claude")
+        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(claudeDir)
         val settings = ClawDEASettings.getInstance().state
+        val now = java.time.Instant.now()
         val decision = com.adobe.clawdea.knowledge.drift.DreamDueGate.evaluate(
             enabled = settings.enableKnowledgeLayer && settings.enableDreamWikiMaintenance,
-            now = java.time.Instant.now(),
+            now = now,
             state = state,
             minElapsedHours = settings.dreamWikiMinElapsedHours,
             minSignalUnits = settings.dreamWikiMinSignalUnits,
             scanThrottleMinutes = settings.dreamWikiScanThrottleMinutes,
             activeTurn = false,
-            lockHeld = state.dreamLockOwner.isNotBlank(),
+            lockHeld = state.dreamLockOwner.isNotBlank() ||
+                com.adobe.clawdea.knowledge.drift.DriftDetectionService.isDreamFilesystemLockHeld(claudeDir, now),
         )
         val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
         return RefreshWikiStatusFormatter.format(

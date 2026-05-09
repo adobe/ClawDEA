@@ -34,10 +34,16 @@ object DreamCandidateScorer {
         DreamConfidence.LOW,
     ).withIndex().associate { it.value to it.index }
 
-    fun filterAndRank(candidates: List<DreamCandidate>, maxCandidates: Int = 10): List<DreamCandidate> =
+    fun filterAndRank(
+        candidates: List<DreamCandidate>,
+        maxCandidates: Int = 10,
+        indexOverContextCap: Boolean = false,
+    ): List<DreamCandidate> =
         candidates
             .asSequence()
-            .filterNot { it.contextCost == DreamContextCost.ADDS_CONTEXT && it.confidence == DreamConfidence.LOW }
+            .filterNot { it.confidence == DreamConfidence.LOW }
+            .filterNot { it.patchPlan.length > MAX_PATCH_PLAN_CHARS }
+            .filterNot { indexOverContextCap && it.contextCost == DreamContextCost.ADDS_CONTEXT && it.targetsWikiIndex() }
             .filterNot { it.contextCost == DreamContextCost.ADDS_CONTEXT && it.evidence.size < 2 }
             .sortedWith(
                 compareBy<DreamCandidate>(
@@ -48,4 +54,9 @@ object DreamCandidateScorer {
             )
             .take(maxCandidates)
             .toList()
+
+    private fun DreamCandidate.targetsWikiIndex(): Boolean =
+        targetFiles.any { it == ".claude/wiki/index.md" }
+
+    private const val MAX_PATCH_PLAN_CHARS = 4_000
 }

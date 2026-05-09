@@ -98,6 +98,41 @@ class DriftDetectionServiceTest {
         assertEquals("", result.newState.dreamLastFailedScanAt)
     }
 
+    @Test fun `collectRaw default path reports not due when filesystem dream lock exists`() {
+        val tmp = Files.createTempDirectory("svc-dream-cheap-lock")
+        val claudeDir = tmp.resolve(".claude")
+        val lockFile = claudeDir.resolve("wiki/.dream.lock")
+        Files.createDirectories(lockFile.parent)
+        Files.writeString(lockFile, "other-window\n2026-05-09T12:00:00Z")
+        val now = Instant.parse("2026-05-09T12:34:56Z")
+        var invoked = false
+
+        val result = DriftDetectionService.collectRaw(
+            projectRoot = tmp,
+            claudeDir = claudeDir,
+            beforeState = DriftState(dreamObservedSignalUnits = 7),
+            settingsState = ClawDEASettings.State().apply {
+                enableKnowledgeLayer = true
+                enableDreamWikiMaintenance = true
+                dreamWikiMinElapsedHours = 0
+                dreamWikiMinSignalUnits = 1
+                dreamWikiScanThrottleMinutes = 0
+            },
+            now = now,
+            detectDreams = { _, _, _, _, _, _ ->
+                invoked = true
+                DreamDetectionResult(emptyList(), "ok", 0, attempted = true, successful = true)
+            },
+        )
+
+        assertFalse(invoked)
+        assertEquals(emptyList<DriftEvent>(), result.events)
+        assertEquals("not-due:lock-held", result.newState.dreamLastStatus)
+        assertEquals("2026-05-09T12:34:56Z", result.newState.dreamLastDueCheckAt)
+        assertEquals("", result.newState.dreamLastRunAt)
+        assertTrue(Files.exists(lockFile))
+    }
+
     @Test fun `collectRaw default path increments cheap local dream signal units without invoking dreams`() {
         val tmp = Files.createTempDirectory("svc-dream-signals")
         val claudeDir = tmp.resolve(".claude")

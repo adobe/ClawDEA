@@ -144,7 +144,7 @@ class DriftDetectionService(private val project: Project) {
             val dreamResult = if (runDreamScan) {
                 detectDreamEvents(projectRoot, claudeDir, dreamState, settingsState, now, detectDreams)
             } else {
-                cheapDreamDueCheck(dreamState, settingsState, now)
+                cheapDreamDueCheck(claudeDir, dreamState, settingsState, now)
             }
             out += dreamResult.events
 
@@ -217,6 +217,7 @@ class DriftDetectionService(private val project: Project) {
         }
 
         private fun cheapDreamDueCheck(
+            claudeDir: Path,
             state: DriftState,
             settingsState: ClawDEASettings.State,
             now: Instant,
@@ -235,7 +236,7 @@ class DriftDetectionService(private val project: Project) {
                 minSignalUnits = settings.minSignalUnits,
                 scanThrottleMinutes = settings.scanThrottleMinutes,
                 activeTurn = false,
-                lockHeld = state.dreamLockOwner.isNotBlank(),
+                lockHeld = state.dreamLockOwner.isNotBlank() || isDreamFilesystemLockHeld(claudeDir, now),
             )
             return DreamDetectionResult(
                 events = emptyList(),
@@ -337,11 +338,7 @@ class DriftDetectionService(private val project: Project) {
         }
 
         private fun deleteStaleDreamLock(file: Path, now: Instant): Boolean {
-            val acquiredAt = try {
-                Files.readString(file).lineSequence().drop(1).firstOrNull()?.let(Instant::parse)
-            } catch (_: Exception) {
-                null
-            } ?: return false
+            val acquiredAt = readDreamLockAcquiredAt(file) ?: return false
             if (Duration.between(acquiredAt, now) <= DREAM_LOCK_STALE_AFTER) return false
             return try {
                 Files.deleteIfExists(file)
@@ -349,6 +346,20 @@ class DriftDetectionService(private val project: Project) {
                 false
             }
         }
+
+        internal fun isDreamFilesystemLockHeld(claudeDir: Path, now: Instant): Boolean {
+            val file = claudeDir.resolve("wiki").resolve(DREAM_LOCK_FILE)
+            if (!Files.exists(file)) return false
+            val acquiredAt = readDreamLockAcquiredAt(file) ?: return true
+            return Duration.between(acquiredAt, now) <= DREAM_LOCK_STALE_AFTER
+        }
+
+        private fun readDreamLockAcquiredAt(file: Path): Instant? =
+            try {
+                Files.readString(file).lineSequence().drop(1).firstOrNull()?.let(Instant::parse)
+            } catch (_: Exception) {
+                null
+            }
 
         private fun releaseDreamLock(lock: DreamLock) {
             try {
