@@ -20,7 +20,6 @@ object WikiLink {
     private val OLD_WIKILINK = Regex("""\[\[([^\]]+)]]""")
     private val MARKDOWN_LINK = Regex("""\[([^]]+)]\(([^)]+\.md)\)""")
 
-    @Suppress("UNUSED_PARAMETER")
     fun extractConceptLinks(pageRelativePath: String, text: String): List<WikiConceptLink> {
         val oldLinks = OLD_WIKILINK.findAll(text).mapNotNull { match ->
             val slug = match.groupValues[1].trim()
@@ -31,8 +30,8 @@ object WikiLink {
             }
         }
         val markdownLinks = MARKDOWN_LINK.findAll(text).mapNotNull { match ->
-            val slug = markdownSlug(match.groupValues[2])
-            if (slug.isNotBlank()) {
+            val slug = markdownConceptSlug(pageRelativePath, match.groupValues[2])
+            if (slug != null) {
                 LinkMatch(match.range.first, WikiConceptLink(targetSlug = slug, original = match.value))
             } else {
                 null
@@ -57,8 +56,38 @@ object WikiLink {
             "/" !in slug &&
             "\\" !in slug
 
-    private fun markdownSlug(href: String): String =
-        href.substringAfterLast('/').substringAfterLast('\\').removeSuffix(".md").trim()
+    private fun markdownConceptSlug(pageRelativePath: String, href: String): String? {
+        if (isExternalHref(href) || href.startsWith("/") || "\\" in href) return null
+
+        val pageDir = pageRelativePath.substringBeforeLast('/', missingDelimiterValue = "")
+        val resolved = normalizeRelativePath(
+            if (pageDir.isBlank()) href else "$pageDir/$href",
+        ) ?: return null
+
+        if (!resolved.startsWith("concepts/") || resolved.count { it == '/' } != 1) return null
+
+        val slug = resolved.removePrefix("concepts/").removeSuffix(".md")
+        return slug.takeIf { it.isNotBlank() }
+    }
+
+    private fun isExternalHref(href: String): Boolean =
+        "://" in href || href.startsWith("mailto:") || href.startsWith("#")
+
+    private fun normalizeRelativePath(path: String): String? {
+        val parts = ArrayDeque<String>()
+        for (part in path.split('/')) {
+            when {
+                part.isBlank() || part == "." -> Unit
+                part == ".." -> if (parts.isNotEmpty()) {
+                    parts.removeLast()
+                } else {
+                    return null
+                }
+                else -> parts.addLast(part)
+            }
+        }
+        return parts.joinToString("/")
+    }
 
     private fun labelFor(slug: String): String =
         slug.split('-')

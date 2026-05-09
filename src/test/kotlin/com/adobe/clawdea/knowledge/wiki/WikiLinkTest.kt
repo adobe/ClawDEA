@@ -23,6 +23,34 @@ class WikiLinkTest {
         assertEquals(setOf("composite-cf", "primer-service"), links.map { it.targetSlug }.toSet())
     }
 
+    @Test fun `extracts markdown concept links from index and source pages`() {
+        val indexLinks = WikiLink.extractConceptLinks(
+            pageRelativePath = "index.md",
+            text = "See [Rollout](concepts/rollout-flow.md).",
+        )
+        val sourceLinks = WikiLink.extractConceptLinks(
+            pageRelativePath = "sources/runbook.md",
+            text = "See [Composite](../concepts/composite-cf.md).",
+        )
+
+        assertEquals(listOf("rollout-flow"), indexLinks.map { it.targetSlug })
+        assertEquals(listOf("composite-cf"), sourceLinks.map { it.targetSlug })
+    }
+
+    @Test fun `ignores markdown links outside wiki concepts`() {
+        val links = WikiLink.extractConceptLinks(
+            pageRelativePath = "sources/runbook.md",
+            text = """
+                [Index](../index.md)
+                [Docs](../docs/foo.md)
+                [External](https://example.com/foo.md)
+                [Sibling Source](foo.md)
+            """.trimIndent(),
+        )
+
+        assertEquals(emptyList<String>(), links.map { it.targetSlug })
+    }
+
     @Test fun `normalizes index wikilink to markdown link`() {
         assertEquals(
             "[Rollout Flow](concepts/rollout-flow.md)",
