@@ -40,7 +40,7 @@ class JfrBackend(private val project: Project) : CaptureBackend {
         return listOf(
             "-XX:+UnlockDiagnosticVMOptions",
             "-XX:+DebugNonSafepoints",
-            "-XX:StartFlightRecording=duration=0,settings=${session.jfcPath},filename=${session.jfrPath},dumponexit=true",
+            "-XX:StartFlightRecording=settings=${session.jfcPath},filename=${session.jfrPath},dumponexit=true",
             "-XX:FlightRecorderOptions=stackdepth=128",
         )
     }

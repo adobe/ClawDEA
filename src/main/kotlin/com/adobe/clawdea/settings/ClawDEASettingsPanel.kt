@@ -158,6 +158,19 @@ class ClawDEASettingsPanel {
     val dreamWikiMinSignalUnitsField = JBTextField(DreamWikiSettingsParser.MIN_SIGNAL_UNITS_DEFAULT.toString(), 6)
     val dreamWikiScanThrottleMinutesField = JBTextField(DreamWikiSettingsParser.SCAN_THROTTLE_MINUTES_DEFAULT.toString(), 6)
 
+    // Profiling fields
+    private val BACKEND_OPTIONS = arrayOf("Auto", "IntelliJ Profiler", "JFR")
+    private val BACKEND_KEYS = arrayOf("auto", "intellij", "jfr")
+    val profilingBackendCombo = ComboBox(DefaultComboBoxModel(BACKEND_OPTIONS))
+    val profilingSamplingIntervalField = JBTextField("10", 6)
+    val profilingMaxDurationField = JBTextField("900", 6)
+    val profilingMaxRecordingMbField = JBTextField("500", 6)
+    val profilingStackDepthField = JBTextField("128", 6)
+    val profilingMaxRecordingsField = JBTextField("20", 6)
+    val profilingMaxStorageGbField = JBTextField("5", 6)
+    val profilingAutoAnalyzeCheckbox = JBCheckBox("Auto-analyze after capture", true)
+    val profilingTopNField = JBTextField("50", 6)
+
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
         font = font.deriveFont(11f)
@@ -203,6 +216,17 @@ class ClawDEASettingsPanel {
         .addLabeledComponent(JBLabel("Dream min elapsed (hours):"), dreamWikiMinElapsedHoursField, 2, false)
         .addLabeledComponent(JBLabel("Dream min signal units:"), dreamWikiMinSignalUnitsField, 2, false)
         .addLabeledComponent(JBLabel("Dream scan throttle (minutes):"), dreamWikiScanThrottleMinutesField, 2, false)
+        .addSeparator()
+        .addLabeledComponent(JBLabel("Profiling"), JPanel(), 0, false)
+        .addLabeledComponent(JBLabel("Backend:"), profilingBackendCombo, 1, false)
+        .addLabeledComponent(JBLabel("Sampling interval (ms):"), profilingSamplingIntervalField, 1, false)
+        .addLabeledComponent(JBLabel("Max duration (seconds):"), profilingMaxDurationField, 1, false)
+        .addLabeledComponent(JBLabel("Max recording size (MB):"), profilingMaxRecordingMbField, 1, false)
+        .addLabeledComponent(JBLabel("Stack depth:"), profilingStackDepthField, 1, false)
+        .addLabeledComponent(JBLabel("Max stored recordings:"), profilingMaxRecordingsField, 1, false)
+        .addLabeledComponent(JBLabel("Max storage (GB):"), profilingMaxStorageGbField, 1, false)
+        .addComponent(profilingAutoAnalyzeCheckbox, 1)
+        .addLabeledComponent(JBLabel("Top-N hotspots:"), profilingTopNField, 1, false)
         .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
@@ -406,6 +430,15 @@ class ClawDEASettingsPanel {
         dreamWikiMinElapsedHoursField.text = state.dreamWikiMinElapsedHours.toString()
         dreamWikiMinSignalUnitsField.text = state.dreamWikiMinSignalUnits.toString()
         dreamWikiScanThrottleMinutesField.text = state.dreamWikiScanThrottleMinutes.toString()
+        selectProfilingBackend(state.profilingBackendPreference)
+        profilingSamplingIntervalField.text = state.profilingSamplingIntervalMs.toString()
+        profilingMaxDurationField.text = state.profilingMaxDurationSeconds.toString()
+        profilingMaxRecordingMbField.text = state.profilingMaxRecordingMb.toString()
+        profilingStackDepthField.text = state.profilingStackDepth.toString()
+        profilingMaxRecordingsField.text = state.profilingMaxRecordings.toString()
+        profilingMaxStorageGbField.text = state.profilingMaxStorageGb.toString()
+        profilingAutoAnalyzeCheckbox.isSelected = state.profilingAutoAnalyze
+        profilingTopNField.text = state.profilingTopN.toString()
         updateKnowledgeLayerEnabledState()
         showProviderCard()
         updateApiKeyLabel()
@@ -441,6 +474,15 @@ class ClawDEASettingsPanel {
         state.dreamWikiMinElapsedHours = parseIntField(dreamWikiMinElapsedHoursField, DreamWikiSettingsParser::minElapsedHours)
         state.dreamWikiMinSignalUnits = parseIntField(dreamWikiMinSignalUnitsField, DreamWikiSettingsParser::minSignalUnits)
         state.dreamWikiScanThrottleMinutes = parseIntField(dreamWikiScanThrottleMinutesField, DreamWikiSettingsParser::scanThrottleMinutes)
+        state.profilingBackendPreference = selectedProfilingBackendKey()
+        state.profilingSamplingIntervalMs = profilingSamplingIntervalField.text.toIntOrNull() ?: 10
+        state.profilingMaxDurationSeconds = profilingMaxDurationField.text.toIntOrNull() ?: 900
+        state.profilingMaxRecordingMb = profilingMaxRecordingMbField.text.toIntOrNull() ?: 500
+        state.profilingStackDepth = profilingStackDepthField.text.toIntOrNull() ?: 128
+        state.profilingMaxRecordings = profilingMaxRecordingsField.text.toIntOrNull() ?: 20
+        state.profilingMaxStorageGb = profilingMaxStorageGbField.text.toIntOrNull() ?: 5
+        state.profilingAutoAnalyze = profilingAutoAnalyzeCheckbox.isSelected
+        state.profilingTopN = profilingTopNField.text.toIntOrNull() ?: 50
     }
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
@@ -472,7 +514,16 @@ class ClawDEASettingsPanel {
             enableDreamWikiMaintenanceCheckbox.isSelected != state.enableDreamWikiMaintenance ||
             normalizedIntField(dreamWikiMinElapsedHoursField, DreamWikiSettingsParser::minElapsedHours) != state.dreamWikiMinElapsedHours ||
             normalizedIntField(dreamWikiMinSignalUnitsField, DreamWikiSettingsParser::minSignalUnits) != state.dreamWikiMinSignalUnits ||
-            normalizedIntField(dreamWikiScanThrottleMinutesField, DreamWikiSettingsParser::scanThrottleMinutes) != state.dreamWikiScanThrottleMinutes
+            normalizedIntField(dreamWikiScanThrottleMinutesField, DreamWikiSettingsParser::scanThrottleMinutes) != state.dreamWikiScanThrottleMinutes ||
+            selectedProfilingBackendKey() != state.profilingBackendPreference ||
+            profilingSamplingIntervalField.text != state.profilingSamplingIntervalMs.toString() ||
+            profilingMaxDurationField.text != state.profilingMaxDurationSeconds.toString() ||
+            profilingMaxRecordingMbField.text != state.profilingMaxRecordingMb.toString() ||
+            profilingStackDepthField.text != state.profilingStackDepth.toString() ||
+            profilingMaxRecordingsField.text != state.profilingMaxRecordings.toString() ||
+            profilingMaxStorageGbField.text != state.profilingMaxStorageGb.toString() ||
+            profilingAutoAnalyzeCheckbox.isSelected != state.profilingAutoAnalyze ||
+            profilingTopNField.text != state.profilingTopN.toString()
     }
 
     fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
@@ -547,6 +598,16 @@ class ClawDEASettingsPanel {
 
     private fun normalizedIntField(field: JBTextField, parser: (String) -> Int): Int =
         parser(field.text)
+
+    private fun selectedProfilingBackendKey(): String {
+        val idx = profilingBackendCombo.selectedIndex
+        return if (idx >= 0) BACKEND_KEYS[idx] else "auto"
+    }
+
+    private fun selectProfilingBackend(key: String) {
+        val idx = BACKEND_KEYS.indexOf(key)
+        profilingBackendCombo.selectedIndex = if (idx >= 0) idx else 0
+    }
 
     private fun flushCurrentTableToTransient() {
         transientCatalogs[currentCatalogProvider] = modelTableModel.rows.map { it.copy() }.toMutableList()

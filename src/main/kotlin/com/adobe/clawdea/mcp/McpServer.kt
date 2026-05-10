@@ -64,7 +64,7 @@ class McpServer(private val project: Project) : Disposable {
         McpWorkspaceTools(project).registerAll(router)            // Phase 3 — workspace tools
         McpEditReviewTools(project).registerAll(router)
         McpDebugTools(project).registerAll(router)
-        McpProfilingTools(AnalysisService()).registerAll(router)
+        McpProfilingTools(project, AnalysisService()).registerAll(router)
         McpPermissionPromptTool(
             dispatcherSupplier = { PermissionDispatcherHolder.getInstance(project).get() },
             toolApprovalModeSupplier = { ClawDEASettings.getInstance().state.toolApprovalMode },

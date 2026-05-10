@@ -329,6 +329,49 @@ Toggle Chat and New Chat Session are available in **Tools → ClawDEA** but ship
 
 ---
 
+## Profiling
+
+ClawDEA can profile JVM applications using JDK Flight Recorder, analyze the results, and propose source-level fixes — all driven by Claude.
+
+### Entry points
+
+| Entry point | How to use |
+|-------------|-----------|
+| **`/profile` command** | Type `/profile` in the chat panel. Claude will ask what to profile (test, run config, PID, or import a file). |
+| **`/profile test com.example.FooTest#testBar`** | Directly profile a specific test method. |
+| **`/profile import /path/to/file.jfr`** | Import and analyze an existing recording. |
+| **Gutter icon** | Click the CPU-flame icon next to any `@Test` method to profile it. |
+
+### How it works
+
+1. ClawDEA creates a JUnit run configuration with JFR JVM arguments injected.
+2. The test runs in IntelliJ's Run tool window with Flight Recording active.
+3. When the process exits, the `.jfr` file is imported and parsed (CPU samples + allocations).
+4. Claude analyzes hotspots and proposes fixes via `propose_edit`.
+
+### Settings
+
+Configure under **Settings → Tools → ClawDEA → Profiling**:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Backend | Auto | `Auto` (detects IntelliJ profiler), `IntelliJ Profiler`, or `JFR` |
+| Sampling interval | 10 ms | CPU sampling frequency |
+| Max duration | 900 s | Recording auto-stops after this |
+| Max recording size | 500 MB | Prevents runaway disk usage |
+| Stack depth | 128 | Max frames captured per sample |
+| Max stored recordings | 20 | Older recordings are evicted |
+| Max storage | 5 GB | Total disk budget for recordings |
+| Auto-analyze | On | Claude analyzes immediately after capture |
+| Top-N hotspots | 50 | Number of hotspots reported |
+
+### Requirements
+
+- JDK 11+ on the profiled process (JFR is not available in OpenJDK 8)
+- For heap dump analysis (`.hprof`): the shark extension is downloaded on first use (~1 MB)
+
+---
+
 ## Troubleshooting
 
 ### Claude CLI not found

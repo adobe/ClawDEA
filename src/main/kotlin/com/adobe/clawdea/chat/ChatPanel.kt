@@ -1406,6 +1406,10 @@ class ChatPanel(
 
     // ── Messaging ──────────────────────────────────────────────────
 
+    fun submitCommand(text: String) {
+        sendTextThroughNormalRouting(text)
+    }
+
     private fun sendCurrentMessage() {
         if (showingPlaceholder) return
         val text = inputArea.text.trim()

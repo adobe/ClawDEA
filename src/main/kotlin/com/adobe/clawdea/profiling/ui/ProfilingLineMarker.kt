@@ -1,9 +1,11 @@
 package com.adobe.clawdea.profiling.ui
 
+import com.adobe.clawdea.chat.ChatPanel
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.codeInsight.daemon.LineMarkerProvider
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.markup.GutterIconRenderer
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiIdentifier
 import com.intellij.psi.PsiMethod
@@ -22,12 +24,21 @@ class ProfilingLineMarker : LineMarkerProvider {
         val method = element.parent as? PsiMethod ?: return null
         if (!hasTestAnnotation(method)) return null
 
+        val fqn = method.containingClass?.qualifiedName?.let { "$it#${method.name}" } ?: method.name
+
         return LineMarkerInfo(
             element,
             element.textRange,
-            AllIcons.RunConfigurations.TestState.Run,
+            AllIcons.Actions.ProfileCPU,
             { "Profile this test with ClawDEA" },
-            { _, _ -> },
+            { _, psiElement ->
+                val project = psiElement.project
+                val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ClawDEA") ?: return@LineMarkerInfo
+                toolWindow.show {
+                    val chatPanel = toolWindow.contentManager.selectedContent?.component as? ChatPanel
+                    chatPanel?.submitCommand("/profile test $fqn")
+                }
+            },
             GutterIconRenderer.Alignment.LEFT,
             { "Profile test" },
         )
