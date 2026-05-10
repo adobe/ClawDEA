@@ -121,6 +121,17 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var modelCatalogs: MutableMap<String, MutableList<ModelEntry>> = defaultModelCatalogsMap(),
         var selectedModels: MutableMap<String, String> = mutableMapOf(),
         var selectedEfforts: MutableMap<String, String> = mutableMapOf(),
+        // Profiling
+        var profilingSamplingIntervalMs: Int = 10,
+        var profilingMaxRecordingMb: Int = 500,
+        var profilingMaxDurationSeconds: Int = 900,
+        var profilingStackDepth: Int = 128,
+        var profilingBackendPreference: String = "auto",
+        var profilingMaxRecordings: Int = 20,
+        var profilingMaxStorageGb: Int = 5,
+        var profilingAutoGitignore: Boolean = true,
+        var profilingAutoAnalyze: Boolean = true,
+        var profilingTopN: Int = 50,
     )
 
     private var state = State()
