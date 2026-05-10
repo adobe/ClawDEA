@@ -15,6 +15,8 @@ import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
 import com.adobe.clawdea.chat.permission.PermissionDispatcherHolder
 import com.adobe.clawdea.chat.permission.PermissionPolicy
 import com.adobe.clawdea.debug.McpDebugTools
+import com.adobe.clawdea.profiling.analysis.AnalysisService
+import com.adobe.clawdea.profiling.mcp.McpProfilingTools
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
@@ -62,6 +64,7 @@ class McpServer(private val project: Project) : Disposable {
         McpWorkspaceTools(project).registerAll(router)            // Phase 3 — workspace tools
         McpEditReviewTools(project).registerAll(router)
         McpDebugTools(project).registerAll(router)
+        McpProfilingTools(AnalysisService()).registerAll(router)
         McpPermissionPromptTool(
             dispatcherSupplier = { PermissionDispatcherHolder.getInstance(project).get() },
             toolApprovalModeSupplier = { ClawDEASettings.getInstance().state.toolApprovalMode },
