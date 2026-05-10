@@ -29,8 +29,11 @@ class CliProcessPermissionArgsTest {
 
         assertEquals("--settings", args[0])
         assertTrue(args[1].contains(""""ask""""))
+        assertTrue(args[1].contains("Bash(ls)"))
         assertTrue(args[1].contains("Bash(ls *)"))
+        assertTrue(args[1].contains("Bash(pwd)"))
         assertTrue(args[1].contains("Bash(pwd *)"))
+        assertTrue(args[1].contains("Bash(cat)"))
         assertTrue(args[1].contains("Bash(cat *)"))
     }
 

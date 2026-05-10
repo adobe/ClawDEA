@@ -34,7 +34,7 @@ class PermissionRequestRenderer(private val messageRenderer: MessageRenderer) {
                     <span class="permission-icon">&#9888;</span>
                     <span class="permission-title">Approve tool: <code>$toolName</code></span>
                 </div>
-                <div class="permission-summary">$summary</div>
+                <div class="permission-summary"><span class="permission-summary-label">Exact command/input to approve:</span> $summary</div>
                 <div class="permission-actions">
                     <button class="permission-allow-btn" data-action="permission-allow" data-permission-id="$id">Allow</button>
                     <button class="permission-always-btn" data-action="permission-always" data-permission-id="$id">Always allow...</button>

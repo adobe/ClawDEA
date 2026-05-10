@@ -22,6 +22,7 @@ import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentLinkedDeque
 
 class CliStartException(override val message: String) : RuntimeException(message)
 
@@ -38,6 +39,7 @@ class CliProcess(
     private var stdinWriter: BufferedWriter? = null
     private var stderrThread: Thread? = null
     private var mcpConfigFile: java.io.File? = null
+    private val recentStderr = ConcurrentLinkedDeque<String>()
 
     val isAlive: Boolean
         get() = process?.isAlive == true
@@ -45,6 +47,7 @@ class CliProcess(
     fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         if (isAlive) return
 
+        recentStderr.clear()
         val settings = ClawDEASettings.getInstance().state
         val cliPath = resolveCliPath(settings.cliPath)
 
@@ -163,6 +166,7 @@ class CliProcess(
             try {
                 BufferedReader(InputStreamReader(process!!.errorStream, StandardCharsets.UTF_8)).use { reader ->
                     reader.forEachLine { line ->
+                        rememberStderr(line)
                         log.info("CLI stderr: $line")
                     }
                 }
@@ -174,6 +178,8 @@ class CliProcess(
 
         log.info("CLI process started (PID: ${process!!.pid()})")
     }
+
+    fun recentStderrLines(): List<String> = recentStderr.toList()
 
     internal fun resolveCliPath(configured: String): String = resolveClaudeCliPath(configured)
 
@@ -240,7 +246,16 @@ class CliProcess(
         }
     }
 
+    private fun rememberStderr(line: String) {
+        recentStderr.addLast(line)
+        while (recentStderr.size > MAX_RECENT_STDERR_LINES) {
+            recentStderr.pollFirst()
+        }
+    }
+
     companion object {
+        private const val MAX_RECENT_STDERR_LINES = 40
+
         fun preflightChecks(
             cliPath: String,
             processEnv: Map<String, String>,
@@ -387,24 +402,27 @@ class CliProcess(
         }
 
         internal fun buildPermissionSettingsArgs(toolApprovalMode: String): List<String> {
-            if (toolApprovalMode.trim() == "allow-safe" || toolApprovalMode.trim() == "allow-all") {
+            val mode = toolApprovalMode.trim()
+            if (mode == "allow-safe" || mode == "allow-all") {
                 return emptyList()
             }
             val askRules = listOf(
-                "Bash(ls *)",
-                "Bash(pwd *)",
-                "Bash(cat *)",
-                "Bash(head *)",
-                "Bash(tail *)",
-                "Bash(grep *)",
-                "Bash(find *)",
-                "Bash(wc *)",
-                "Bash(diff *)",
-                "Bash(stat *)",
-                "Bash(du *)",
-                "Bash(cd *)",
-                "Bash(git *)",
-            ).joinToString(",") { """"$it"""" }
+                "ls",
+                "pwd",
+                "cat",
+                "head",
+                "tail",
+                "grep",
+                "find",
+                "wc",
+                "diff",
+                "stat",
+                "du",
+                "cd",
+                "git",
+            ).flatMap { command ->
+                listOf("Bash($command)", "Bash($command *)")
+            }.joinToString(",") { """"$it"""" }
             return listOf("--settings", """{"permissions":{"ask":[$askRules]}}""")
         }
 

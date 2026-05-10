@@ -14,6 +14,8 @@ package com.adobe.clawdea.mcp
 import com.adobe.clawdea.chat.permission.PermissionDispatcher
 import com.adobe.clawdea.chat.permission.PermissionPolicy
 import com.adobe.clawdea.chat.permission.PermissionRequest
+import com.adobe.clawdea.chat.permission.PermissionToolInput
+import com.intellij.openapi.diagnostic.Logger
 
 /**
  * Implements the `request_permission` MCP tool used by the Claude CLI's
@@ -34,6 +36,8 @@ class McpPermissionPromptTool(
     private val toolApprovalModeSupplier: () -> String = { "confirm-all" },
     private val permissionPolicySupplier: () -> PermissionPolicy? = { null },
 ) {
+    private val log = Logger.getInstance(McpPermissionPromptTool::class.java)
+
     fun registerAll(router: McpToolRouter) {
         router.register(
             name = "request_permission",
@@ -54,6 +58,7 @@ class McpPermissionPromptTool(
         val inputJson = args["input"].orEmpty()
 
         if (isAutoAllowed(toolName)) {
+            logDecision("trusted-auto-allow", toolName, inputJson)
             return McpToolRouter.ToolResult(buildAllowJson(inputJson))
         }
 
@@ -65,11 +70,17 @@ class McpPermissionPromptTool(
         // pass through with empty answers and the CLI tool returns a useless
         // "answer came through empty" result (see issue #141).
         if (shouldSilentlyAllow(toolName)) {
+            logDecision("allow-all", toolName, inputJson)
             dispatcherSupplier().notifyAutoAllowed(toolName, inputJson)
             return McpToolRouter.ToolResult(buildAllowJson(inputJson))
         }
 
         val result = dispatcherSupplier().submit(toolName, inputJson)
+        if (result.timedOut) {
+            logDecision("prompt-timeout", toolName, inputJson)
+            return McpToolRouter.ToolResult(buildTimedOutJson())
+        }
+        logDecision("prompt-${result.decision.name.lowercase()}", toolName, inputJson)
         return McpToolRouter.ToolResult(
             when (result.decision) {
                 PermissionRequest.Decision.ALLOW -> buildAllowJson(result.updatedInput ?: inputJson)
@@ -80,13 +91,27 @@ class McpPermissionPromptTool(
 
     private fun policyResponse(toolName: String, inputJson: String): McpToolRouter.ToolResult? =
         when (permissionPolicySupplier()?.evaluate(toolName, inputJson)?.decision) {
-            PermissionPolicy.Decision.DENY -> McpToolRouter.ToolResult(buildDenyJson("Denied by Claude settings"))
-            PermissionPolicy.Decision.ALLOW -> McpToolRouter.ToolResult(buildAllowJson(inputJson))
+            PermissionPolicy.Decision.DENY -> {
+                logDecision("settings-deny", toolName, inputJson)
+                McpToolRouter.ToolResult(buildDenyJson("Denied by Claude settings"))
+            }
+            PermissionPolicy.Decision.ALLOW -> {
+                logDecision("settings-allow", toolName, inputJson)
+                McpToolRouter.ToolResult(buildAllowJson(inputJson))
+            }
             PermissionPolicy.Decision.ASK, null -> null
         }
 
     private fun shouldSilentlyAllow(toolName: String): Boolean =
         toolApprovalModeSupplier() == "allow-all" && toolName != ASK_USER_QUESTION
+
+    private fun logDecision(decision: String, toolName: String, inputJson: String) {
+        val specifier = PermissionToolInput.extractSpecifier(toolName, inputJson).orEmpty()
+        log.info(
+            "permission decision=$decision mode=${toolApprovalModeSupplier()} " +
+                "tool=$toolName input=${specifier.take(160)}"
+        )
+    }
 
     companion object {
         const val ASK_USER_QUESTION = "AskUserQuestion"
@@ -107,6 +132,20 @@ class McpPermissionPromptTool(
 
         fun buildDenyJson(message: String): String {
             val fullMessage = "$message. If the user later asks you to run it or changes tool approval settings, try the same tool call again so ClawDEA can prompt or auto-allow it under the current setting."
+            val escaped = McpProtocol.escapeJsonString(fullMessage)
+            return """{"behavior":"deny","message":"$escaped"}"""
+        }
+
+        /**
+         * Returned when the user has not yet decided within the dispatcher's
+         * timeout budget. The Claude Code CLI's HTTP MCP transport caps every
+         * tool call at ~60 s (regression #50289), so we have to respond before
+         * the cliff or the CLI fabricates a "tool timed out" failure and
+         * encourages the model to try a different command. The deny message
+         * is worded so Claude STOPS and waits instead of pivoting.
+         */
+        fun buildTimedOutJson(): String {
+            val fullMessage = "The user is still reviewing this request in the IDE — Claude Code's HTTP MCP transport ended this request before the user responded (claude-code regression #50289). DO NOT try a different command, DO NOT retry on your own, and DO NOT report a tool failure to the user. Tell the user you are waiting for them to approve in the IDE; once they do, they will tell you to continue and the next attempt will run."
             val escaped = McpProtocol.escapeJsonString(fullMessage)
             return """{"behavior":"deny","message":"$escaped"}"""
         }

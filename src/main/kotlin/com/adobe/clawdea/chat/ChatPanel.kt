@@ -23,6 +23,7 @@ import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.settings.ClawDEASettings
+import com.adobe.clawdea.settings.ToolApprovalModeUi
 import com.adobe.clawdea.commands.*
 import com.adobe.clawdea.commands.handlers.*
 import com.adobe.clawdea.skills.ScanStats
@@ -61,7 +62,9 @@ class ChatPanel(
 ) : JPanel(BorderLayout()), Disposable, ChatPanelHost, InputHost {
 
     override val renderer = MessageRenderer(
-        autoAcceptEdits = ClawDEASettings.getInstance().state.run { autoAcceptEdits || toolApprovalMode == "allow-all" },
+        autoAcceptEdits = ClawDEASettings.getInstance().state.run {
+            autoAcceptEdits || ToolApprovalModeUi.isAllowAll(toolApprovalMode)
+        },
         projectBasePath = project.basePath,
     )
     private val indexQueryHandler = IndexQueryHandler(project)
@@ -97,6 +100,8 @@ class ChatPanel(
 
     // JS→Kotlin bridge for stop button in JCEF
     private val abortQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    // JS→Kotlin bridge for the thinking pause/stop control
+    private val turnControlQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     // Task widget
     private val taskWidget = TaskWidgetController()
@@ -119,9 +124,9 @@ class ChatPanel(
 
     private val htmlTemplate = ChatHtmlTemplate()
     private val browserRenderer = ChatBrowserRenderer(
-        browser, htmlTemplate, abortQuery, openDiffQuery, editActionQuery,
-        healthQuery, openFileQuery, navigateQuery, permissionDecisionQuery,
-        driftActionQuery,
+        browser, htmlTemplate, abortQuery, turnControlQuery, openDiffQuery,
+        editActionQuery, healthQuery, openFileQuery, navigateQuery,
+        permissionDecisionQuery, driftActionQuery,
     )
 
     // Unregister handle for the DriftDetectionService listener; populated in init, called from dispose().
@@ -182,6 +187,14 @@ class ChatPanel(
     // Event stream handler
     private lateinit var eventHandler: EventStreamHandler
 
+    // Counts consecutive turn-start stall recoveries since the last successful turn.
+    // First stall → restart with --resume (handles transient slow-first-byte / network blip).
+    // Second consecutive stall → restart fresh (the resumed session is poisoned: e.g. CC
+    // emits "No response requested." and ignores subsequent stdin prompts forever).
+    // Reset to 0 by EventStreamHandler.onTurnSucceeded.
+    @Volatile
+    private var consecutivePromptStalls: Int = 0
+
     // Session manager (constructed in init after turnController exists)
     private lateinit var sessionManager: SessionManager
 
@@ -202,20 +215,19 @@ class ChatPanel(
                     browserRenderer.appendHtml(renderer.renderAssistantText(eventHandler.messageBuffer.toString()))
                     eventHandler.messageBuffer.clear()
                 }
-                browserRenderer.hideThinkingIndicator()
                 browserRenderer.hideAllStopButtons()
                 browserRenderer.showPausedBanner()
+                syncStreamingUi()
                 statusLabel.text = "Paused — Enter to continue, type to steer, ESC to abort"
                 inputArea.requestFocusInWindow()
             },
             onResume = { text ->
                 scope.launch {
                     if (!bridge.isRunning) {
-                        val previousSessionId = bridge.sessionId
                         try {
                             clearQueuedPrompt()
                             withContext(Dispatchers.IO) {
-                                bridge.restart(resumeSessionId = previousSessionId, skills = discoveredSkills)
+                                bridge.restart(skills = discoveredSkills)
                             }
                         } catch (e: CancellationException) {
                             throw e
@@ -235,13 +247,16 @@ class ChatPanel(
                     eventHandler.turnHasContent = false
                     eventHandler.streamStartTime = System.currentTimeMillis()
                     statusLabel.text = "Claude is thinking..."
+                    eventHandler.watchForTurnStartStall()
                     inputArea.text = ""
                 }
             },
             onAbort = {
                 clearQueuedPrompt()
                 browserRenderer.hidePausedBanner()
+                browserRenderer.hideThinkingIndicator()
                 browserRenderer.appendHtml(renderer.renderError("Response aborted by user"))
+                syncStreamingUi()
                 statusLabel.text = " "
             },
         )
@@ -258,6 +273,16 @@ class ChatPanel(
         // Abort bridge: JS stopTool() → Kotlin abort()
         abortQuery.addHandler {
             ApplicationManager.getApplication().invokeLater { abort() }
+            JBCefJSQuery.Response("ok")
+        }
+
+        turnControlQuery.addHandler { action ->
+            ApplicationManager.getApplication().invokeLater {
+                when (action) {
+                    "pause" -> handleEscape()
+                    "stop" -> abort()
+                }
+            }
             JBCefJSQuery.Response("ok")
         }
 
@@ -281,7 +306,11 @@ class ChatPanel(
             onContextLabelUpdate = { updateContextLabel() },
             onSyncStreamingUi = { syncStreamingUi() },
             onTurnCompleted = { flushQueuedPromptIfReady() },
+            onTurnStartStalled = { recoverStalledPromptTurn() },
+            onToolResultStalled = { recoverStalledToolTurn() },
+            isUserInputPending = { permissionDispatcher.hasInFlightRequests() },
             onShowErrorNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.ERROR) },
+            onTurnSucceeded = { consecutivePromptStalls = 0 },
         )
 
         // Session manager: handles resume, reload, wake recovery, interactive terminal
@@ -300,7 +329,7 @@ class ChatPanel(
                 browserRenderer.hideThinkingIndicator()
                 browserRenderer.hideAllStopButtons()
             },
-            onRestartAfterTerminal = {
+            onRestartAfterTerminal = { sessionId ->
                 scope.launch {
                     try {
                         turnController.resetTurnState()
@@ -309,7 +338,7 @@ class ChatPanel(
                         browserRenderer.hidePausedBanner()
                         browserRenderer.hideThinkingIndicator()
                         browserRenderer.hideAllStopButtons()
-                        withContext(Dispatchers.IO) { bridge.restart(skills = discoveredSkills) }
+                        withContext(Dispatchers.IO) { bridge.restart(resumeSessionId = sessionId, skills = discoveredSkills) }
                         appendHtml(renderer.renderInfoMessage("Session restarted to apply changes."))
                     } catch (e: CancellationException) {
                         throw e
@@ -575,21 +604,23 @@ class ChatPanel(
         val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
             isOpaque = false
         }
-        val approvalLabels = arrayOf("Confirm all", "Allow safe", "Allow all")
-        val approvalKeys = arrayOf("confirm-all", "allow-safe", "allow-all")
-        val messageRenderer = renderer
         fun syncRendererAutoAccept() {
-            messageRenderer.autoAcceptEdits = settings.autoAcceptEdits || settings.toolApprovalMode == "allow-all"
+            renderer.autoAcceptEdits = settings.autoAcceptEdits || ToolApprovalModeUi.isAllowAll(settings.toolApprovalMode)
         }
-        val approvalCombo = ComboBox(DefaultComboBoxModel(approvalLabels)).apply {
+        var activeApprovalKey = settings.toolApprovalMode
+        val approvalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
             font = font.deriveFont(11f)
-            selectedIndex = approvalKeys.indexOf(settings.toolApprovalMode).coerceAtLeast(0)
-            toolTipText = "Tool approval policy: Confirm all prompts every tool; " +
-                "Allow safe uses Claude's Auto Mode classifier; Allow all bypasses all prompts."
+            selectedIndex = ToolApprovalModeUi.indexForKey(settings.toolApprovalMode)
+            toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
+            ToolApprovalModeUi.installRenderer(this)
             addActionListener {
-                val key = approvalKeys[selectedIndex.coerceIn(0, approvalKeys.lastIndex)]
-                settings.toolApprovalMode = key
+                val previousKey = activeApprovalKey
+                val newKey = ToolApprovalModeUi.keyForIndex(selectedIndex)
+                if (!ToolApprovalModeUi.requiresCliRestart(previousKey, newKey)) return@addActionListener
+                activeApprovalKey = newKey
+                settings.toolApprovalMode = newKey
                 syncRendererAutoAccept()
+                applyToolApprovalModeChange(ToolApprovalModeUi.labelForKey(newKey))
             }
         }
         val autoAcceptEditsCheck = JCheckBox("Auto-accept edits").apply {
@@ -681,6 +712,76 @@ class ChatPanel(
         return bar
     }
 
+    private fun applyToolApprovalModeChange(label: String) {
+        when {
+            bridge.isRunning && !turnController.isStreaming -> restartAfterToolApprovalModeChange(label)
+            bridge.isRunning -> {
+                appendHtml(renderer.renderInfoMessage("Tool approval changed to $label. It will apply after the current response or next session restart."))
+            }
+            else -> {
+                appendHtml(renderer.renderInfoMessage("Tool approval changed to $label. It will apply on the next send."))
+            }
+        }
+    }
+
+    private fun restartAfterToolApprovalModeChange(label: String) {
+        scope.launch {
+            try {
+                clearQueuedPrompt()
+                withContext(Dispatchers.IO) { bridge.restart(skills = discoveredSkills) }
+                appendHtml(renderer.renderInfoMessage("Tool approval changed to $label. Session restarted to apply permission flags."))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                appendHtml(renderer.renderError("Failed to restart session after changing tool approval: ${e.message}"))
+            }
+        }
+    }
+
+    private fun recoverStalledToolTurn() {
+        // Tool-result stalls are usually one-off network glitches in the middle of an
+        // otherwise healthy session; resuming preserves all prior context. Don't count
+        // these toward the prompt-stall escalation — they're a different failure mode.
+        recoverStalledTurn(
+            "Claude CLI stopped responding after a tool completed. Restarting the session; please retry the last prompt.",
+            fresh = false,
+        )
+    }
+
+    private fun recoverStalledPromptTurn() {
+        consecutivePromptStalls += 1
+        val escalateToFresh = shouldEscalateToFreshRestart(consecutivePromptStalls)
+        recoverStalledTurn(stalledPromptMessage(escalateToFresh), fresh = escalateToFresh)
+    }
+
+    private fun recoverStalledTurn(message: String, fresh: Boolean) {
+        appendHtml(renderer.renderError(message))
+        turnController.resetTurnState()
+        clearQueuedPrompt()
+        syncStreamingUi()
+        browserRenderer.hideThinkingIndicator()
+        browserRenderer.hideAllStopButtons()
+        statusLabel.text = " "
+
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    if (fresh) {
+                        bridge.restartFresh(skills = discoveredSkills)
+                    } else {
+                        bridge.restart(skills = discoveredSkills)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val msg = "Failed to restart Claude CLI after a stalled turn: ${e.message}"
+                appendHtml(renderer.renderError(msg))
+                showNotification("ClawDEA", msg, NotificationType.ERROR)
+            }
+        }
+    }
+
     private fun setMode(mode: String) {
         currentMode = mode
         for ((m, btn) in modeButtons) {
@@ -692,8 +793,13 @@ class ChatPanel(
     // ── Bottom panel ───────────────────────────────────────────────
 
     private fun syncStreamingUi() {
-        modelCombo.isEnabled = !turnController.isStreaming
-        effortCombo.isEnabled = !turnController.isStreaming
+        val controlsState = TurnControlsState.from(
+            isStreaming = turnController.isStreaming,
+            isPaused = turnController.isPaused,
+        )
+        modelCombo.isEnabled = controlsState.selectorsEnabled
+        effortCombo.isEnabled = controlsState.selectorsEnabled
+        browserRenderer.updateTurnControlButton(controlsState.thinkingButton)
     }
 
     private fun createBottomPanel(): JPanel {
@@ -1271,6 +1377,7 @@ class ChatPanel(
         eventHandler.turnHasContent = false
         eventHandler.streamStartTime = System.currentTimeMillis()
         statusLabel.text = "Claude is thinking..."
+        eventHandler.watchForTurnStartStall()
     }
 
     private fun openSkillPicker() {
@@ -1447,6 +1554,7 @@ class ChatPanel(
         eventHandler.turnHasContent = false
         eventHandler.streamStartTime = System.currentTimeMillis()
         statusLabel.text = "Claude is thinking..."
+        eventHandler.watchForTurnStartStall()
 
         eventHandler.totalTokensUsed += ContextBudgetCalculator.estimateTokens(text)
         updateContextLabel()
@@ -1462,7 +1570,7 @@ class ChatPanel(
     }
 
     fun abort() {
-        if (!turnController.isStreaming) return
+        if (!turnController.isStreaming && !turnController.isPaused) return
         bridge.abort()
         turnController.resetTurnState()
         clearQueuedPrompt()
@@ -1647,6 +1755,7 @@ class ChatPanel(
             try { driftListenerUnregister() } catch (_: Throwable) {}
         }
         abortQuery.dispose()
+        turnControlQuery.dispose()
         openDiffQuery.dispose()
         editActionQuery.dispose()
         healthQuery.dispose()
@@ -1657,4 +1766,18 @@ class ChatPanel(
         browser.dispose()
     }
 
+    companion object {
+        // Resume on the first prompt-start stall (transient slow-first-byte / network blip).
+        // Escalate to a fresh restart on the second consecutive stall — at that point the
+        // resumed session is poisoned and resuming it again will just stall the same way.
+        internal fun shouldEscalateToFreshRestart(consecutivePromptStalls: Int): Boolean =
+            consecutivePromptStalls >= 2
+
+        internal fun stalledPromptMessage(escalateToFresh: Boolean): String =
+            if (escalateToFresh) {
+                "Claude CLI is unresponsive even after a resume — the session looks stuck. Starting a fresh session; please retry the last prompt."
+            } else {
+                "Claude CLI did not respond after receiving the prompt. Restarting the session; please retry the last prompt."
+            }
+    }
 }

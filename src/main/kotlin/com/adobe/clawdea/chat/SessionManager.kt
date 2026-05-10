@@ -36,7 +36,7 @@ class SessionManager(
     private val turnController: TurnController,
     private val getDiscoveredSkills: () -> List<SkillInfo>,
     private val onResetUi: () -> Unit,
-    private val onRestartAfterTerminal: () -> Unit,
+    private val onRestartAfterTerminal: (sessionId: String?) -> Unit,
 ) {
 
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(SessionManager::class.java)
@@ -203,6 +203,6 @@ class SessionManager(
         }
         browserRenderer.appendHtml(renderer.renderInfoMessage(msg))
         // Restart bridge to pick up any config/auth changes from the interactive command
-        onRestartAfterTerminal()
+        onRestartAfterTerminal(currentSessionId)
     }
 }

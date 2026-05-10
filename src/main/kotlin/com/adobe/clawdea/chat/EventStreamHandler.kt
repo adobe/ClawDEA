@@ -34,7 +34,11 @@ class EventStreamHandler(
     private val onContextLabelUpdate: () -> Unit,
     private val onSyncStreamingUi: () -> Unit,
     private val onTurnCompleted: () -> Unit,
+    private val onTurnStartStalled: () -> Unit,
+    private val onToolResultStalled: () -> Unit,
+    private val isUserInputPending: () -> Boolean,
     private val onShowErrorNotification: (message: String) -> Unit,
+    private val onTurnSucceeded: () -> Unit = {},
 ) {
     val messageBuffer = StringBuilder()
     var turnHasContent = false
@@ -45,6 +49,7 @@ class EventStreamHandler(
     private var toolStartTime: Long = 0
     private val taskExtractor = TaskEventExtractor()
     private val pendingToolUses = mutableMapOf<String, CliEvent.ToolUse>()
+    private var progressSequence = 0L
 
     fun startEventListener() {
         scope.launch {
@@ -56,7 +61,32 @@ class EventStreamHandler(
         }
     }
 
+    fun watchForTurnStartStall() {
+        val observedProgressSequence = progressSequence
+        scheduleStallRecovery(TURN_START_STALL_TIMEOUT_MS, observedProgressSequence, onTurnStartStalled)
+    }
+
+    private fun scheduleStallRecovery(timeoutMs: Int, observedProgressSequence: Long, onStalled: () -> Unit) {
+        Timer(timeoutMs) {
+            if (shouldRecoverStall(
+                isStreaming = turnController.isStreaming,
+                bridgeRunning = bridge.isRunning,
+                userInputPending = isUserInputPending(),
+                currentProgressSequence = progressSequence,
+                observedProgressSequence = observedProgressSequence,
+            )) {
+                onStalled()
+            }
+        }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
     private fun handleEvent(event: CliEvent) {
+        if (isTurnProgressEvent(event)) {
+            progressSequence += 1
+        }
         when (event) {
             is CliEvent.SystemInit -> {
                 statusLabel.text = "Connected"
@@ -186,6 +216,7 @@ class EventStreamHandler(
                     browserRenderer.injectToolOutput(event.toolUseId, renderer.renderToolResult(event.content))
                 }
                 onContextLabelUpdate()
+                watchForToolResultStall(progressSequence)
             }
             is CliEvent.Result -> {
                 browserRenderer.hideThinkingIndicator()
@@ -203,9 +234,13 @@ class EventStreamHandler(
                         browserRenderer.appendHtml(renderer.renderError(event.text))
                     }
                     onShowErrorNotification(guidance ?: event.text)
-                } else if (event.text.isNotBlank() && !turnHasContent) {
-                    // Show result text only if no assistant content was already rendered
-                    browserRenderer.appendHtml(renderer.renderAssistantText(event.text))
+                } else {
+                    if (event.text.isNotBlank() && !turnHasContent) {
+                        // Show result text only if no assistant content was already rendered
+                        browserRenderer.appendHtml(renderer.renderAssistantText(event.text))
+                    }
+                    // Signal a healthy turn so the prompt-stall escalation counter resets.
+                    onTurnSucceeded()
                 }
                 val totalElapsed = if (streamStartTime > 0) {
                     System.currentTimeMillis() - streamStartTime
@@ -238,6 +273,7 @@ class EventStreamHandler(
                         onSyncStreamingUi()
                         streamStartTime = System.currentTimeMillis()
                         statusLabel.text = "Claude is thinking..."
+                        watchForTurnStartStall()
                         sentEditFeedback = true
                     }
                 }
@@ -273,6 +309,10 @@ class EventStreamHandler(
             // These branches exist only for sealed-class exhaustiveness.
             is CliEvent.TaskEvent -> {}
         }
+    }
+
+    private fun watchForToolResultStall(toolResultProgressSequence: Long) {
+        scheduleStallRecovery(TOOL_RESULT_STALL_TIMEOUT_MS, toolResultProgressSequence, onToolResultStalled)
     }
 
     /**
@@ -318,5 +358,65 @@ class EventStreamHandler(
                 start()
             }
         }
+    }
+
+    companion object {
+        // First-byte latency from Anthropic/Bedrock can spike to ~70-80s when the
+        // primer system prompt is large (CLAUDE.md + wiki index + skills + workspace).
+        // Keep the watchdog conservative enough to absorb that without false-positives,
+        // while still catching genuine hangs within ~1.5 min.
+        internal const val TURN_START_STALL_TIMEOUT_MS = 90_000
+        internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 90_000
+
+        internal fun shouldRecoverTurnStartStall(
+            isStreaming: Boolean,
+            bridgeRunning: Boolean,
+            userInputPending: Boolean,
+            currentProgressSequence: Long,
+            observedProgressSequence: Long,
+        ): Boolean =
+            shouldRecoverStall(
+                isStreaming,
+                bridgeRunning,
+                userInputPending,
+                currentProgressSequence,
+                observedProgressSequence,
+            )
+
+        internal fun shouldRecoverToolResultStall(
+            isStreaming: Boolean,
+            bridgeRunning: Boolean,
+            userInputPending: Boolean,
+            currentProgressSequence: Long,
+            observedProgressSequence: Long,
+        ): Boolean =
+            shouldRecoverStall(
+                isStreaming,
+                bridgeRunning,
+                userInputPending,
+                currentProgressSequence,
+                observedProgressSequence,
+            )
+
+        internal fun isTurnProgressEvent(event: CliEvent): Boolean =
+            when (event) {
+                is CliEvent.TextDelta,
+                is CliEvent.AssistantMessage,
+                is CliEvent.ToolResult,
+                is CliEvent.Result,
+                is CliEvent.AuthFailure -> true
+                is CliEvent.SystemInit,
+                is CliEvent.TaskEvent,
+                is CliEvent.Unknown -> false
+            }
+
+        private fun shouldRecoverStall(
+            isStreaming: Boolean,
+            bridgeRunning: Boolean,
+            userInputPending: Boolean,
+            currentProgressSequence: Long,
+            observedProgressSequence: Long,
+        ): Boolean =
+            isStreaming && bridgeRunning && !userInputPending && currentProgressSequence == observedProgressSequence
     }
 }

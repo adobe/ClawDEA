@@ -130,7 +130,11 @@ class McpServer(private val project: Project) : Disposable {
                         router.dispatch(toolName, arguments)
                     }
                     val result = try {
-                        future.get(TOOL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        if (shouldUseGenericToolTimeout(toolName)) {
+                            future.get(TOOL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                        } else {
+                            future.get()
+                        }
                     } catch (e: TimeoutException) {
                         future.cancel(true)
                         log.warn("MCP tool $toolName timed out after ${TOOL_TIMEOUT_SECONDS}s")
@@ -182,6 +186,16 @@ class McpServer(private val project: Project) : Disposable {
 
     companion object {
         private const val TOOL_TIMEOUT_SECONDS = 60L
+        private val USER_INTERACTIVE_TOOLS = setOf(
+            "request_permission",
+            "propose_edit",
+            "propose_write",
+            "propose_multi_edit",
+            "propose_notebook_edit",
+        )
+
+        internal fun shouldUseGenericToolTimeout(toolName: String): Boolean =
+            toolName !in USER_INTERACTIVE_TOOLS
 
         fun getInstance(project: Project): McpServer =
             project.getService(McpServer::class.java)

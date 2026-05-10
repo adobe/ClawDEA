@@ -444,6 +444,54 @@ em { color: var(--subtext0); }
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
 }
+.thinking-dots.paused .thinking-dot {
+    animation: none;
+    opacity: 0.55;
+}
+.thinking-control-btn {
+    margin-left: 6px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.thinking-control-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.thinking-control-btn.stop {
+    border-color: rgba(243, 139, 168, 0.3);
+}
+.thinking-control-icon {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+}
+.thinking-control-icon.pause {
+    background:
+        linear-gradient(to right,
+            var(--subtext0) 0 3px,
+            transparent 3px 7px,
+            var(--subtext0) 7px 10px);
+}
+.thinking-control-btn:hover .thinking-control-icon.pause {
+    background:
+        linear-gradient(to right,
+            var(--text) 0 3px,
+            transparent 3px 7px,
+            var(--text) 7px 10px);
+}
+.thinking-control-icon.stop {
+    width: 9px;
+    height: 9px;
+    border-radius: 1px;
+    background: var(--red);
+}
 .paused-banner {
     position: sticky;
     bottom: 0;
@@ -514,6 +562,11 @@ em { color: var(--subtext0); }
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-word;
+}
+.permission-summary-label {
+    color: var(--yellow, #f9e2af);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 600;
 }
 .permission-actions {
     margin-left: 20px;
@@ -781,11 +834,16 @@ function updateTaskWidget(html) {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function showThinking() {
-    if (document.getElementById('thinking-indicator')) return;
+    if (document.getElementById('thinking-indicator')) {
+        setTurnControlButton('pause');
+        return;
+    }
     var html = '<div id="thinking-indicator" class="message">' +
         '<div class="message-label assistant-label">Claude</div>' +
         '<div class="assistant-bubble"><div class="thinking-dots">' +
         '<div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div>' +
+        '<button class="thinking-control-btn" type="button" data-action="turn-pause" title="Pause response" aria-label="Pause response">' +
+        '<span class="thinking-control-icon pause" aria-hidden="true"></span></button>' +
         '</div></div></div>';
     var container = document.getElementById('messages');
     container.insertAdjacentHTML('beforeend', html);
@@ -794,6 +852,34 @@ function showThinking() {
 function hideThinking() {
     var el = document.getElementById('thinking-indicator');
     if (el) el.remove();
+}
+function setTurnControlButton(state) {
+    var indicator = document.getElementById('thinking-indicator');
+    if (!indicator) return;
+    var dots = indicator.querySelector('.thinking-dots');
+    var btn = indicator.querySelector('.thinking-control-btn');
+    if (!btn) return;
+    var icon = btn.querySelector('.thinking-control-icon');
+    if (state === 'stop') {
+        btn.style.display = '';
+        btn.title = 'Stop response';
+        btn.setAttribute('aria-label', 'Stop response');
+        btn.setAttribute('data-action', 'turn-stop');
+        btn.classList.add('stop');
+        if (icon) icon.className = 'thinking-control-icon stop';
+        if (dots) dots.classList.add('paused');
+    } else if (state === 'pause') {
+        btn.style.display = '';
+        btn.title = 'Pause response';
+        btn.setAttribute('aria-label', 'Pause response');
+        btn.setAttribute('data-action', 'turn-pause');
+        btn.classList.remove('stop');
+        if (icon) icon.className = 'thinking-control-icon pause';
+        if (dots) dots.classList.remove('paused');
+    } else {
+        btn.style.display = 'none';
+        if (dots) dots.classList.remove('paused');
+    }
 }
 function showPausedBanner() {
     var el = document.getElementById('paused-banner');

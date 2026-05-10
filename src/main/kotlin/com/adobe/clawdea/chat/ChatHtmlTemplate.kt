@@ -20,6 +20,7 @@ class ChatHtmlTemplate {
 
     fun buildBridgeScripts(
         abortJs: String,
+        turnControlJs: String,
         openDiffJs: String,
         editActionJs: String,
         healthJs: String,
@@ -29,6 +30,7 @@ class ChatHtmlTemplate {
         driftActionJs: String,
     ): String = """
         window.bridgeStopTool = function() { $abortJs };
+        window.bridgeTurnControl = function(action) { $turnControlJs };
         window.bridgeOpenDiff = function(toolId) { $openDiffJs };
         window.bridgeEditAction = function(arg) { $editActionJs };
         window.bridgeHealthPing = function() { $healthJs };
@@ -67,6 +69,8 @@ class ChatHtmlTemplate {
                 case 'edit-accept': bridgeEditAction(toolId + ':accept'); break;
                 case 'edit-reject': bridgeEditAction(toolId + ':reject'); break;
                 case 'stop-tool': bridgeStopTool(); break;
+                case 'turn-pause': bridgeTurnControl('pause'); break;
+                case 'turn-stop': bridgeTurnControl('stop'); break;
                 case 'toggle-tool-body': toggleToolBody(el); break;
                 case 'open-file': bridgeOpenFile(el.getAttribute('data-file-path') || ''); break;
                 case 'navigate': bridgeNavigate(el.getAttribute('data-ref') || ''); break;

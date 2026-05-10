@@ -33,10 +33,24 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `thinking indicator exposes pause and stop controls`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        assertContains(html, """data-action="turn-pause"""")
+        assertContains(html, """aria-label="Pause response"""")
+        assertContains(html, "thinking-control-icon pause")
+        assertContains(html, "setTurnControlButton")
+        assertContains(html, """data-action', 'turn-stop'""")
+        assertContains(html, "thinking-control-icon stop")
+    }
+
+    @Test
     fun `buildBridgeScripts includes all bridge functions`() {
         val template = ChatHtmlTemplate()
         val js = template.buildBridgeScripts(
             abortJs = "ABORT_JS",
+            turnControlJs = "TURN_CONTROL_JS",
             openDiffJs = "DIFF_JS",
             editActionJs = "EDIT_JS",
             healthJs = "HEALTH_JS",
@@ -46,6 +60,7 @@ class ChatHtmlTemplateTest {
             driftActionJs = "DRIFT_JS",
         )
         assertContains(js, "ABORT_JS")
+        assertContains(js, "TURN_CONTROL_JS")
         assertContains(js, "DIFF_JS")
         assertContains(js, "EDIT_JS")
         assertContains(js, "HEALTH_JS")
@@ -54,6 +69,7 @@ class ChatHtmlTemplateTest {
         assertContains(js, "PERMISSION_JS")
         assertContains(js, "DRIFT_JS")
         assertContains(js, "window.bridgeStopTool")
+        assertContains(js, "window.bridgeTurnControl")
         assertContains(js, "window.bridgeOpenDiff")
         assertContains(js, "window.bridgeEditAction")
         assertContains(js, "window.bridgeHealthPing")
@@ -63,6 +79,8 @@ class ChatHtmlTemplateTest {
         assertContains(js, "window.bridgeDriftAction")
         assertContains(js, "permission-allow")
         assertContains(js, "permission-deny")
+        assertContains(js, "turn-pause")
+        assertContains(js, "turn-stop")
         assertContains(js, "drift-action")
     }
 }

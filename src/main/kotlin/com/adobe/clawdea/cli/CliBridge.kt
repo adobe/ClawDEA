@@ -37,11 +37,14 @@ class CliBridge(
     private var readerJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // Set when the caller deliberately triggered the CLI to exit (e.g. via
-    // abort → SIGINT in -p mode). Suppresses the synthetic "exited unexpectedly"
-    // Result event so the UI doesn't treat a pause as a crash.
+    // Tracks which process generation was deliberately asked to exit (e.g. via
+    // restart or abort). This is generation-scoped so a stale reader from the
+    // old process cannot emit a crash after a new CLI process starts.
     @Volatile
-    private var expectedExit: Boolean = false
+    private var expectedExitGeneration: Long? = null
+
+    @Volatile
+    private var activeGeneration: Long = 0
 
     var sessionId: String? = null
         private set
@@ -52,13 +55,20 @@ class CliBridge(
     fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         if (isRunning) return
 
-        expectedExit = false
-        cliProcess.start(resumeSessionId, skills)
+        val readerGeneration = synchronized(this) {
+            activeGeneration += 1
+            activeGeneration
+        }
+        val requestedResumeSessionId = resumableSessionForStart(resumeSessionId)
+        sessionId = requestedResumeSessionId
+
+        cliProcess.start(requestedResumeSessionId, skills)
 
         readerJob = scope.launch {
             try {
-                while (isActive && cliProcess.isAlive) {
+                while (isActive && isCurrentReader(readerGeneration) && cliProcess.isAlive) {
                     val line = cliProcess.readLine() ?: break
+                    if (!isCurrentReader(readerGeneration)) break
                     if (line.isBlank()) continue
 
                     val event = parser.parse(line)
@@ -67,8 +77,8 @@ class CliBridge(
                         onAuthFailure(event.reason)
                     }
 
-                    if (event is CliEvent.SystemInit) {
-                        sessionId = event.sessionId
+                    if (event is CliEvent.Result) {
+                        sessionId = sessionAfterResult(sessionId, event.sessionId)
                     }
 
                     logToolEvent(event)
@@ -76,20 +86,22 @@ class CliBridge(
                     // Suppress events after a deliberate abort — the CLI emits its
                     // own error Result on SIGINT which would otherwise fire a
                     // confusing notification and prematurely end the paused UI.
-                    if (expectedExit) continue
+                    if (!canReaderEmit(readerGeneration)) continue
 
                     _events.emit(event)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!expectedExit) {
+                if (canReaderEmit(readerGeneration)) {
                     log.warn("Error reading CLI events", e)
                     _events.emit(CliEvent.Unknown(rawType = "", rawJson = """{"error":"${e.message}"}"""))
                 }
             }
 
-            if (isActive && !expectedExit) {
+            if (isActive && shouldEmitUnexpectedExit(readerGeneration, activeGeneration, expectedExitGeneration)) {
+                if (recoverFromRejectedResume(requestedResumeSessionId, readerGeneration, skills)) return@launch
+
                 _events.emit(CliEvent.Result(
                     text = "CLI process exited unexpectedly",
                     isError = true,
@@ -113,20 +125,26 @@ class CliBridge(
     }
 
     fun abort() {
-        expectedExit = true
+        expectedExitGeneration = activeGeneration
         cliProcess.sendInterrupt()
     }
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
+        val sessionToResume = resumeSessionForRestart(sessionId, resumeSessionId)
         stop()
-        start(resumeSessionId, skills)
+        start(sessionToResume, skills)
+    }
+
+    fun restartFresh(skills: List<SkillInfo> = emptyList()) {
+        stop()
+        start(resumeSessionId = null, skills = skills)
     }
 
     fun stop() {
         // Mark as expected so the reader's synthetic "exited unexpectedly"
         // Result event is suppressed — otherwise it can race a subsequent
         // start() and wipe the "Connected" status the new CLI just set.
-        expectedExit = true
+        expectedExitGeneration = activeGeneration
         readerJob?.cancel()
         readerJob = null
         cliProcess.stop()
@@ -151,5 +169,64 @@ class CliBridge(
             }
             else -> {}
         }
+    }
+
+    companion object {
+        internal fun resumeSessionForRestart(
+            currentSessionId: String?,
+            requestedResumeSessionId: String?,
+        ): String? =
+            requestedResumeSessionId?.takeIf { it.isNotBlank() }
+                ?: currentSessionId?.takeIf { it.isNotBlank() }
+
+        internal fun resumableSessionForStart(resumeSessionId: String?): String? =
+            resumeSessionId?.takeIf { it.isNotBlank() }
+
+        internal fun shouldEmitUnexpectedExit(
+            readerGeneration: Long,
+            activeGeneration: Long,
+            expectedExitGeneration: Long?,
+        ): Boolean =
+            readerGeneration == activeGeneration && expectedExitGeneration != readerGeneration
+
+        internal fun shouldRecoverFromRejectedResume(
+            requestedResumeSessionId: String?,
+            recentStderr: List<String>,
+        ): Boolean {
+            val sessionId = requestedResumeSessionId?.takeIf { it.isNotBlank() } ?: return false
+            return recentStderr.any { line ->
+                line.contains("No conversation found with session ID: $sessionId")
+            }
+        }
+
+        internal fun sessionAfterResult(
+            currentSessionId: String?,
+            resultSessionId: String,
+        ): String? =
+            resultSessionId.takeIf { it.isNotBlank() }
+                ?: currentSessionId?.takeIf { it.isNotBlank() }
+    }
+
+    private fun isCurrentReader(readerGeneration: Long): Boolean =
+        readerGeneration == activeGeneration
+
+    private fun canReaderEmit(readerGeneration: Long): Boolean =
+        shouldEmitUnexpectedExit(readerGeneration, activeGeneration, expectedExitGeneration)
+
+    private fun recoverFromRejectedResume(
+        resumeSessionId: String?,
+        readerGeneration: Long,
+        skills: List<SkillInfo>,
+    ): Boolean {
+        if (!shouldRecoverFromRejectedResume(resumeSessionId, cliProcess.recentStderrLines())) {
+            return false
+        }
+
+        log.info("CLI rejected resume session $resumeSessionId; restarting fresh")
+        expectedExitGeneration = readerGeneration
+        sessionId = null
+        cliProcess.stop()
+        start(resumeSessionId = null, skills = skills)
+        return true
     }
 }

@@ -127,9 +127,10 @@ class ClawDEASettingsPanel {
     private val COMPLETION_MODEL_KEYS = arrayOf("sonnet", "haiku")
     val completionsModelCombo = ComboBox(DefaultComboBoxModel(COMPLETION_MODELS))
     val completionsDebounceField = JBTextField("300", 6)
-    private val TOOL_APPROVAL_LABELS = arrayOf("Confirm all", "Allow safe", "Allow all")
-    private val TOOL_APPROVAL_KEYS = arrayOf("confirm-all", "allow-safe", "allow-all")
-    val toolApprovalCombo = ComboBox(DefaultComboBoxModel(TOOL_APPROVAL_LABELS))
+    val toolApprovalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
+        toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
+        ToolApprovalModeUi.installRenderer(this)
+    }
     val autoAcceptEditsCheckbox = JBCheckBox("Auto-accept file edits (still reversible from the chat diff link)", false)
     val completionTokenBudgetField = JBTextField("2048", 6)
     val chatTokenBudgetField = JBTextField("16384", 6)
@@ -383,8 +384,7 @@ class ClawDEASettingsPanel {
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         selectCompletionsModel(state.completionsModel)
         completionsDebounceField.text = state.completionsDebounceMs.toString()
-        val idx = TOOL_APPROVAL_KEYS.indexOf(state.toolApprovalMode)
-        toolApprovalCombo.selectedIndex = if (idx >= 0) idx else 0
+        toolApprovalCombo.selectedIndex = ToolApprovalModeUi.indexForKey(state.toolApprovalMode)
         autoAcceptEditsCheckbox.isSelected = state.autoAcceptEdits
         bedrockRegionField.text = state.bedrockRegion
         bedrockBearerTokenField.text = settings.getBedrockBearerToken()
@@ -419,7 +419,7 @@ class ClawDEASettingsPanel {
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsModel = selectedCompletionsModelKey()
         state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
-        state.toolApprovalMode = TOOL_APPROVAL_KEYS[toolApprovalCombo.selectedIndex.coerceIn(0, TOOL_APPROVAL_KEYS.lastIndex)]
+        state.toolApprovalMode = ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex)
         state.autoAcceptEdits = autoAcceptEditsCheckbox.isSelected
         state.bedrockRegion = bedrockRegionField.text
         settings.setBedrockBearerToken(String(bedrockBearerTokenField.password))
@@ -451,7 +451,7 @@ class ClawDEASettingsPanel {
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             selectedCompletionsModelKey() != state.completionsModel ||
             completionsDebounceField.text != state.completionsDebounceMs.toString() ||
-            TOOL_APPROVAL_KEYS[toolApprovalCombo.selectedIndex.coerceIn(0, TOOL_APPROVAL_KEYS.lastIndex)] != state.toolApprovalMode ||
+            ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex) != state.toolApprovalMode ||
             autoAcceptEditsCheckbox.isSelected != state.autoAcceptEdits ||
             bedrockRegionField.text != state.bedrockRegion ||
             String(bedrockBearerTokenField.password) != settings.getBedrockBearerToken() ||

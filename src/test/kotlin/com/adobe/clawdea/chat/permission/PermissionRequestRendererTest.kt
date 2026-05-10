@@ -54,4 +54,20 @@ class PermissionRequestRendererTest {
         assertTrue(html.contains("Similar commands"))
         assertTrue(html.contains("All calls to this tool"))
     }
+
+    @Test
+    fun `permission card explicitly labels the exact command being approved`() {
+        val renderer = PermissionRequestRenderer(MessageRenderer())
+        val request = PermissionRequest(
+            requestId = "perm-1",
+            toolName = "Bash",
+            inputJson = """{"command":"./gradlew build"}""",
+            summary = "./gradlew build",
+        )
+
+        val html = renderer.renderCard(request)
+
+        assertTrue(html.contains("Exact command/input to approve:"))
+        assertTrue(html.contains("./gradlew build"))
+    }
 }

@@ -235,6 +235,29 @@ class McpPermissionPromptToolTest {
     }
 
     @Test
+    fun `timed-out response tells Claude to wait and not retry on its own`() {
+        val result = McpPermissionPromptTool.buildTimedOutJson()
+        assertTrue("expected deny in $result", result.contains("\"behavior\":\"deny\""))
+        assertTrue("expected wait-for-user guidance in $result", result.contains("waiting for them to approve"))
+        assertTrue("expected do-not-retry guidance in $result", result.contains("DO NOT try a different command"))
+        assertTrue("expected reference to CC regression in $result", result.contains("#50289"))
+    }
+
+    @Test
+    fun `timed-out submit returns the wait-for-user deny payload`() {
+        val dispatcher = object : PermissionDispatcher(onRender = { _ -> /* unused */ }) {
+            override fun submit(toolName: String, inputJson: String, timeoutMs: Long): Result =
+                Result(PermissionRequest.Decision.DENY, timedOut = true)
+        }
+        val tool = McpPermissionPromptTool({ dispatcher })
+        val result = tool.handle(mapOf("tool_name" to "Bash", "input" to """{"command":"ls -la /tmp"}"""))
+        assertFalse(result.isError)
+        assertTrue("expected deny payload, got: ${result.text}", result.text.contains("\"behavior\":\"deny\""))
+        assertTrue("expected wait-for-user message, got: ${result.text}", result.text.contains("waiting for them to approve"))
+        assertTrue("expected do-not-retry message, got: ${result.text}", result.text.contains("DO NOT try a different command"))
+    }
+
+    @Test
     fun `AskUserQuestion is never auto-allowed even under allow-all`() {
         val renderStarted = CountDownLatch(1)
         lateinit var capturedId: String

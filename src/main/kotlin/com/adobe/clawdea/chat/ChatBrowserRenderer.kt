@@ -22,6 +22,7 @@ class ChatBrowserRenderer(
     private val browser: JBCefBrowser,
     private val template: ChatHtmlTemplate,
     private val abortQuery: JBCefJSQuery,
+    private val turnControlQuery: JBCefJSQuery,
     private val openDiffQuery: JBCefJSQuery,
     private val editActionQuery: JBCefJSQuery,
     private val healthQuery: JBCefJSQuery,
@@ -41,6 +42,7 @@ class ChatBrowserRenderer(
                 browserReady = true
                 val bridgeScripts = template.buildBridgeScripts(
                     abortJs = abortQuery.inject("'abort'"),
+                    turnControlJs = turnControlQuery.inject("action"),
                     openDiffJs = openDiffQuery.inject("toolId"),
                     editActionJs = editActionQuery.inject("arg"),
                     healthJs = healthQuery.inject("'ping'"),
@@ -92,6 +94,16 @@ class ChatBrowserRenderer(
     fun showThinkingIndicator() {
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript("showThinking();", browser.cefBrowser.url, 0)
+    }
+
+    fun updateTurnControlButton(button: TurnControlButton) {
+        if (!browserReady) return
+        val state = when (button) {
+            TurnControlButton.NONE -> "none"
+            TurnControlButton.PAUSE -> "pause"
+            TurnControlButton.STOP -> "stop"
+        }
+        browser.cefBrowser.executeJavaScript("setTurnControlButton('$state');", browser.cefBrowser.url, 0)
     }
 
     fun hideThinkingIndicator() {

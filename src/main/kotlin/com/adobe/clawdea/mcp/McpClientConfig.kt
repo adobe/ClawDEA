@@ -18,7 +18,10 @@ package com.adobe.clawdea.mcp
  * each of which writes it to its own temp file and passes it via --mcp-config.
  *
  * `alwaysLoad: true` opts the server out of Claude Code's tool-search deferral
- * (requires CLI v2.1.121+). Older clients ignore the field.
+ * (requires CLI v2.1.121+). `timeout` gives interactive approval/review flows
+ * enough time for a human decision. Older clients ignore unknown fields.
  */
+internal const val MCP_CLIENT_INTERACTIVE_TIMEOUT_MS = 600_000
+
 internal fun buildMcpClientConfigJson(port: Int): String =
-    """{"mcpServers":{"clawdea-intellij":{"type":"http","url":"http://127.0.0.1:$port/mcp","alwaysLoad":true}}}"""
+    """{"mcpServers":{"clawdea-intellij":{"type":"http","url":"http://127.0.0.1:$port/mcp","alwaysLoad":true,"timeout":$MCP_CLIENT_INTERACTIVE_TIMEOUT_MS}}}"""
