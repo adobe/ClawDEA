@@ -171,6 +171,10 @@ stepping, variable inspection, and runtime mutation.</p>
         <notificationGroup
             id="ClawDEA"
             displayType="BALLOON"/>
+
+        <!-- Profiling Line Marker -->
+        <codeInsight.lineMarkerProvider language="JAVA"
+            implementationClass="com.adobe.clawdea.profiling.ui.ProfilingLineMarker"/>
     </extensions>
 
     <actions>
@@ -201,6 +205,15 @@ stepping, variable inspection, and runtime mutation.</p>
                 text="Pause or Abort ClawDEA Response"
                 description="Pause the current Claude response; press again to fully abort">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="ClawDEA.ProfileRun" class="com.adobe.clawdea.profiling.ui.ProfilingRunAction"
+            text="Run with ClawDEA Profiler" description="Profile the selected Run configuration">
+            <add-to-group group-id="RunMenu" anchor="last"/>
+        </action>
+        <action id="ClawDEA.ImportProfile" class="com.adobe.clawdea.profiling.ui.ImportProfileAction"
+            text="Analyze with ClawDEA" description="Analyze this recording with ClawDEA profiler">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
