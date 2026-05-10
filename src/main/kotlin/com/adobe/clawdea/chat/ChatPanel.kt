@@ -968,6 +968,8 @@ class ChatPanel(
 
         commandRegistry.register("/promote-to-wiki", com.adobe.clawdea.commands.handlers.PromoteToWikiHandler.create(project))
 
+        commandRegistry.register("/profile", com.adobe.clawdea.profiling.commands.ProfileCommandHandler.create())
+
         commandRegistry.register("/learn", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
             CommandInfo("/learn", "Propose a wiki page from the current conversation", CommandCategory.BRIDGE),
         ) { args ->
