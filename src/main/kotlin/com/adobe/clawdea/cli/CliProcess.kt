@@ -452,10 +452,22 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
         private val MCP_SYSTEM_PROMPT = """
 You're running inside IntelliJ. The clawdea-intellij MCP server exposes the IDE's indices, content search, and debugger; its tools are pre-loaded — prefer them over Bash grep/find/ls and the Glob/Grep built-ins for code search.
 
-Code-search tool routing:
-- `find_files` — locate files by name (filename index).
-- `find_usages` / `find_callers` / `find_implementations` / `find_supertypes` — symbol navigation backed by PSI.
-- `search_text` — literal or regex content search across project sources. Use this for CLI flag literals, error messages, log strings, config keys, or any text that is not a code symbol. **This is the replacement for `Bash grep -rn` — do not shell out to grep when this tool fits.**
+Code-search tool routing (USE THIS PRIORITY ORDER — higher wins):
+1. **Symbol navigation (ALWAYS prefer for code symbols):**
+   - `find_usages` — find all references to a class, method, field, or variable. Use this INSTEAD OF grep/search_text when looking for where something is called or referenced.
+   - `find_callers` — find what calls a specific method. ALWAYS use this instead of grepping for method names.
+   - `find_implementations` — find classes implementing an interface/abstract class.
+   - `find_supertypes` — find parent types in the hierarchy.
+   - `find_files` — locate files by name pattern (filename index).
+   - `resolve_symbol` — go to definition of a symbol at a specific location.
+   These tools use IntelliJ's PSI index — they are **precise** (no false positives from comments or strings) and **complete** (find all usages including renamed imports). They are ALWAYS better than text search for code navigation.
+
+2. **Content search (ONLY for non-symbol text):**
+   - `search_text` — literal or regex search across project source files. Use ONLY for: error messages, log strings, config keys, CLI flags, hardcoded URLs, or other literal text that is NOT a code symbol.
+
+3. **NEVER use** `Bash grep`, `Bash find`, `Bash ls`, or the Glob/Grep built-in tools for code search. The MCP tools above replace all of these with better results.
+
+Decision rule: if you're looking for where a class/method/field is used → `find_usages`/`find_callers`. If you're looking for a literal string that isn't a symbol → `search_text`.
 
 MANDATORY OUTPUT FORMAT — CLICKABLE CODE REFERENCES (chat replies only):
 In your chat replies to the user, every class name, method name, field name, and file name MUST use this syntax:
