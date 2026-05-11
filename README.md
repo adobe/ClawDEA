@@ -21,7 +21,7 @@ Optionally builds a knowledge base to enhance LLM understanding of current and r
 
 **Chat panel** — Streams Claude responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings).
 
-**MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, plus literal/regex content search via `search_text`, plus cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present — faster and more accurate than filesystem grep.
+**MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search via `search_text`, profiling (8 tools), and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present — faster and more accurate than filesystem grep.
 
 **@ mentions** — Type `@` for inline autocomplete (open editor tabs + recently git-modified files); press `@` then Tab to open a full picker with grouped Files and Symbols sections, backed by IntelliJ's filename and short-name caches.
 
@@ -30,6 +30,8 @@ Optionally builds a knowledge base to enhance LLM understanding of current and r
 **Edit review** — When "Auto-accept Edits" is off, each proposed change opens a native IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that slip through are caught by a fallback layer with inline buttons and file revert.
 
 **Debugger integration** — 21 MCP tools let Claude drive IntelliJ's debugger: launch sessions, set breakpoints (with conditions and log expressions), step through code, inspect variables, evaluate expressions, and modify values at runtime. Breakpoint ownership tracking ensures your breakpoints are never deleted.
+
+**Profiling** — Claude can profile your code via JDK Flight Recorder: launch tests or run configurations with JFR instrumentation, then analyze CPU hotspots, allocation pressure, and memory leaks. Three entry points: `/profile` slash command, gutter icon on `@Test` methods, or imported `.jfr`/`.hprof` files. Claude reads the analysis results and proposes source-level fixes.
 
 **Inline completions** — Tab-completions powered by the Claude API, using editor context gathered by the context engine.
 
@@ -77,7 +79,9 @@ src/main/kotlin/com/adobe/clawdea/
   context/       Context engine for gathering editor state
   debug/         DebugBridge, McpDebugTools, BreakpointTracker, SuspendGate
   gateway/       Claude API gateway for completions
+  knowledge/     Drift detection, wiki maintenance, Dream auto-apply
   mcp/           MCP HTTP server, tool router, index/IDE/context/edit-review tools
+  profiling/     JFR backend, CPU/allocation/leak analysis, MCP profiling tools
   settings/      Plugin settings and configurable UI
   skills/        Skill scanner and picker dialog
 
