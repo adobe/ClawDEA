@@ -94,6 +94,8 @@ class McpSearchTextTool(private val project: Project) {
         }
 
         val sb = StringBuilder()
+        val symbolHint = symbolMisuseHint(query)
+        if (symbolHint != null) sb.appendLine(symbolHint).appendLine()
         for (m in matches.take(MAX_MATCHES)) sb.append(m)
         if (matches.size >= MAX_MATCHES) {
             sb.appendLine("... result capped at $MAX_MATCHES matches; refine the query or pass a 'glob' filter.")
@@ -164,5 +166,19 @@ class McpSearchTextTool(private val project: Project) {
 
         internal fun relativize(fullPath: String, basePath: String): String =
             if (fullPath.startsWith(basePath)) fullPath.removePrefix(basePath).removePrefix("/") else fullPath
+
+        private val SYMBOL_PATTERN = Regex(
+            """^(class|fun|interface|object|enum|val|var|def|function|const)\s+\w+$""" +
+            """|^[A-Z][a-z][a-zA-Z0-9]*$""" +
+            """|^[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*$"""
+        )
+
+        internal fun symbolMisuseHint(query: String): String? {
+            if (!SYMBOL_PATTERN.containsMatchIn(query.trim())) return null
+            return "[NOTE: This query looks like a code symbol. For symbol navigation, " +
+                "use find_usages (references), find_callers (call sites), find_implementations, " +
+                "or find_files (by filename) instead of search_text. " +
+                "search_text is for literal strings like error messages, config keys, or log lines.]"
+        }
     }
 }

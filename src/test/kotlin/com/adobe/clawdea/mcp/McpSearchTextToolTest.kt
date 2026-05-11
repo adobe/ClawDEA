@@ -137,4 +137,31 @@ class McpSearchTextToolTest {
             McpSearchTextTool.relativize("/other/path", "/proj"),
         )
     }
+
+    @Test
+    fun `symbolMisuseHint fires for class names`() {
+        assertTrue(McpSearchTextTool.symbolMisuseHint("ChatPanel") != null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("McpServer") != null)
+    }
+
+    @Test
+    fun `symbolMisuseHint fires for camelCase identifiers`() {
+        assertTrue(McpSearchTextTool.symbolMisuseHint("handleStart") != null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("buildPermissionArgs") != null)
+    }
+
+    @Test
+    fun `symbolMisuseHint fires for declaration patterns`() {
+        assertTrue(McpSearchTextTool.symbolMisuseHint("class ChatPanel") != null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("fun handleStart") != null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("interface ToolRouter") != null)
+    }
+
+    @Test
+    fun `symbolMisuseHint does not fire for literal strings`() {
+        assertTrue(McpSearchTextTool.symbolMisuseHint("error: connection refused") == null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("--permission-mode") == null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("TODO") == null)
+        assertTrue(McpSearchTextTool.symbolMisuseHint("enable-auto-mode") == null)
+    }
 }

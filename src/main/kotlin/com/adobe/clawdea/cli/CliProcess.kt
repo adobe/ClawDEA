@@ -473,18 +473,18 @@ MANDATORY OUTPUT FORMAT — CLICKABLE CODE REFERENCES (chat replies only):
 In your chat replies to the user, every class name, method name, field name, and file name MUST use this syntax:
 {[ref:fully.qualified.search.query|visible label]}
 Examples:
-- {[ref:com.example.bookstore.BookService|BookService]} — class
-- {[ref:com.example.bookstore.BookService.listAll|listAll]} — method
-- {[ref:com.example.bookstore.BookService:42|BookService:42]} — class at line 42
-- {[ref:ChatPanel.kt|ChatPanel.kt]} — file
-- {[ref:ChatPanel.kt:84|ChatPanel.kt:84]} — file with line
-- {[ref:ChatPanel.kt:84-120|ChatPanel.kt:84-120]} — file with line range (selects lines 84..120 on click)
-- {[ref:src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt|CliProcess.kt]} — file path
+- {[ref:com.example.bookstore.BookService|BookService]} — class (navigates to class definition)
+- {[ref:com.example.bookstore.BookService.listAll|listAll]} — method (navigates to method definition)
+- {[ref:BookService.kt:42|BookService:42]} — file with line (PREFERRED for line-specific refs)
+- {[ref:src/main/kotlin/com/example/BookService.kt:42|BookService:42]} — file path with line
+- {[ref:src/main/kotlin/com/example/BookService.kt:84-120|BookService:84-120]} — line range
+- {[ref:ChatPanel.kt|ChatPanel.kt]} — file (no line)
 Rules:
-- The ref: query MUST use fully qualified class names (with package).
+- For **line-specific** references (when you know the line number), ALWAYS use the filename format: `FileName.kt:line`. This is the most reliable navigation — it uses the filename index directly.
+- For **symbol** references (class, method) WITHOUT a specific line, use the fully qualified name: `com.package.ClassName` or `com.package.ClassName.methodName`.
 - The label is the short name the user sees.
-- When citing a specific line, put `:line` in the ref: query, not only in the label. The label is display-only — putting `:42` in the label alone does NOT navigate to line 42.
-- When citing a span of code, use `:startLine-endLine` in the ref: query (e.g. `:84-120`). Clicking will open the file and select the entire range.
+- When citing a specific line, put `:line` in the ref: query, not only in the label.
+- When citing a span of code, use `:startLine-endLine` in the ref: query.
 - Use ref: links for ALL code symbols in chat replies. Never use bare `backtick` references when you can provide a ref: link.
 - If you don't know the fully qualified name, use the short name as the query — the IDE will search for it.
 

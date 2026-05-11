@@ -1699,6 +1699,29 @@ class ChatPanel(
         }
 
         if (!resolved) {
+            // Try filename-based fallback: derive ClassName.kt / ClassName.java from the path
+            val classNameForFile = path.substringAfterLast(".").removeSuffix("()")
+                .takeIf { it.firstOrNull()?.isUpperCase() == true }
+                ?: path.takeIf { it.firstOrNull()?.isUpperCase() == true && !it.contains(".") }
+            if (classNameForFile != null) {
+                val scope = GlobalSearchScope.projectScope(project)
+                val fallbackFile = runReadAction {
+                    sequenceOf("$classNameForFile.kt", "$classNameForFile.java")
+                        .flatMap { name -> FilenameIndex.getVirtualFilesByName(name, scope).asSequence() }
+                        .sortedBy { navPriority(it.path) }
+                        .firstOrNull()
+                }
+                if (fallbackFile != null) {
+                    resolved = true
+                    ApplicationManager.getApplication().invokeLater {
+                        OpenFileDescriptor(project, fallbackFile, line, col).navigate(true)
+                        if (parsed.isRange) selectLineRange(fallbackFile, parsed.startLine!!, parsed.endLine!!)
+                    }
+                }
+            }
+        }
+
+        if (!resolved) {
             val searchText = path.substringAfterLast(".").removeSuffix("()")
                 .ifBlank { path }
             ApplicationManager.getApplication().invokeLater {
