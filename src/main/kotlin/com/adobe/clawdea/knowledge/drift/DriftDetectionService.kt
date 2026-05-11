@@ -150,7 +150,9 @@ class DriftDetectionService(private val project: Project) {
 
             return RawCollection(
                 events = out,
-                newState = updateDreamState(dreamState, dreamResult, now),
+                newState = updateDreamState(dreamState, dreamResult, now).copy(
+                    lastScanAt = now.toString(),
+                ),
             )
         }
 
