@@ -111,4 +111,22 @@ class TurnControllerTest {
         assertFalse(controller.isStreaming)
         assertFalse(controller.isPaused)
     }
+
+    @Test
+    fun `streamResult while paused calls onClearPausedUi`() {
+        var cleared = false
+        val controller = TurnController(
+            onPause = {},
+            onResume = {},
+            onAbort = {},
+            onClearPausedUi = { cleared = true },
+        )
+        controller.setStreaming(true)
+        controller.handleEscape()
+        assertTrue(controller.isPaused)
+        controller.onStreamResult()
+        assertTrue(cleared)
+        assertFalse(controller.isStreaming)
+        assertFalse(controller.isPaused)
+    }
 }

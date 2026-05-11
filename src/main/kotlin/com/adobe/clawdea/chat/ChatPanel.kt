@@ -259,6 +259,10 @@ class ChatPanel(
                 syncStreamingUi()
                 statusLabel.text = " "
             },
+            onClearPausedUi = {
+                browserRenderer.hidePausedBanner()
+                statusLabel.text = " "
+            },
         )
 
         // Title bar with mode buttons
@@ -800,6 +804,10 @@ class ChatPanel(
         modelCombo.isEnabled = controlsState.selectorsEnabled
         effortCombo.isEnabled = controlsState.selectorsEnabled
         browserRenderer.updateTurnControlButton(controlsState.thinkingButton)
+        if (controlsState.thinkingButton == TurnControlButton.NONE) {
+            browserRenderer.hideThinkingIndicator()
+            browserRenderer.hideAllStopButtons()
+        }
     }
 
     private fun createBottomPanel(): JPanel {

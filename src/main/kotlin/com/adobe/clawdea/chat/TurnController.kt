@@ -15,6 +15,7 @@ class TurnController(
     private val onPause: () -> Unit,
     private val onResume: (text: String) -> Unit,
     private val onAbort: () -> Unit,
+    private val onClearPausedUi: () -> Unit = {},
     private val stateMachine: TurnStateMachine = TurnStateMachine(),
 ) {
 
@@ -66,7 +67,7 @@ class TurnController(
                 onPause()
             }
             TurnAction.FullyAbort -> onAbort()
-            TurnAction.ClearPausedUi -> {}
+            TurnAction.ClearPausedUi -> onClearPausedUi()
             TurnAction.None, TurnAction.ResumeWithContinue, TurnAction.ResumeWithInput -> {}
         }
     }
