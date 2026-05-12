@@ -48,6 +48,7 @@ object DreamOutputValidator {
         "acceptedWikiChange" to DreamEvidenceType.ACCEPTED_WIKI_CHANGE,
         "staleLink" to DreamEvidenceType.STALE_LINK,
         "duplicateContent" to DreamEvidenceType.DUPLICATE_CONTENT,
+        "userCorrection" to DreamEvidenceType.USER_CORRECTION,
     )
     private val CONTEXT_COST_BY_WIRE = mapOf(
         "shrinks-context" to DreamContextCost.SHRINKS_CONTEXT,

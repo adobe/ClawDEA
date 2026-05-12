@@ -108,6 +108,7 @@ Type `/` in the chat input to see available commands.
 | `/note` | Append a quick note to `.claude/notes/CURRENT.md` (personal notes layer) |
 | `/promote-to-wiki` | Promote a personal note into a shared wiki concept page |
 | `/wiki-audit` | Audit `.claude/wiki/` for stale source-file links |
+| `/wiki-gap` | Show clustered wiki probe misses — use before `/refresh-wiki` |
 
 ### Knowledge-layer commands (CLI-expanded)
 
@@ -205,7 +206,7 @@ ClawDEA runs a local MCP server that gives Claude direct access to IntelliJ's in
 | Tool | What it does |
 |------|-------------|
 | `read_wiki_page` | Read a concept, source, or index page from `.claude/wiki/` |
-| `search_wiki` | Search the project wiki for a substring query |
+| `search_wiki` | Search the project wiki. Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
 | `list_workspace_repos` | List sibling repos from `.clawdea-workspace.md` |
 | `read_sibling_wiki` | Read a wiki page from a sibling repo |
 | `read_sibling_repo_state` | Read `REPO_STATE.md` from a sibling repo |
@@ -231,6 +232,17 @@ The **primer** assembles `CLAUDE.md` + the auto-generated `.claude/REPO_STATE.md
 ### Wiki (`.claude/wiki/`)
 
 Concept pages live under `.claude/wiki/concepts/`. Each page names the files, classes, and entry points for a subsystem — Claude reads a concept page first to orient, then navigates directly instead of broad text search. Seed a fresh wiki with `/seed-wiki`, refresh auto-generated parts with `/refresh-wiki`, and audit for stale links with `/wiki-audit`. Capture a learning mid-session with `/learn`.
+
+**Page schemas.** `/seed-wiki` and `/learn` classify each concept as `pipeline`, `runtime-behavior`, or `navigation`:
+
+- **Pipeline / runtime-behavior** pages use the invariant-first template (purpose → invariants → resolution pipeline → anti-patterns → source pointers) — designed so an LLM reasoning about runtime has an authoritative anchor, not just file pointers.
+- **Navigation** pages keep the lighter summary + entry-point schema, still useful for flat subsystems.
+
+The templates live in `src/main/resources/prompts/wiki-page-invariant.md` and `wiki-page-navigation.md`, iterable without a Kotlin rebuild.
+
+**Probe-miss capture and `/wiki-gap`.** When `search_wiki` returns low-hit results for a non-trivial query, the miss is recorded in `.claude/wiki/.drift-state.json`. `/wiki-gap` clusters recent misses by path-token Jaccard similarity and suggests concept-page slugs, giving `/refresh-wiki` a concrete work queue.
+
+**Correction capture.** When you follow an assistant message with a correction ("no, actually the policy is inert because…"), ClawDEA detects it heuristically, records a `USER_CORRECTION` evidence signal, and surfaces a `/learn <auto-drafted-topic>` suggestion in chat. The Dream scorer ranks candidates backed by user corrections ahead of peers.
 
 Dream-backed wiki maintenance can detect low-signal index growth, stale/duplicate concept pages, and old wiki link syntax. Low-risk cleanup, such as high-confidence single-target Dream link normalization when the target concept exists, can apply automatically only when Auto-update wiki on drift is enabled; substantive page creation and rewrites still go through diff review.
 

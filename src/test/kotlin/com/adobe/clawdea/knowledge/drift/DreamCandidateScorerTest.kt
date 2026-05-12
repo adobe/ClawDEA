@@ -142,6 +142,41 @@ class DreamCandidateScorerTest {
         assertEquals(listOf(third, high), DreamCandidateScorer.filterAndRank(listOf(medium, third, high), maxCandidates = 2))
     }
 
+    @Test fun `USER_CORRECTION evidence boosts candidate above peer with no such evidence`() {
+        val withCorrection = candidate(
+            kind = DreamCandidateKind.STALE_CONCEPT,
+            contextCost = DreamContextCost.NEUTRAL,
+            confidence = DreamConfidence.HIGH,
+            title = "With correction",
+            evidence = listOf(DreamEvidence(DreamEvidenceType.USER_CORRECTION, "ctx", "User fixed wrong assumption")),
+        )
+        val withoutCorrection = candidate(
+            kind = DreamCandidateKind.STALE_CONCEPT,
+            contextCost = DreamContextCost.NEUTRAL,
+            confidence = DreamConfidence.HIGH,
+            title = "Without correction",
+            evidence = listOf(DreamEvidence(DreamEvidenceType.SESSION_SIGNAL, "ctx", "Generic signal")),
+        )
+
+        val ranked = DreamCandidateScorer.filterAndRank(listOf(withoutCorrection, withCorrection))
+        assertEquals(listOf(withCorrection, withoutCorrection), ranked)
+    }
+
+    @Test fun `USER_CORRECTION evidence type is accepted by scorer`() {
+        val withCorrection = candidate(
+            kind = DreamCandidateKind.MISSING_CONCEPT,
+            contextCost = DreamContextCost.ADDS_CONTEXT,
+            confidence = DreamConfidence.HIGH,
+            evidence = listOf(
+                DreamEvidence(DreamEvidenceType.USER_CORRECTION, "ctx1", "User said policy is inert"),
+                DreamEvidence(DreamEvidenceType.SESSION_SIGNAL, "ctx2", "Observed signal"),
+            ),
+        )
+        val result = DreamCandidateScorer.filterAndRank(listOf(withCorrection))
+        assertEquals(1, result.size)
+        assertEquals(DreamEvidenceType.USER_CORRECTION, result[0].evidence[0].type)
+    }
+
     @Test fun `drops oversized patch plans`() {
         val kept = candidate(
             kind = DreamCandidateKind.STALE_CONCEPT,

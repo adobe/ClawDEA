@@ -21,42 +21,74 @@ data class WikiSearchHit(
 )
 
 class WikiSearcher(private val wikiPath: WikiPath) {
-    fun search(query: String): List<WikiSearchHit> {
-        if (query.isBlank()) return emptyList()
+    fun search(query: String, pathTokens: List<String> = emptyList()): List<WikiSearchHit> {
+        if (query.isBlank() && pathTokens.isEmpty()) return emptyList()
         val root = wikiPath.rootDir
         if (!Files.isDirectory(root)) return emptyList()
-        val needle = query.lowercase()
-        val hits = mutableListOf<WikiSearchHit>()
+        val needle = query.lowercase().takeIf { it.isNotBlank() }
+        val tokens = pathTokens
+            .flatMap { it.lowercase().split("/") }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val hitsByPath = mutableMapOf<String, WikiSearchHit>()
         Files.walk(root).use { stream ->
             for (path in stream) {
                 if (!Files.isRegularFile(path)) continue
                 if (!path.fileName.toString().endsWith(".md")) continue
                 val text = try { Files.readString(path) } catch (_: Exception) { continue }
                 val lines = text.lines()
+                val relativePath = root.relativize(path).toString().replace('\\', '/')
+                val fileName = path.fileName.toString().lowercase()
                 var firstHitLine = -1
                 var firstSnippet = ""
                 var matchCount = 0
-                for ((i, line) in lines.withIndex()) {
-                    val occurrences = countSubstring(line.lowercase(), needle)
-                    if (occurrences > 0) {
-                        matchCount += occurrences
-                        if (firstHitLine < 0) {
-                            firstHitLine = i + 1
-                            firstSnippet = line.trim()
+
+                if (needle != null) {
+                    for ((i, line) in lines.withIndex()) {
+                        val occurrences = countSubstring(line.lowercase(), needle)
+                        if (occurrences > 0) {
+                            matchCount += occurrences
+                            if (firstHitLine < 0) {
+                                firstHitLine = i + 1
+                                firstSnippet = line.trim()
+                            }
                         }
                     }
                 }
+
+                if (tokens.isNotEmpty()) {
+                    var tokenHits = 0
+                    for (token in tokens) {
+                        if (fileName.contains(token)) {
+                            tokenHits++
+                            continue
+                        }
+                        for ((i, line) in lines.withIndex()) {
+                            val lower = line.lowercase()
+                            if ((lower.startsWith("#") || lower.startsWith("##")) && lower.contains(token)) {
+                                tokenHits++
+                                if (firstHitLine < 0) {
+                                    firstHitLine = i + 1
+                                    firstSnippet = line.trim()
+                                }
+                                break
+                            }
+                        }
+                    }
+                    matchCount += tokenHits
+                }
+
                 if (matchCount > 0) {
-                    hits.add(WikiSearchHit(
-                        relativePath = root.relativize(path).toString().replace('\\', '/'),
+                    hitsByPath[relativePath] = WikiSearchHit(
+                        relativePath = relativePath,
                         matchCount = matchCount,
-                        firstHitLine = firstHitLine,
-                        snippet = firstSnippet,
-                    ))
+                        firstHitLine = if (firstHitLine > 0) firstHitLine else 1,
+                        snippet = firstSnippet.ifEmpty { lines.firstOrNull()?.trim().orEmpty() },
+                    )
                 }
             }
         }
-        return hits.sortedByDescending { it.matchCount }
+        return hitsByPath.values.sortedByDescending { it.matchCount }
     }
 
     private fun countSubstring(haystack: String, needle: String): Int {

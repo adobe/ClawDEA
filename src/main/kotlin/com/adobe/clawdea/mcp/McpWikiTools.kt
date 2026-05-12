@@ -11,10 +11,13 @@
  */
 package com.adobe.clawdea.mcp
 
+import com.adobe.clawdea.knowledge.drift.DriftDetectionService
 import com.adobe.clawdea.knowledge.wiki.WikiPageReader
 import com.adobe.clawdea.knowledge.wiki.WikiPath
 import com.adobe.clawdea.knowledge.wiki.WikiSearcher
 import com.adobe.clawdea.settings.ClawDEASettings
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.project.Project
 import java.nio.file.Paths
 
@@ -36,6 +39,7 @@ class McpWikiTools(private val project: Project) {
             description = SEARCH_TOOL_DESCRIPTION,
             properties = listOf(
                 Triple("query", "string", "Case-insensitive substring to search for in wiki pages"),
+                Triple("pathTokens", "array:string", "Optional path tokens from diff context (e.g. policies, clientlibs, jcr_root) to match against page titles and headings"),
             ),
             required = listOf("query"),
             handler = ::searchWiki,
@@ -68,8 +72,12 @@ class McpWikiTools(private val project: Project) {
 
     private fun searchWiki(args: Map<String, String>): McpToolRouter.ToolResult {
         val query = args["query"] ?: return McpToolRouter.ToolResult("Missing 'query' argument", isError = true)
+        val pathTokens = parsePathTokens(args["pathTokens"])
         val wp = wikiPath() ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
-        val hits = WikiSearcher(wp).search(query)
+        val hits = WikiSearcher(wp).search(query, pathTokens)
+
+        maybeRecordProbeMiss(query, pathTokens, hits.size, args["taskContext"])
+
         if (hits.isEmpty()) return McpToolRouter.ToolResult("(no matches for '$query')")
         val sb = StringBuilder()
         for (hit in hits.take(20)) {
@@ -80,7 +88,31 @@ class McpWikiTools(private val project: Project) {
         return McpToolRouter.ToolResult(sb.toString().trimEnd())
     }
 
+    private fun parsePathTokens(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            GSON.fromJson<List<String>>(raw, STRING_LIST_TYPE)?.filter { it.isNotBlank() } ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun maybeRecordProbeMiss(query: String, pathTokens: List<String>, hitCount: Int, taskContext: String?) {
+        val queryTokenCount = query.split("\\s+".toRegex()).size
+        val isNonTrivial = queryTokenCount >= 2 || query.length >= 8
+        if (!isNonTrivial) return
+        if (hitCount >= 2) return
+        val contextHash = taskContext?.hashCode()?.toUInt()?.toString(16)
+            ?: project.basePath?.hashCode()?.toUInt()?.toString(16)
+            ?: "unknown"
+        project.getService(DriftDetectionService::class.java)
+            .recordProbeMiss(query, pathTokens, hitCount, contextHash)
+    }
+
     companion object {
+        private val GSON = Gson()
+        private val STRING_LIST_TYPE = object : TypeToken<List<String>>() {}.type
+
         const val READ_TOOL_NAME = "read_wiki_page"
         const val READ_TOOL_DESCRIPTION =
             "Read a wiki page (concept, source, or index) from .claude/wiki/. Use to access " +

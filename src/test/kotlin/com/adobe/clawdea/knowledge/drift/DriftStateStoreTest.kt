@@ -75,6 +75,34 @@ class DriftStateStoreTest {
         assertEquals(emptyList<String>(), DriftStateStore.read(claudeDir = tmp).dismissed)
     }
 
+    @Test fun `probeMisses round-trips through JSON`() {
+        val tmp = Files.createTempDirectory("drift")
+        val misses = listOf(
+            ProbeMiss("policy resolution", listOf("policies", "clientlibs"), 0, "abc123", "2026-05-12T10:00:00Z"),
+            ProbeMiss("template mapping", listOf("page", "v2", "v3"), 1, "def456", "2026-05-12T11:00:00Z"),
+        )
+        DriftStateStore.write(claudeDir = tmp, state = DriftState(probeMisses = misses))
+        val state = DriftStateStore.read(claudeDir = tmp)
+        assertEquals(2, state.probeMisses.size)
+        assertEquals("policy resolution", state.probeMisses[0].query)
+        assertEquals(listOf("policies", "clientlibs"), state.probeMisses[0].pathTokens)
+        assertEquals(0, state.probeMisses[0].hits)
+        assertEquals("abc123", state.probeMisses[0].contextHash)
+        assertEquals("2026-05-12T10:00:00Z", state.probeMisses[0].recordedAt)
+    }
+
+    @Test fun `probeMisses cap enforced at 200`() {
+        val tmp = Files.createTempDirectory("drift")
+        val misses = (1..250).map {
+            ProbeMiss("query$it", listOf("token"), 0, "hash", "2026-05-12T10:00:00Z")
+        }
+        val capped = misses.takeLast(DriftState.MAX_PROBE_MISSES)
+        DriftStateStore.write(claudeDir = tmp, state = DriftState(probeMisses = capped))
+        val state = DriftStateStore.read(claudeDir = tmp)
+        assertEquals(200, state.probeMisses.size)
+        assertEquals("query51", state.probeMisses[0].query)
+    }
+
     @Test fun `read defaults dream fields for old state JSON`() {
         val tmp = Files.createTempDirectory("drift")
         val wikiDir = Files.createDirectories(tmp.resolve("wiki"))

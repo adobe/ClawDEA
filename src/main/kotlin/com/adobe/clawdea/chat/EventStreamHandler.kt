@@ -44,6 +44,7 @@ class EventStreamHandler(
     var turnHasContent = false
     var streamStartTime: Long = 0
     var totalTokensUsed = 0
+    var lastAssistantText: String = ""
 
     private val toolNameById = mutableMapOf<String, String>()
     private var toolStartTime: Long = 0
@@ -99,11 +100,13 @@ class EventStreamHandler(
                     val bufText = messageBuffer.toString()
                     browserRenderer.appendHtml(renderer.renderAssistantText(bufText))
                     totalTokensUsed += ContextBudgetCalculator.estimateTokens(bufText)
+                    lastAssistantText = bufText
                     messageBuffer.clear()
                     turnHasContent = true
                 } else if (event.text.isNotBlank()) {
                     browserRenderer.appendHtml(renderer.renderAssistantText(event.text))
                     totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.text)
+                    lastAssistantText = event.text
                     turnHasContent = true
                 }
                 for (toolUse in event.toolUses) {

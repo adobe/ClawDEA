@@ -11,6 +11,20 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+data class ProbeMiss(
+    val query: String,
+    val pathTokens: List<String>,
+    val hits: Int,
+    val contextHash: String,
+    val recordedAt: String,
+)
+
+data class UserCorrectionRecord(
+    val summary: String,
+    val contextHash: String,
+    val recordedAt: String,
+)
+
 /**
  * Persisted drift state. Loaded from `.claude/wiki/.drift-state.json` per project.
  * Empty state is the default when the file is missing or malformed.
@@ -18,6 +32,8 @@ package com.adobe.clawdea.knowledge.drift
 data class DriftState(
     val lastScanAt: String = "",
     val dismissed: List<String> = emptyList(),
+    val probeMisses: List<ProbeMiss> = emptyList(),
+    val userCorrections: List<UserCorrectionRecord> = emptyList(),
     val dreamLastRunAt: String = "",
     val dreamLastSuccessfulScanAt: String = "",
     val dreamLastFailedScanAt: String = "",
@@ -28,4 +44,9 @@ data class DriftState(
     val dreamFilteredCandidateCount: Int = 0,
     val dreamLockOwner: String = "",
     val dreamLockAcquiredAt: String = "",
-)
+) {
+    companion object {
+        const val MAX_PROBE_MISSES = 200
+        const val MAX_USER_CORRECTIONS = 100
+    }
+}
