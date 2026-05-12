@@ -27,6 +27,7 @@ enum class DreamEvidenceType {
     ACCEPTED_WIKI_CHANGE,
     STALE_LINK,
     DUPLICATE_CONTENT,
+    USER_CORRECTION,
 }
 
 enum class DreamContextCost {

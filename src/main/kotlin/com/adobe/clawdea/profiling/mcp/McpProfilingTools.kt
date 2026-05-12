@@ -66,7 +66,7 @@ class McpProfilingTools(
         )
         router.register(
             name = "profiling_status",
-            description = "Query the state of a profiling session.",
+            description = "Query the state of a profiling session. Non-blocking — returns immediately. Prefer calling profiling_analyze_cpu/profiling_analyze_allocations directly (they block until done).",
             properties = listOf(Triple("session_id", "string", "The session ID to query")),
             required = listOf("session_id"),
             handler = ::handleStatus,
@@ -181,7 +181,7 @@ class McpProfilingTools(
             "session_id" to sessionId,
             "state" to "RUNNING",
             "target" to fqn,
-            "message" to "Profiling session started. The test is running with JFR. Call profiling_status to check progress, or wait for it to complete then call profiling_analyze_cpu/profiling_analyze_allocations with recording_id='$sessionId'.",
+            "message" to "Profiling session started. The test is running with JFR. Proceed directly to profiling_analyze_cpu and/or profiling_analyze_allocations with recording_id='$sessionId' — they will block until the session completes (up to 60s). Do NOT poll profiling_status in a loop.",
         )))
     }
 
@@ -211,7 +211,7 @@ class McpProfilingTools(
             "session_id" to sessionId,
             "state" to "RUNNING",
             "target" to configName,
-            "message" to "Profiling session started. Call profiling_status to check progress, or wait for completion then call profiling_analyze_cpu/profiling_analyze_allocations with recording_id='$sessionId'.",
+            "message" to "Profiling session started. Proceed directly to profiling_analyze_cpu and/or profiling_analyze_allocations with recording_id='$sessionId' — they will block until the session completes (up to 60s). Do NOT poll profiling_status in a loop.",
         )))
     }
 

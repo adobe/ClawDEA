@@ -999,6 +999,8 @@ class ChatPanel(
                     .joinToString(" ") { it.replaceFirstChar { char -> char.titlecase() } }
                 "[$title](concepts/$topic.md)"
             }
+            val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
+            val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
             """
             $opening
 
@@ -1007,11 +1009,29 @@ class ChatPanel(
             If a tool result reports "tool not allowed" or you see an "Unavailable" status, you used the wrong tool;
             retry with propose_write.
 
-            Use propose_write to create $targetPath with:
-            - A single-line H1 heading naming the concept
-            - A 1–2 paragraph summary of the insight
-            - Standard Markdown links to related concepts when relevant, e.g. `[Related Concept](related-concept.md)` from another concept page. Do NOT create new `[[concept]]` wikilinks.
-            - Code references as standard markdown links to source files, e.g. `[ClassName](../../../src/main/kotlin/path/to/ClassName.kt)` (path relative to the wiki page; concept pages live three levels deep). Do NOT use the `{[ref:...|...]}` chat-only syntax in markdown files.
+            Before writing, **classify the concept** into one of three categories:
+            - `pipeline` — multi-step resolution with cache boundaries or registration order that a reasoner could get wrong
+              (e.g. content policy resolution, dispatcher cache invalidation, Sling servlet dispatching).
+            - `runtime-behavior` — non-trivial runtime semantics where invariants must hold
+              (e.g. OSGi service registration timing, JCR observation, login token TTLs, feature toggle propagation).
+            - `navigation` — flat subsystem where a reader mainly needs to locate the right files
+              (e.g. a utility package, a CLI entry point, a simple renderer).
+
+            **For `pipeline` or `runtime-behavior` concepts**, use the INVARIANT-FIRST template below.
+            The invariants section is load-bearing — it must anchor runtime reasoning, not just point at files.
+
+            ----- BEGIN INVARIANT-FIRST TEMPLATE -----
+            $invariantTemplate
+            ----- END INVARIANT-FIRST TEMPLATE -----
+
+            **For `navigation` concepts**, use the NAVIGATION template below.
+
+            ----- BEGIN NAVIGATION TEMPLATE -----
+            $navigationTemplate
+            ----- END NAVIGATION TEMPLATE -----
+
+            Use propose_write to create $targetPath using the template you picked. Fill in every section;
+            for `pipeline` or `runtime-behavior` pages, produce 3–7 invariants, each citing the file that makes it true.
 
             Then use propose_edit (NOT the built-in Edit tool) to update .claude/wiki/index.md so it links $linkTarget,
             unless that link is already there.
@@ -1021,6 +1041,8 @@ class ChatPanel(
         commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
             CommandInfo("/seed-wiki", "Bootstrap initial wiki pages from project state", CommandCategory.BRIDGE),
         ) { _ ->
+            val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
+            val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
             """
             Bootstrap an initial wiki for this project at .claude/wiki/.
 
@@ -1037,15 +1059,31 @@ class ChatPanel(
                (current branch, recent commits, hot files), then identify
                5–10 concept areas worth documenting (main subsystems, key APIs, active
                feature work, architectural decisions worth capturing).
-            3. Use propose_write (NOT Write) to create:
-               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each concept page, e.g. `[Title](concepts/<slug>.md)`.
-               - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept. Each page:
-                   * A single-line H1 heading naming the concept
-                   * A 1-paragraph summary
-                   * Related concept links as standard Markdown links, e.g. `[Related Concept](related-concept.md)`. Do NOT create new `[[concept]]` wikilinks.
-                   * Key entry-point class refs as standard markdown links to source files, e.g. `[ClassName](../../../src/main/kotlin/path/to/ClassName.kt)` (path relative to the wiki page; concept pages live three levels deep). Do NOT use the `{[ref:...|...]}` chat-only syntax in markdown files.
-                   * Gotchas if any
-                   Keep each page short — wikis grow organically.
+            3. **Classify each concept independently** into one of:
+               - `pipeline` — multi-step resolution with cache boundaries or registration order
+                 a reasoner could get wrong (content policy resolution, dispatcher invalidation,
+                 servlet dispatching).
+               - `runtime-behavior` — non-trivial runtime semantics where invariants must hold
+                 (OSGi service registration timing, JCR observation, feature toggle propagation).
+               - `navigation` — flat subsystem where a reader mainly needs to locate the right files.
+
+               For `pipeline` or `runtime-behavior` concepts, use the INVARIANT-FIRST template below.
+               For `navigation` concepts, use the NAVIGATION template below.
+
+            ----- BEGIN INVARIANT-FIRST TEMPLATE -----
+            $invariantTemplate
+            ----- END INVARIANT-FIRST TEMPLATE -----
+
+            ----- BEGIN NAVIGATION TEMPLATE -----
+            $navigationTemplate
+            ----- END NAVIGATION TEMPLATE -----
+
+            4. Use propose_write (NOT Write) to create:
+               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each
+                 concept page, e.g. `[Title](concepts/<slug>.md)`.
+               - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept, using the template
+                 that matches the classification. For `pipeline` or `runtime-behavior` pages, produce
+                 3–7 invariants, each citing the file that makes it true.
 
             After I accept the diffs, wiki/index.md will join every chat's primer automatically.
             """.trimIndent()
@@ -1096,6 +1134,18 @@ class ChatPanel(
             CommandInfo("/refresh-wiki", "Review and fix detected wiki drift events", CommandCategory.BRIDGE),
         ) { rawArgs, _ ->
             handleRefreshWiki(rawArgs)
+        })
+
+        commandRegistry.register("/wiki-gap", LocalHandler(
+            CommandInfo("/wiki-gap", "Show clustered wiki probe misses", CommandCategory.LOCAL),
+        ) { _, ctx ->
+            val basePath = project.basePath
+            val misses = if (basePath != null) {
+                com.adobe.clawdea.knowledge.drift.DriftStateStore.read(java.nio.file.Paths.get(basePath).resolve(".claude")).probeMisses
+            } else emptyList()
+            val clusters = com.adobe.clawdea.commands.handlers.WikiGapHandler.cluster(misses)
+            val output = com.adobe.clawdea.commands.handlers.WikiGapHandler.formatOutput(clusters)
+            ctx.appendHtml(renderer.renderInfoMessage(output))
         })
 
         // Index query commands
@@ -1382,6 +1432,7 @@ class ChatPanel(
                 return
             }
         }
+        maybeHandleCorrection(text)
         appendHtml(renderer.renderUserMessage(text))
         browserRenderer.showThinkingIndicator()
         bridge.sendMessage(text)
@@ -1391,6 +1442,19 @@ class ChatPanel(
         eventHandler.streamStartTime = System.currentTimeMillis()
         statusLabel.text = "Claude is thinking..."
         eventHandler.watchForTurnStartStall()
+    }
+
+    private fun maybeHandleCorrection(userMessage: String) {
+        if (userMessage.trim().startsWith("/")) return
+        val prior = eventHandler.lastAssistantText
+        val signal = com.adobe.clawdea.knowledge.corrections.CorrectionDetector.detect(userMessage, prior)
+            ?: return
+        val contextHash = project.basePath?.hashCode()?.toUInt()?.toString(16) ?: "unknown"
+        project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
+            .recordUserCorrection(signal.userMessage, contextHash)
+        appendHtml(renderer.renderInfoMessage(
+            "Correction detected. If this reveals a missing wiki insight, run: /learn ${signal.suggestedTopic}"
+        ))
     }
 
     private fun openSkillPicker() {

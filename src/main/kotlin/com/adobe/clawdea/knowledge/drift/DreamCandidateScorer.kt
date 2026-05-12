@@ -50,6 +50,7 @@ object DreamCandidateScorer {
                     { KIND_PRIORITY.getValue(it.kind) },
                     { CONTEXT_COST_PRIORITY.getValue(it.contextCost) },
                     { CONFIDENCE_PRIORITY.getValue(it.confidence) },
+                    { if (it.hasUserCorrection()) 0 else 1 },
                 ),
             )
             .take(maxCandidates)
@@ -57,6 +58,9 @@ object DreamCandidateScorer {
 
     private fun DreamCandidate.targetsWikiIndex(): Boolean =
         targetFiles.any { it == ".claude/wiki/index.md" }
+
+    private fun DreamCandidate.hasUserCorrection(): Boolean =
+        evidence.any { it.type == DreamEvidenceType.USER_CORRECTION }
 
     private const val MAX_PATCH_PLAN_CHARS = 4_000
 }

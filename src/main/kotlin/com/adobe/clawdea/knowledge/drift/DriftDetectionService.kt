@@ -68,6 +68,36 @@ class DriftDetectionService(private val project: Project) {
     fun current(): List<DriftEvent> = synchronized(mutex) { lastEvents }
     fun lastAppliedEvents(): List<DriftEvent> = synchronized(mutex) { lastApplied }
 
+    fun recordProbeMiss(query: String, pathTokens: List<String>, hits: Int, contextHash: String) {
+        val basePath = project.basePath ?: return
+        val claudeDir = Paths.get(basePath).resolve(".claude")
+        val miss = ProbeMiss(
+            query = query,
+            pathTokens = pathTokens,
+            hits = hits,
+            contextHash = contextHash,
+            recordedAt = Instant.now().toString(),
+        )
+        DriftStateStore.update(claudeDir) { state ->
+            val updated = state.probeMisses + miss
+            state.copy(probeMisses = updated.takeLast(DriftState.MAX_PROBE_MISSES))
+        }
+    }
+
+    fun recordUserCorrection(correctionSummary: String, contextHash: String) {
+        val basePath = project.basePath ?: return
+        val claudeDir = Paths.get(basePath).resolve(".claude")
+        val correction = UserCorrectionRecord(
+            summary = correctionSummary.take(500),
+            contextHash = contextHash,
+            recordedAt = Instant.now().toString(),
+        )
+        DriftStateStore.update(claudeDir) { state ->
+            val updated = state.userCorrections + correction
+            state.copy(userCorrections = updated.takeLast(DriftState.MAX_USER_CORRECTIONS))
+        }
+    }
+
     fun dismiss(signature: String) {
         val basePath = project.basePath ?: return
         val claudeDir = Paths.get(basePath).resolve(".claude")

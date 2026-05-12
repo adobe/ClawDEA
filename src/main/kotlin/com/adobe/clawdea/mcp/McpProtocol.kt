@@ -86,7 +86,11 @@ object McpProtocol {
     ): String {
         val propsJson = properties.joinToString(",") { (pName, pType, pDesc) ->
             val escapedDesc = escapeJsonString(pDesc)
-            "\"$pName\":{\"type\":\"$pType\",\"description\":\"$escapedDesc\"}"
+            if (pType == "array:string") {
+                "\"$pName\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"$escapedDesc\"}"
+            } else {
+                "\"$pName\":{\"type\":\"$pType\",\"description\":\"$escapedDesc\"}"
+            }
         }
         val reqJson = if (required.isNotEmpty()) {
             ",\"required\":[${required.joinToString(",") { "\"$it\"" }}]"

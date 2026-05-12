@@ -42,6 +42,25 @@ class WikiSearcherTest {
         assertTrue(searcher.search("nonexistent-zzz").isEmpty())
     }
 
+    @Test fun `pathTokens matches file names and headings`() {
+        val results = searcher.search("", pathTokens = listOf("rollout"))
+        assertTrue(results.isNotEmpty())
+        assertTrue(results.any { it.relativePath == "concepts/rollout-flow.md" })
+    }
+
+    @Test fun `pathTokens merges with text query`() {
+        val results = searcher.search("CompositeTreeWalker", pathTokens = listOf("rollout"))
+        assertTrue(results.size >= 2)
+        assertTrue(results.any { it.relativePath == "concepts/composite-cf.md" })
+        assertTrue(results.any { it.relativePath == "concepts/rollout-flow.md" })
+    }
+
+    @Test fun `empty pathTokens falls back to text-only`() {
+        val withEmpty = searcher.search("rollout", pathTokens = emptyList())
+        val without = searcher.search("rollout")
+        assertEquals(withEmpty.map { it.relativePath }, without.map { it.relativePath })
+    }
+
     @Test fun `match contains line number and snippet`() {
         val results = searcher.search("CompositeTreeWalker")
         val hit = results.find { it.relativePath == "concepts/composite-cf.md" }!!
