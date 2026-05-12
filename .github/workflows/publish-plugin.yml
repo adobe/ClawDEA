@@ -1,0 +1,105 @@
+name: publish-plugin
+
+# Publishes the plugin to JetBrains Marketplace when a release is created.
+# Release tag must match the pluginVersion in gradle.properties (e.g. v1.3.2).
+#
+# Required repository secrets:
+#   PUBLISH_TOKEN              — Marketplace upload token
+#                                (Marketplace → Profile → My Tokens)
+#   CERTIFICATE_CHAIN          — Signing certificate chain (PEM, full chain)
+#   PRIVATE_KEY                — Signing private key (PEM)
+#   PRIVATE_KEY_PASSWORD       — Passphrase for the private key
+#
+# Generate the signing key pair once with the Marketplace ZIP Signer:
+#   https://plugins.jetbrains.com/docs/intellij/plugin-signing.html
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and verify without publishing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build, verify, and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Verify the release tag matches pluginVersion
+        if: github.event_name == 'release'
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="$(grep -E '^pluginVersion' gradle.properties | awk '{print $3}')"
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Release tag ($TAG) does not match pluginVersion ($VERSION) in gradle.properties"
+            exit 1
+          fi
+
+      - name: Materialize signing key files
+        run: |
+          umask 077
+          printf '%s' "${{ secrets.CERTIFICATE_CHAIN }}" > chain.crt
+          printf '%s' "${{ secrets.PRIVATE_KEY }}" > private.pem
+
+      - name: Build, verify structure, sign
+        env:
+          CERTIFICATE_CHAIN_FILE: chain.crt
+          PRIVATE_KEY_FILE: private.pem
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon --stacktrace \
+            clean buildPlugin verifyPluginStructure signPlugin
+
+      - name: Run IntelliJ Plugin Verifier
+        env:
+          CERTIFICATE_CHAIN_FILE: chain.crt
+          PRIVATE_KEY_FILE: private.pem
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon --stacktrace verifyPlugin
+
+      - name: Upload plugin zip as workflow artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: clawdea-plugin
+          path: build/distributions/*.zip
+          if-no-files-found: error
+
+      - name: Publish to JetBrains Marketplace
+        if: github.event_name == 'release' || inputs.dry_run != true
+        env:
+          CERTIFICATE_CHAIN_FILE: chain.crt
+          PRIVATE_KEY_FILE: private.pem
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+          PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
+        run: ./gradlew --no-daemon --stacktrace publishPlugin
+
+      - name: Attach signed zip to the GitHub release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" build/distributions/*.zip --clobber
+
+      - name: Wipe signing material
+        if: always()
+        run: rm -f chain.crt private.pem

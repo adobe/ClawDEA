@@ -30,6 +30,31 @@ intellijPlatform {
         version = providers.gradleProperty("pluginVersion").get()
         ideaVersion {
             sinceBuild = "261"
+            untilBuild = provider { null }
+        }
+    }
+
+    // Marketplace signing. Secrets come from environment variables so they
+    // never land in the repo. See .github/workflows/publish-plugin.yml for
+    // how the GitHub Actions job injects them from repository secrets.
+    // Each file path is only set when the matching env var is non-empty, so
+    // local `buildPlugin` runs without needing signing material.
+    signing {
+        val chain = providers.environmentVariable("CERTIFICATE_CHAIN_FILE").orNull
+        val key = providers.environmentVariable("PRIVATE_KEY_FILE").orNull
+        if (!chain.isNullOrBlank()) certificateChainFile = layout.projectDirectory.file(chain)
+        if (!key.isNullOrBlank()) privateKeyFile = layout.projectDirectory.file(key)
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        // Publish to the "default" (Stable) channel unless the version is a
+        // pre-release (contains "-eap", "-beta", "-rc", etc.), in which case
+        // publish to a matching channel so stable users do not auto-update.
+        channels = providers.gradleProperty("pluginVersion").map { v ->
+            val suffix = v.substringAfter('-', "")
+            listOf(if (suffix.isEmpty()) "default" else suffix.substringBefore('.'))
         }
     }
 

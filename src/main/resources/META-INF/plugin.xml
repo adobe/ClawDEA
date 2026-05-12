@@ -4,69 +4,136 @@
     <name>ClawDEA</name>
     <vendor url="https://www.adobe.com" email="Grp-opensourceoffice@adobe.com">Adobe</vendor>
     <description><![CDATA[
-<p>Native <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> integration for IntelliJ IDEA &mdash;
-an AI pair programmer that reads your code indices, runs diagnostics, proposes edits, and drives the debugger,
-all without leaving the IDE.</p>
+<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>
+first-class access to everything IntelliJ already knows about your project</b> &mdash; the PSI index,
+the debugger, the profiler, compiler diagnostics &mdash; so Claude stops guessing with grep and starts
+reasoning with the same tools you do.</p>
 
-<p>See the <a href="https://github.com/adobe/ClawDEA#clawdea">project README</a>
-for a live demo of Claude autonomously debugging a Java application &mdash; breakpoints,
-stepping, variable inspection, and runtime mutation.</p>
+<p>Most Claude plugins wrap the CLI in a chat window. ClawDEA goes further: a local MCP server exposes
+IntelliJ's indices, debugger, and JFR profiler as tools Claude can call. The result is an AI pair programmer
+that finds symbols by reference instead of regex, steps through a failing test to see the actual values,
+and proposes source-level fixes from a CPU or allocation profile.</p>
 
-<h2>Features</h2>
+<p><b>See it in action:</b> the <a href="https://github.com/adobe/ClawDEA#clawdea">README</a> has a live
+demo of Claude autonomously debugging a Java application &mdash; setting breakpoints, stepping, inspecting
+variables, and mutating runtime state to verify hypotheses.</p>
+
+<h2>What makes ClawDEA different</h2>
 
 <ul>
-  <li><b>Chat panel</b> &mdash; Streams Claude responses with Markdown, code blocks, tool-use cards, and clickable
-  code references that navigate directly to source. Supports Auto, Plan, and Ask modes.</li>
+  <li><b>IntelliJ's PSI index as MCP tools.</b> <code>find_symbol</code>, <code>find_usages</code>,
+  <code>find_callers</code>, <code>find_implementations</code>, <code>find_supertypes</code>,
+  <code>resolve_symbol</code>, scoped <code>search_text</code>, and live compiler diagnostics.
+  Precise (no false hits in comments or strings), complete (finds aliased imports and renamed refs),
+  and faster than any grep-based plugin.</li>
 
-  <li><b>MCP code-index server</b> &mdash; A local server exposes IntelliJ's indices as MCP tools: find files,
-  usages, callers, implementations, supertypes, resolve symbols, and read compiler diagnostics &mdash; faster
-  and more accurate than filesystem grep.</li>
+  <li><b>Live debugger over MCP &mdash; 21 tools.</b> Claude can launch run configurations, attach to
+  processes, set conditional and log breakpoints, step in/over/out, run to cursor, inspect frames, expand
+  composite variables, evaluate expressions, and mutate values at runtime to test fix ideas without
+  recompiling. Breakpoint ownership tracking means your breakpoints are never touched.</li>
 
-  <li><b>Debugger integration</b> &mdash; 21 MCP tools let Claude drive IntelliJ's debugger: launch sessions,
-  set breakpoints (with conditions and log expressions), step through code, inspect and expand variables,
-  evaluate expressions, and modify values at runtime. Breakpoint ownership tracking ensures your breakpoints
-  are never touched.</li>
+  <li><b>JVM profiling as a diagnostic loop.</b> One-click profiling of tests and run configurations via
+  JDK Flight Recorder. Claude analyzes CPU hotspots, allocation pressure, and memory leaks (.jfr and .hprof),
+  then proposes source-level fixes. Entry points: <code>/profile</code> slash command, gutter icon on
+  <code>@Test</code> methods, or imported recordings.</li>
 
-  <li><b>Edit review</b> &mdash; When &ldquo;Auto-accept Edits&rdquo; is off, each proposed change opens a native
-  IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that bypass MCP are caught by a fallback
-  layer with inline buttons and file revert.</li>
-
-  <li><b>Inline completions</b> &mdash; Tab-completions powered by the Claude API, using editor context
-  gathered by the context engine.</li>
-
-  <li><b>Intention actions</b> (Alt+Enter) &mdash; Explain, Optimize, Generate Test, Security Check,
-  Add Documentation, Refactor with Instructions, Ask Claude, Fix with Claude.</li>
-
-  <li><b>Slash commands &amp; skills</b> &mdash; Built-in commands (<code>/stop</code>, <code>/clear</code>,
-  <code>/mode</code>, <code>/cost</code>, <code>/compact</code>, <code>/resume</code>) plus Claude Code
-  skills discovered at runtime.</li>
-
-  <li><b>Session resume</b> &mdash; Pick up a previous Claude Code session with full conversation history
-  replayed in the chat panel.</li>
+  <li><b>Project knowledge layer.</b> A project-local wiki under <code>.claude/wiki/</code> plus an
+  auto-generated <code>REPO_STATE.md</code>. The primer ships with every turn so Claude starts each
+  conversation oriented &mdash; no "let me explore the codebase first". Personal notes via <code>/note</code>
+  can be promoted to shared concept pages. Cross-repo navigation for monorepos via
+  <code>.clawdea-workspace.md</code> and sibling-repo tools.</li>
 </ul>
 
-<h2>Getting Started</h2>
+<h2>The rest of the toolkit</h2>
+
+<ul>
+  <li><b>Native edit review.</b> Each proposed change opens IntelliJ's diff dialog with Accept/Reject.
+  A fallback coordinator catches built-in Edit/Write calls that bypass MCP and adds inline buttons with
+  file revert, so Claude cannot silently overwrite your work.</li>
+
+  <li><b>Inline completions.</b> Tab-completions powered by the Claude API with editor context from the
+  context engine. Falls back to <code>claude -p</code> when no API key is configured.</li>
+
+  <li><b>Intention actions (Alt+Enter).</b> Explain, Optimize, Generate Test, Security Check, Add
+  Documentation, Refactor with Instructions, Ask Claude, Fix with Claude.</li>
+
+  <li><b>Chat panel.</b> Streams responses with Markdown, tool-use cards, and clickable code references
+  that navigate to source. Supports Auto, Plan, and Ask modes. <code>@</code>-mention for inline file and
+  symbol picking, backed by IntelliJ's filename and short-name caches.</li>
+
+  <li><b>Tool-call permissions.</b> Three modes (Confirm all / Allow safe / Allow all), with honoring of
+  Claude Code's <code>permissions.allow</code> / <code>permissions.deny</code> rules. Permission cards
+  block the CLI inline until you decide.</li>
+
+  <li><b>Slash commands + Claude Code skills.</b> Built-ins (<code>/stop</code>, <code>/clear</code>,
+  <code>/mode</code>, <code>/cost</code>, <code>/compact</code>, <code>/resume</code>, <code>/profile</code>,
+  <code>/callers</code>, <code>/usages</code>, <code>/implementations</code>, <code>/supertypes</code>,
+  <code>/note</code>, <code>/promote-to-wiki</code>) plus Claude Code skills discovered at runtime.</li>
+
+  <li><b>Session resume.</b> Pick up a previous session with conversation history replayed in the chat panel.</li>
+
+  <li><b>Auth flexibility.</b> API key, Claude subscription sign-in, AWS Bedrock, or Google Vertex.</li>
+</ul>
+
+<h2>Staying in sync with Claude Code</h2>
+
+<p>ClawDEA wraps the Claude Code CLI as a subprocess and runs a weekly drift-monitoring job that diffs
+<code>claude --help</code>, npm versions, and selected docs against a moving snapshot, plus a PR-time
+fixture-replay test over a recorded stream-json transcript. Upstream changes to the CLI get caught by
+CI, not by users.</p>
+
+<h2>Getting started</h2>
 
 <ol>
-  <li>Install the <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a>:
-  <code>npm install -g @anthropic-ai/claude-code</code></li>
-  <li>Open <b>Settings &rarr; Tools &rarr; ClawDEA</b> and configure your API key, sign in with a Claude
-  subscription, or set up AWS Bedrock / Google Vertex credentials.</li>
-  <li>Open the chat panel and start coding.</li>
+  <li>Install the CLI: <code>npm install -g @anthropic-ai/claude-code</code></li>
+  <li>Install this plugin.</li>
+  <li>Open <b>Settings &rarr; Tools &rarr; ClawDEA</b> and configure an Anthropic API key, sign in with a
+  Claude subscription, or configure AWS Bedrock / Google Vertex credentials.</li>
+  <li>Open the chat panel (<b>Tools &rarr; Toggle ClawDEA Chat</b>) and start coding.</li>
 </ol>
 
 <h2>Requirements</h2>
 
 <ul>
   <li>IntelliJ IDEA 2026.1+</li>
-  <li>Java 21</li>
+  <li>Java 21 on the IDE's JBR (bundled)</li>
   <li>Claude Code CLI installed</li>
   <li>Anthropic API key, Claude subscription, or AWS Bedrock / Google Vertex credentials</li>
 </ul>
+
+<p><a href="https://github.com/adobe/ClawDEA">GitHub</a>
+&middot; <a href="https://github.com/adobe/ClawDEA/blob/main/docs/user-guide.md">User guide</a>
+&middot; <a href="https://github.com/adobe/ClawDEA/issues">Report an issue</a></p>
+
+<p><i>ClawDEA is licensed under Apache 2.0. "Claude" and "Claude Code" are trademarks of Anthropic, PBC.
+"IntelliJ", "IntelliJ IDEA", and "JetBrains" are trademarks of JetBrains s.r.o. ClawDEA is an independent
+integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i></p>
     ]]></description>
 
     <change-notes><![CDATA[
-<p>Initial public release of ClawDEA for IntelliJ IDEA 2026.1.</p>
+<h3>1.3.2</h3>
+<ul>
+  <li>Knowledge-layer reasoning: path-aware wiki probe, invariant-first concept pages, correction capture</li>
+  <li>New <code>find_symbol</code> MCP tool &mdash; resolve class/method/field names to definition locations via the PSI index</li>
+  <li>Per-session tool-approval state fixed</li>
+  <li>Stronger tool-routing guidance steers Claude toward the index tools and away from filesystem grep for code symbols</li>
+</ul>
+
+<h3>1.2.0</h3>
+<ul>
+  <li>JFR-backed profiling: CPU, allocations, memory leaks, .jfr/.hprof import, gutter icon on <code>@Test</code> methods</li>
+</ul>
+
+<h3>1.1.0</h3>
+<ul>
+  <li>Hardened tool-permission UX and CLI session reliability</li>
+  <li>Drift monitoring for Claude Code CLI changes with weekly digest + PR-time fixture replay</li>
+</ul>
+
+<h3>1.0.0</h3>
+<ul>
+  <li>Initial public release for IntelliJ IDEA 2026.1</li>
+</ul>
     ]]></change-notes>
 
     <depends>com.intellij.modules.platform</depends>
