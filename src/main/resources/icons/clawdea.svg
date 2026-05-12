@@ -1,19 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 13 13">
   <defs>
-    <linearGradient id="spark" x1="0" y1="0" x2="13" y2="13" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#E8956A"/>
-      <stop offset="100%" stop-color="#D4714A"/>
+    <linearGradient id="coral" x1="10" y1="3" x2="3" y2="10" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFB088"/>
+      <stop offset="100%" stop-color="#C8643F"/>
     </linearGradient>
   </defs>
 
-  <!-- Claude-derived starburst (simplified for 13px) -->
-  <path d="M 6.5,1
-           Q 8,3.9    11.3,3.75
-           Q 9.5,6.5  11.3,9.25
-           Q 8,9.1    6.5,12
-           Q 5,9.1    1.7,9.25
-           Q 3.5,6.5  1.7,3.75
-           Q 5,3.9    6.5,1
-           Z"
-        fill="url(#spark)"/>
+  <!-- Three-stroke claw mark. No plate at this size: the strokes themselves
+       carry the silhouette and stay readable on light and dark tool-stripes. -->
+  <g stroke="url(#coral)" stroke-width="1.6" stroke-linecap="round" fill="none">
+    <line x1="3.2"  y1="10.7" x2="7"   y2="2.6"/>
+    <line x1="5.4"  y1="11"   x2="9.2" y2="2.9"/>
+    <line x1="7.6"  y1="10.7" x2="10.6" y2="3.2"/>
+  </g>
 </svg>
