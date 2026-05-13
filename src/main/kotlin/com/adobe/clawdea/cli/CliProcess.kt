@@ -40,6 +40,7 @@ class CliProcess(
     private var stdinWriter: BufferedWriter? = null
     private var stderrThread: Thread? = null
     private var mcpConfigFile: java.io.File? = null
+    private var systemPromptFile: java.io.File? = null
     private val recentStderr = ConcurrentLinkedDeque<String>()
 
     val isAlive: Boolean
@@ -128,7 +129,18 @@ class CliProcess(
                     }
                 }
             }
-            command.addAll(listOf("--append-system-prompt", systemPrompt))
+            // Write to a temp file and use --append-system-prompt-file instead of
+            // --append-system-prompt <inline>. With skill catalog + primer the
+            // prompt routinely exceeds 32KB, which blows past Windows'
+            // CreateProcess 32,767-char command-line limit and also risks ARG_MAX
+            // on Linux for large primers. The file variant scales without either
+            // constraint.
+            val promptFile = java.io.File.createTempFile("clawdea-system-prompt-", ".txt")
+            promptFile.deleteOnExit()
+            promptFile.writeText(systemPrompt, StandardCharsets.UTF_8)
+            systemPromptFile = promptFile
+            log.info("Wrote system prompt (${systemPrompt.length} chars) to ${promptFile.absolutePath}")
+            command.addAll(listOf("--append-system-prompt-file", promptFile.absolutePath))
         }
         // No-MCP path intentionally adds no permission flags. Without MCP we have
         // no approval UI; the CLI falls back to its default mode and any flagged
@@ -237,6 +249,7 @@ class CliProcess(
         } finally {
             try { stdoutReader?.close() } catch (_: Exception) {}
             try { mcpConfigFile?.delete() } catch (_: Exception) {}
+            try { systemPromptFile?.delete() } catch (_: Exception) {}
             stderrThread?.let { t ->
                 t.interrupt()
                 try { t.join(1000) } catch (_: Exception) {}
@@ -246,6 +259,7 @@ class CliProcess(
             stdinWriter = null
             stderrThread = null
             mcpConfigFile = null
+            systemPromptFile = null
         }
     }
 
@@ -264,9 +278,12 @@ class CliProcess(
             processEnv: Map<String, String>,
             authValidation: com.adobe.clawdea.auth.AuthValidation,
         ) {
-            // Check 1: Binary exists and is executable
+            // Check 1: Binary exists and is launchable
             val file = java.io.File(cliPath)
-            if (cliPath == "claude" || !file.isFile || !file.canExecute()) {
+            val osName = System.getProperty("os.name").orEmpty().lowercase()
+            val isWindows = osName.contains("windows")
+            val launchable = if (isWindows) file.isFile else file.canExecute()
+            if (cliPath == "claude" || !file.isFile || !launchable) {
                 throw CliStartException(
                     "Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code" +
                         " — or set the path in Settings > Tools > ClawDEA."
@@ -501,19 +518,63 @@ The built-in Edit/Write/MultiEdit/NotebookEdit tools also work; ClawDEA captures
 
 private val resolveLog = Logger.getInstance("com.adobe.clawdea.cli.resolveClaudeCliPath")
 
+private fun isWindows(): Boolean =
+    System.getProperty("os.name").orEmpty().lowercase().contains("windows")
+
+/**
+ * Redirect a `.ps1` path to its sibling `.cmd` shim. Java's ProcessBuilder can
+ * launch `.cmd` / `.bat` / `.exe` directly via CreateProcess, but not `.ps1` —
+ * those require `powershell -File ...`. npm's Windows installer drops all three
+ * shims side-by-side (`claude`, `claude.cmd`, `claude.ps1`), so we transparently
+ * prefer `.cmd` when the user (or the file picker) landed on `.ps1`.
+ */
+internal fun normalizeWindowsShimPath(path: String): String {
+    if (!isWindows()) return path
+    if (!path.endsWith(".ps1", ignoreCase = true)) return path
+    val cmdCandidate = path.substring(0, path.length - 4) + ".cmd"
+    if (java.io.File(cmdCandidate).isFile) {
+        resolveLog.info("Redirecting .ps1 shim to .cmd sibling: $cmdCandidate")
+        return cmdCandidate
+    }
+    val batCandidate = path.substring(0, path.length - 4) + ".bat"
+    if (java.io.File(batCandidate).isFile) {
+        resolveLog.info("Redirecting .ps1 shim to .bat sibling: $batCandidate")
+        return batCandidate
+    }
+    return path
+}
+
 fun resolveClaudeCliPath(configured: String): String {
     if (configured.isNotBlank() && configured != "claude") {
-        return configured
+        return normalizeWindowsShimPath(configured)
     }
     val home = System.getProperty("user.home")
-    val candidates = listOf(
-        "$home/.local/bin/claude",
-        "$home/.nvm/versions/node/default/bin/claude",
-        "/usr/local/bin/claude",
-        "/opt/homebrew/bin/claude",
-    )
+    val candidates = if (isWindows()) {
+        val appDataRoaming = System.getenv("APPDATA").orEmpty()
+        val appDataLocal = System.getenv("LOCALAPPDATA").orEmpty()
+        listOfNotNull(
+            if (appDataRoaming.isNotBlank()) "$appDataRoaming\\npm\\claude.cmd" else null,
+            if (appDataLocal.isNotBlank()) "$appDataLocal\\Volta\\bin\\claude.cmd" else null,
+            "$home\\AppData\\Roaming\\npm\\claude.cmd",
+            "$home\\AppData\\Local\\Volta\\bin\\claude.cmd",
+            "$home\\.local\\bin\\claude.cmd",
+            "C:\\Program Files\\nodejs\\claude.cmd",
+        )
+    } else {
+        listOf(
+            "$home/.local/bin/claude",
+            "$home/.nvm/versions/node/default/bin/claude",
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+        )
+    }
     for (candidate in candidates) {
-        if (java.io.File(candidate).canExecute()) {
+        val file = java.io.File(candidate)
+        // On Windows .cmd/.bat shims, canExecute() can return false even for a
+        // launchable file — launchability is decided by CreateProcess + PATHEXT.
+        // On Unix we still require the executable bit.
+        val usable = if (isWindows()) file.isFile else file.canExecute()
+        if (usable) {
             resolveLog.info("Resolved claude CLI at: $candidate")
             return candidate
         }
