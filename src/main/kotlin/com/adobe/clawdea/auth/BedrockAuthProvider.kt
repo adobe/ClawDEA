@@ -75,7 +75,11 @@ internal object CliConnectionProbe {
         }
         //
         val cliPath = resolveClaudeCliPath(ClawDEASettings.getInstance().state.cliPath)
-        if (cliPath == "claude" || !java.io.File(cliPath).canExecute()) {
+        val cliFile = java.io.File(cliPath)
+        val osName = System.getProperty("os.name").orEmpty().lowercase()
+        val isWindows = osName.contains("windows")
+        val launchable = if (isWindows) cliFile.isFile else cliFile.canExecute()
+        if (cliPath == "claude" || !cliFile.isFile || !launchable) {
             return ConnectionTestResult(false, "Claude CLI not found. Cannot test connection.")
         }
 
