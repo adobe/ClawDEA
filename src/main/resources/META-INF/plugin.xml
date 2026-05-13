@@ -111,6 +111,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.3.4</h3>
+<ul>
+  <li>Remove internal-API usage flagged by JetBrains Marketplace moderation: profiling now finds running processes via <code>RunContentManager</code> instead of <code>ExecutionManager.getRunningDescriptors</code></li>
+  <li>Replace deprecated <code>ReadAction.compute</code> call site with <code>runReadActionBlocking</code></li>
+</ul>
+
 <h3>1.3.3</h3>
 <ul>
   <li>Refreshed plugin icons (Marketplace thumbnail + tool-window, light and dark)</li>

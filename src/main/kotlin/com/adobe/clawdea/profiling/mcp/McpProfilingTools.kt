@@ -20,8 +20,8 @@ import com.adobe.clawdea.profiling.capture.SessionState
 import com.adobe.clawdea.profiling.capture.jfr.JfrBackend
 import com.adobe.clawdea.profiling.`import`.JfrImporter
 import com.adobe.clawdea.profiling.settings.ProfilingSettings
-import com.intellij.execution.ExecutionManager
 import com.intellij.execution.ProgramRunnerUtil
+import com.intellij.execution.ui.RunContentManager
 import com.intellij.execution.RunManager
 import com.intellij.execution.configurations.ConfigurationTypeUtil
 import com.intellij.execution.executors.DefaultRunExecutor
@@ -226,8 +226,9 @@ class McpProfilingTools(
             repeat(40) {
                 if (handler != null) return@repeat
                 Thread.sleep(250)
-                val descriptors = ExecutionManager.getInstance(project).getRunningDescriptors { it.name == configName }
-                handler = descriptors.firstOrNull()?.processHandler
+                handler = RunContentManager.getInstance(project).allDescriptors
+                    .firstOrNull { it.displayName == configName && it.processHandler?.isProcessTerminated == false }
+                    ?.processHandler
             }
             if (handler == null) {
                 future.complete(null)
@@ -393,7 +394,7 @@ class McpProfilingTools(
             fqn to null
         }
 
-        val module = com.intellij.openapi.application.ReadAction.compute<com.intellij.openapi.module.Module?, Throwable> {
+        val module = com.intellij.openapi.application.runReadActionBlocking {
             val scope = GlobalSearchScope.projectScope(project)
             val psiClass = JavaPsiFacade.getInstance(project).findClass(className, scope)
             psiClass?.let { ModuleUtilCore.findModuleForPsiElement(it) }

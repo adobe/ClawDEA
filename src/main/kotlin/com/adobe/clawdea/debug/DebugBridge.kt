@@ -453,7 +453,7 @@ class DebugBridge(private val project: Project) : Disposable {
                     }
                     if (last) result.complete(collected)
                 }
-                @Suppress("DEPRECATION")
+                @Suppress("OVERRIDE_DEPRECATION")
                 override fun tooManyChildren(remaining: Int) { result.complete(collected) }
                 override fun tooManyChildren(remaining: Int, addNextChildren: Runnable) { result.complete(collected) }
                 override fun setAlreadySorted(alreadySorted: Boolean) {}
@@ -484,7 +484,7 @@ class DebugBridge(private val project: Project) : Disposable {
                     for (i in 0 until list.size()) pairs.add(list.getName(i) to list.getValue(i))
                     if (last) collected.complete(pairs)
                 }
-                @Suppress("DEPRECATION")
+                @Suppress("OVERRIDE_DEPRECATION")
                 override fun tooManyChildren(remaining: Int) { collected.complete(pairs) }
                 override fun tooManyChildren(remaining: Int, addNextChildren: Runnable) { collected.complete(pairs) }
                 override fun setAlreadySorted(alreadySorted: Boolean) {}
@@ -535,7 +535,7 @@ class DebugBridge(private val project: Project) : Disposable {
             ApplicationManager.getApplication().invokeLater {
                 evaluator.startEvaluation(object : XFullValueEvaluator.XFullValueEvaluationCallback {
                     override fun evaluated(fullValue: String) { evalResult.complete(fullValue) }
-                    @Suppress("DEPRECATION")
+                    @Suppress("OVERRIDE_DEPRECATION")
                     override fun evaluated(fullValue: String, font: java.awt.Font?) { evalResult.complete(fullValue) }
                     override fun errorOccurred(errorMessage: String) { evalResult.complete(null) }
                     override fun isObsolete(): Boolean = evalResult.isDone
