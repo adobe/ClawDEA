@@ -72,6 +72,24 @@ kotlin {
     }
 }
 
+tasks.register("verifyChangeNotes") {
+    group = "verification"
+    description = "Fails if plugin.xml <change-notes> doesn't mention the current pluginVersion"
+    doLast {
+        val version = providers.gradleProperty("pluginVersion").get()
+        val pluginXml = file("src/main/resources/META-INF/plugin.xml").readText()
+        val changeNotesBlock = Regex("""<change-notes>\s*<!\[CDATA\[(.*?)]]>""", RegexOption.DOT_MATCHES_ALL)
+            .find(pluginXml)?.groupValues?.get(1)
+            ?: error("No <change-notes> CDATA block found in plugin.xml")
+        if (!changeNotesBlock.contains(version)) {
+            error(
+                "plugin.xml <change-notes> does not mention version $version. " +
+                "Add a <h3>$version</h3> entry before publishing."
+            )
+        }
+    }
+}
+
 tasks.test {
     // Fixture-based tests (LightJavaCodeInsightFixtureTestCase) hang when run
     // headlessly via Gradle — they require the full IntelliJ sandbox and should

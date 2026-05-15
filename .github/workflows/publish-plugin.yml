@@ -61,6 +61,9 @@ jobs:
           printf '%s' "${{ secrets.CERTIFICATE_CHAIN }}" > chain.crt
           printf '%s' "${{ secrets.PRIVATE_KEY }}" > private.pem
 
+      - name: Verify change-notes mention current version
+        run: ./gradlew --no-daemon verifyChangeNotes
+
       - name: Build, verify structure, sign
         env:
           CERTIFICATE_CHAIN_FILE: chain.crt
