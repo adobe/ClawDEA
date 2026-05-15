@@ -41,6 +41,7 @@ class CliProcess(
     private var stderrThread: Thread? = null
     private var mcpConfigFile: java.io.File? = null
     private var systemPromptFile: java.io.File? = null
+    private var settingsFile: java.io.File? = null
     private val recentStderr = ConcurrentLinkedDeque<String>()
 
     val isAlive: Boolean
@@ -91,7 +92,22 @@ class CliProcess(
             val effectiveApprovalMode = project?.let { McpServer.getInstance(it).activeToolApprovalMode }
                 ?: settings.toolApprovalMode
             command.addAll(buildPermissionArgs(effectiveApprovalMode))
-            command.addAll(buildPermissionSettingsArgs(effectiveApprovalMode))
+            val settingsJson = buildPermissionSettingsJson(effectiveApprovalMode)
+            if (settingsJson != null) {
+                // Write to a temp file rather than passing inline. On Windows the CLI
+                // entry point is `claude.cmd`, so Java's ProcessBuilder routes args
+                // through cmd.exe — which strips inner double quotes and splits on
+                // unquoted spaces. The inline JSON `{"permissions":{"ask":["Bash(ls
+                // *)"]}}` becomes `{permissions:{ask:[Bash(ls` and the CLI treats it
+                // as a file path. The file path form sidesteps the quoting problem
+                // entirely and matches how we already handle the system prompt.
+                val tmp = java.io.File.createTempFile("clawdea-settings-", ".json")
+                tmp.deleteOnExit()
+                tmp.writeText(settingsJson, StandardCharsets.UTF_8)
+                settingsFile = tmp
+                log.info("Wrote permission settings to ${tmp.absolutePath}")
+                command.addAll(listOf("--settings", tmp.absolutePath))
+            }
             command.addAll(listOf("--permission-prompt-tool", "mcp__clawdea-intellij__request_permission"))
 
             val mcpJson = com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort)
@@ -401,7 +417,7 @@ class CliProcess(
         /**
          * Map the user's tool-approval preference to CLI flags.
          *
-         * - `confirm-all`  → no mode flag; [buildPermissionSettingsArgs] injects
+         * - `confirm-all`  → no mode flag; [buildPermissionSettingsJson] injects
          *                    session-only ask rules for read-only Bash commands
          *                    that Claude Code otherwise runs without prompting.
          * - `allow-safe`   → --permission-mode auto; Anthropic's native auto-mode
@@ -421,10 +437,10 @@ class CliProcess(
             }
         }
 
-        internal fun buildPermissionSettingsArgs(toolApprovalMode: String): List<String> {
+        internal fun buildPermissionSettingsJson(toolApprovalMode: String): String? {
             val mode = toolApprovalMode.trim()
             if (mode == "allow-safe" || mode == "allow-all") {
-                return emptyList()
+                return null
             }
             val askRules = listOf(
                 "ls",
@@ -443,7 +459,7 @@ class CliProcess(
             ).flatMap { command ->
                 listOf("Bash($command)", "Bash($command *)")
             }.joinToString(",") { """"$it"""" }
-            return listOf("--settings", """{"permissions":{"ask":[$askRules]}}""")
+            return """{"permissions":{"ask":[$askRules]}}"""
         }
 
         internal fun buildDisallowedTools(mcpAvailable: Boolean): String? {

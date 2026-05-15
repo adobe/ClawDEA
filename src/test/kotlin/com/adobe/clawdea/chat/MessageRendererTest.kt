@@ -384,6 +384,31 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `renderFileLink extracts filename from Windows path`() {
+        val html = renderer.renderFileLink("""C:\Users\dev\project\src\Foo.kt""", "toolu_060")
+        assertTrue("Should show just filename, not full path", html.contains(">Foo.kt<"))
+        assertFalse("Should not show drive letter in link text", html.contains(">C:\\"))
+    }
+
+    @Test
+    fun `renderEditLink extracts filename from Windows path`() {
+        val html = renderer.renderEditLink(
+            filePath = """C:\Users\dev\project\src\Bar.kt""",
+            toolUseId = "toolu_061",
+            status = "Pending",
+        )
+        assertTrue("Should show just filename", html.contains(">Bar.kt<"))
+        assertFalse("Should not show drive letter in link text", html.contains(">C:\\"))
+    }
+
+    @Test
+    fun `renderFileLink tooltip shows relative path for Windows project`() {
+        val r = MessageRenderer(projectBasePath = """C:\Users\dev\project""")
+        val html = r.renderFileLink("""C:\Users\dev\project\src\main\Foo.kt""", "toolu_062")
+        assertTrue(html.contains("""title="src/main/Foo.kt""""))
+    }
+
+    @Test
     fun `renderEditLink with showActions uses data-action for accept and reject`() {
         val html = renderer.renderEditLink(
             filePath = "/src/main/Foo.kt",

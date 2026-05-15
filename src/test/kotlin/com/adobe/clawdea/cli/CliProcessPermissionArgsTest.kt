@@ -13,6 +13,8 @@ package com.adobe.clawdea.cli
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,28 +27,28 @@ class CliProcessPermissionArgsTest {
 
     @Test
     fun `confirm-all injects ask rules for read-only Bash commands`() {
-        val args = CliProcess.buildPermissionSettingsArgs("confirm-all")
+        val json = CliProcess.buildPermissionSettingsJson("confirm-all")
 
-        assertEquals("--settings", args[0])
-        assertTrue(args[1].contains(""""ask""""))
-        assertTrue(args[1].contains("Bash(ls)"))
-        assertTrue(args[1].contains("Bash(ls *)"))
-        assertTrue(args[1].contains("Bash(pwd)"))
-        assertTrue(args[1].contains("Bash(pwd *)"))
-        assertTrue(args[1].contains("Bash(cat)"))
-        assertTrue(args[1].contains("Bash(cat *)"))
+        assertNotNull(json)
+        assertTrue(json!!.contains(""""ask""""))
+        assertTrue(json.contains("Bash(ls)"))
+        assertTrue(json.contains("Bash(ls *)"))
+        assertTrue(json.contains("Bash(pwd)"))
+        assertTrue(json.contains("Bash(pwd *)"))
+        assertTrue(json.contains("Bash(cat)"))
+        assertTrue(json.contains("Bash(cat *)"))
     }
 
     @Test
     fun `allow-safe emits native --permission-mode auto`() {
         assertEquals(listOf("--permission-mode", "auto"), CliProcess.buildPermissionArgs("allow-safe"))
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionSettingsArgs("allow-safe"))
+        assertNull(CliProcess.buildPermissionSettingsJson("allow-safe"))
     }
 
     @Test
     fun `allow-all emits no flag - silent-approve is handled by the prompt tool`() {
         assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("allow-all"))
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionSettingsArgs("allow-all"))
+        assertNull(CliProcess.buildPermissionSettingsJson("allow-all"))
     }
 
     @Test
@@ -57,15 +59,15 @@ class CliProcessPermissionArgsTest {
     @Test
     fun `unknown value falls back to confirm-all behavior`() {
         assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("garbage"))
-        assertFalse(CliProcess.buildPermissionSettingsArgs("garbage").isEmpty())
+        assertNotNull(CliProcess.buildPermissionSettingsJson("garbage"))
     }
 
     @Test
     fun `empty and blank map to confirm-all`() {
         assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs(""))
         assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("   "))
-        assertFalse(CliProcess.buildPermissionSettingsArgs("").isEmpty())
-        assertFalse(CliProcess.buildPermissionSettingsArgs("   ").isEmpty())
+        assertNotNull(CliProcess.buildPermissionSettingsJson(""))
+        assertNotNull(CliProcess.buildPermissionSettingsJson("   "))
     }
 
     @Test

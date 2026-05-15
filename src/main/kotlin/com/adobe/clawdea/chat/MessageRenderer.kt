@@ -85,8 +85,12 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
      */
     private fun tooltipPath(filePath: String): String {
         val base = projectBasePath
-        if (base != null && filePath.startsWith("$base/")) {
-            return filePath.removePrefix("$base/")
+        if (base != null) {
+            val normalized = filePath.replace('\\', '/')
+            val normalizedBase = base.replace('\\', '/')
+            if (normalized.startsWith("$normalizedBase/")) {
+                return normalized.removePrefix("$normalizedBase/")
+            }
         }
         return filePath
     }
@@ -98,7 +102,7 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
         label: String = "Edit",
         showActions: Boolean = false,
     ): String {
-        val fileName = escapeHtml(filePath.substringAfterLast('/'))
+        val fileName = escapeHtml(extractFileName(filePath))
         val fullPath = escapeHtml(tooltipPath(filePath))
         val safeId = escapeHtml(toolUseId)
         val safeStatus = escapeHtml(status)
@@ -129,7 +133,7 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
     }
 
     fun renderFileLink(filePath: String, toolUseId: String, label: String = "Read"): String {
-        val fileName = escapeHtml(filePath.substringAfterLast('/'))
+        val fileName = escapeHtml(extractFileName(filePath))
         val tooltip = escapeHtml(tooltipPath(filePath))
         val absPath = escapeHtml(filePath)
         val safeId = escapeHtml(toolUseId)
@@ -145,6 +149,11 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
                 <span class="edit-link-path" title="$tooltip" data-action="open-file" data-file-path="$absPath">$fileName</span>
             </div>
         """.trimIndent()
+    }
+
+    private fun extractFileName(path: String): String {
+        val lastSlash = maxOf(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+        return if (lastSlash >= 0) path.substring(lastSlash + 1) else path
     }
 
     private data class ToolDisplay(val title: String, val body: String, val rawHtml: String = "")
