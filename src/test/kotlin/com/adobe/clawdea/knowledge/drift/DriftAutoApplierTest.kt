@@ -215,4 +215,17 @@ class DriftAutoApplierTest {
         assertEquals(emptyList<DriftEvent>(), applied)
         assertEquals(original, Files.readString(index))
     }
+
+    @Test fun `apply never auto-applies WikiSuggestion`() {
+        val event = DriftEvent.WikiSuggestion(
+            kind = SuggestionKind.missingConcept,
+            title = "Add concept",
+            rationale = "Real subsystem with no coverage.",
+            targetFiles = listOf(".claude/wiki/concepts/foo.md"),
+            sourcePage = null,
+            recordedAt = "2026-05-16T16:30:00Z",
+        )
+        val applied = DriftAutoApplier.apply(events = listOf(event))
+        assertTrue(applied.isEmpty())
+    }
 }
