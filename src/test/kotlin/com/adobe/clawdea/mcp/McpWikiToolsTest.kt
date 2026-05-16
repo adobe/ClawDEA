@@ -11,13 +11,15 @@
  */
 package com.adobe.clawdea.mcp
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpWikiToolsTest {
-    @Test fun `tool names are stable`() {
-        assertTrue(McpWikiTools.READ_TOOL_NAME == "read_wiki_page")
-        assertTrue(McpWikiTools.SEARCH_TOOL_NAME == "search_wiki")
+    @Test fun `tool name constants are stable`() {
+        assertEquals("read_wiki_page", McpWikiTools.READ_TOOL_NAME)
+        assertEquals("search_wiki", McpWikiTools.SEARCH_TOOL_NAME)
+        assertEquals("record_wiki_suggestion", McpWikiTools.RECORD_SUGGESTION_TOOL_NAME)
     }
 
     @Test fun `read description mentions concept and wiki`() {
@@ -28,5 +30,13 @@ class McpWikiToolsTest {
     @Test fun `search description mentions search and wiki`() {
         assertTrue(McpWikiTools.SEARCH_TOOL_DESCRIPTION.contains("search", ignoreCase = true))
         assertTrue(McpWikiTools.SEARCH_TOOL_DESCRIPTION.contains("wiki", ignoreCase = true))
+    }
+
+    @Test fun `record-suggestion description names the three kinds`() {
+        val desc = McpWikiTools.RECORD_SUGGESTION_TOOL_DESCRIPTION
+        assertTrue(desc.contains("missingConcept"))
+        assertTrue(desc.contains("staleConcept"))
+        assertTrue(desc.contains("incompleteConcept"))
+        assertTrue(desc.contains("wiki-librarian"))
     }
 }

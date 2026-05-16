@@ -15,6 +15,7 @@ import com.adobe.clawdea.knowledge.drift.DriftDetectionService
 import com.adobe.clawdea.knowledge.wiki.WikiPageReader
 import com.adobe.clawdea.knowledge.wiki.WikiPath
 import com.adobe.clawdea.knowledge.wiki.WikiSearcher
+import com.adobe.clawdea.knowledge.wiki.WikiSuggestionWriter
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -24,6 +25,7 @@ import java.nio.file.Paths
 class McpWikiTools(private val project: Project) {
 
     fun registerAll(router: McpToolRouter) {
+        val state = ClawDEASettings.getInstance().state
         router.register(
             name = READ_TOOL_NAME,
             description = READ_TOOL_DESCRIPTION,
@@ -35,15 +37,30 @@ class McpWikiTools(private val project: Project) {
             handler = ::readWikiPage,
         )
         router.register(
-            name = SEARCH_TOOL_NAME,
-            description = SEARCH_TOOL_DESCRIPTION,
+            name = RECORD_SUGGESTION_TOOL_NAME,
+            description = RECORD_SUGGESTION_TOOL_DESCRIPTION,
             properties = listOf(
-                Triple("query", "string", "Case-insensitive substring to search for in wiki pages"),
-                Triple("pathTokens", "array:string", "Optional path tokens from diff context (e.g. policies, clientlibs, jcr_root) to match against page titles and headings"),
+                Triple("kind", "string", "One of missingConcept, staleConcept, incompleteConcept"),
+                Triple("title", "string", "3-7 word title for the proposed change"),
+                Triple("rationale", "string", "1-2 sentence explanation of what was observed"),
+                Triple("target_files", "string", "Comma-separated wiki paths the change would touch (each under .claude/wiki/, ending in .md)"),
+                Triple("source_page", "string", "Optional: wiki page consulted when the gap was noticed"),
             ),
-            required = listOf("query"),
-            handler = ::searchWiki,
+            required = listOf("kind", "title", "rationale", "target_files"),
+            handler = ::recordWikiSuggestion,
         )
+        if (!state.enableWikiLibrarian) {
+            router.register(
+                name = SEARCH_TOOL_NAME,
+                description = SEARCH_TOOL_DESCRIPTION,
+                properties = listOf(
+                    Triple("query", "string", "Case-insensitive substring to search for in wiki pages"),
+                    Triple("pathTokens", "array:string", "Optional path tokens from diff context (e.g. policies, clientlibs, jcr_root) to match against page titles and headings"),
+                ),
+                required = listOf("query"),
+                handler = ::searchWiki,
+            )
+        }
     }
 
     private fun wikiPath(): WikiPath? {
@@ -67,6 +84,33 @@ class McpWikiTools(private val project: Project) {
             McpToolRouter.ToolResult("(no $kind page named '$name')")
         } else {
             McpToolRouter.ToolResult(content)
+        }
+    }
+
+    private fun recordWikiSuggestion(args: Map<String, String>): McpToolRouter.ToolResult {
+        val basePath = project.basePath
+            ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
+        val state = ClawDEASettings.getInstance().state
+        val claudeDir = Paths.get(basePath, state.claudeDirName)
+        val writer = WikiSuggestionWriter(claudeDir)
+        val kind = args["kind"] ?: return McpToolRouter.ToolResult("Missing 'kind' argument", isError = true)
+        val title = args["title"] ?: return McpToolRouter.ToolResult("Missing 'title' argument", isError = true)
+        val rationale = args["rationale"] ?: return McpToolRouter.ToolResult("Missing 'rationale' argument", isError = true)
+        val targetFiles = args["target_files"] ?: return McpToolRouter.ToolResult("Missing 'target_files' argument", isError = true)
+        val result = writer.record(
+            kind = kind,
+            title = title,
+            rationale = rationale,
+            targetFilesCsv = targetFiles,
+            sourcePage = args["source_page"],
+        )
+        return when (result) {
+            is WikiSuggestionWriter.Result.Recorded ->
+                McpToolRouter.ToolResult("""{"status":"recorded","signature":"${result.signature}","isNew":${result.isNew}}""")
+            is WikiSuggestionWriter.Result.Dismissed ->
+                McpToolRouter.ToolResult("""{"status":"dismissed","signature":"${result.signature}"}""")
+            is WikiSuggestionWriter.Result.Invalid ->
+                McpToolRouter.ToolResult(result.reason, isError = true)
         }
     }
 
@@ -121,5 +165,12 @@ class McpWikiTools(private val project: Project) {
         const val SEARCH_TOOL_DESCRIPTION =
             "Search the project wiki at .claude/wiki/ for a substring query. Returns ranked " +
             "snippets with file path and line number; use read_wiki_page for full content."
+        const val RECORD_SUGGESTION_TOOL_NAME = "record_wiki_suggestion"
+        const val RECORD_SUGGESTION_TOOL_DESCRIPTION =
+            "Record a proposed wiki improvement (missingConcept | staleConcept | " +
+            "incompleteConcept) for the user to review at wiki refresh time. Use sparingly — " +
+            "one per distinct gap. Not surfaced to the main chat; only the wiki-librarian " +
+            "subagent's allowlist contains this tool. Returns a short ack with the recorded " +
+            "signature."
     }
 }
