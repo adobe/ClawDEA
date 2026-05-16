@@ -246,6 +246,21 @@ The templates live in `src/main/resources/prompts/wiki-page-invariant.md` and `w
 
 Dream-backed wiki maintenance can detect low-signal index growth, stale/duplicate concept pages, and old wiki link syntax. Low-risk cleanup, such as high-confidence single-target Dream link normalization when the target concept exists, can apply automatically only when Auto-update wiki on drift is enabled; substantive page creation and rewrites still go through diff review.
 
+### Wiki librarian
+
+For any non-trivial question about this project's design, ClawDEA's main chat delegates to a `wiki-librarian` Claude Code subagent rather than running a keyword search itself. The librarian reads `.claude/wiki/` in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
+
+The agent file lives at `.claude/agents/wiki-librarian.md` per project. ClawDEA installs it automatically on first knowledge-layer use and on `/seed-wiki`. To pick up an updated version that ships with a new plugin release, delete the file and run ClawDEA — the installer re-writes it. User-edited copies are preserved (the installer never overwrites).
+
+**When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in `.claude/wiki/.drift-state.json` alongside other drift events and surface through the existing flow:
+
+- With **Auto-update wiki on drift** enabled, suggestions appear in the periodic Dream-scan notification cycle.
+- Without it, suggestions wait until `/refresh-wiki` is invoked.
+
+The librarian never writes wiki files directly. Authoring stays user-initiated: review the suggestion, decide yes/no, and either dismiss it or draft the wiki change through the main chat.
+
+**Opt out** by clearing **Enable wiki librarian** in plugin settings. This restores the legacy "search_wiki probe" directive and re-registers `search_wiki` as an MCP tool. The librarian agent file remains on disk; it's simply not invoked.
+
 ### Personal notes (`.claude/notes/CURRENT.md`)
 
 A per-user scratchpad outside the shared wiki. Append with `/note <text>` from the chat input. When a note becomes broadly useful, run `/promote-to-wiki` to convert it into a concept page.
@@ -259,6 +274,7 @@ For multi-repo work, `/seed-workspace` creates a manifest listing sibling repos 
 **Settings → Tools → ClawDEA → Knowledge layer** exposes the knowledge, workspace, drift, and Dream maintenance controls:
 
 - **Enable knowledge layer** — main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools.
+- **Enable wiki librarian** — on by default. The primer directs the main agent to delegate design questions to the `wiki-librarian` Claude Code subagent via `Task`, and `search_wiki` is not registered as an MCP tool. When off, the legacy "first call must be a `search_wiki` probe" directive is emitted and `search_wiki` returns. See [Wiki librarian](#wiki-librarian).
 - **Enable workspace manifest** — read sibling repos from `.clawdea-workspace.md` and surface them via `list_workspace_repos` / `read_sibling_*`.
 - **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently; learn-on-probe-miss writes use `Write`/`Edit` instead of `propose_*`. When off, every change goes through diff review.
 - **Enable Dream wiki maintenance** — controls both automatic/default Dream due checks and explicit `/refresh-wiki --dream`. When off, Dream scans do not run.
