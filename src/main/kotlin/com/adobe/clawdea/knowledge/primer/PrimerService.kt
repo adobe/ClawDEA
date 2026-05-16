@@ -54,6 +54,14 @@ class PrimerService(private val project: Project) {
             return cached.get()
         }
 
+        if (settings.enableWikiLibrarian) {
+            val claudeDir = Paths.get(basePath).resolve(settings.claudeDirName)
+            val r = com.adobe.clawdea.knowledge.wiki.WikiLibrarianInstaller().ensureInstalled(claudeDir)
+            if (r is com.adobe.clawdea.knowledge.wiki.WikiLibrarianInstaller.InstallResult.Failed) {
+                log.warn("WikiLibrarianInstaller failed: ${r.cause.message}")
+            }
+        }
+
         val repoStateStart = System.currentTimeMillis()
         val repoStateText = try {
             RepoStateGenerator(project).generate()

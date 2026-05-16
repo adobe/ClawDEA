@@ -1041,6 +1041,13 @@ class ChatPanel(
         commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
             CommandInfo("/seed-wiki", "Bootstrap initial wiki pages from project state", CommandCategory.BRIDGE),
         ) { _ ->
+            project.basePath?.let { basePath ->
+                val state = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state
+                if (state.enableWikiLibrarian) {
+                    val claudeDir = java.nio.file.Paths.get(basePath).resolve(state.claudeDirName)
+                    com.adobe.clawdea.knowledge.wiki.WikiLibrarianInstaller().ensureInstalled(claudeDir)
+                }
+            }
             val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
             val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
             """
