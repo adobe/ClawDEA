@@ -43,6 +43,14 @@ class DreamWikiDetector(
         force: Boolean,
         activeTurn: Boolean,
     ): DreamDetectionResult {
+        return DreamDetectionResult(
+            events = emptyList(),
+            status = "not-run:dream-disabled",
+            filteredCandidateCount = 0,
+            attempted = false,
+            successful = false,
+        )
+        @Suppress("UNREACHABLE_CODE")
         if (!force) {
             val decision = DreamDueGate.evaluate(
                 enabled = settings.enabled,

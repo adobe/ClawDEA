@@ -84,7 +84,7 @@ class DriftBanner(
             return
         }
         val n = current.size
-        val label = if (current.any { it.isDreamEvent() }) {
+        val label = if (current.any { it.isMaintenanceSuggestion() }) {
             if (n == 1) "maintenance suggestion" else "maintenance suggestions"
         } else {
             if (n == 1) "stale ref" else "stale refs"
@@ -101,7 +101,7 @@ class DriftBanner(
         updateHtml(html)
     }
 
-    private fun DriftEvent.isDreamEvent(): Boolean =
+    private fun DriftEvent.isMaintenanceSuggestion(): Boolean =
         when (this) {
             is DriftEvent.CommitDrift,
             is DriftEvent.WikiSuggestion,
