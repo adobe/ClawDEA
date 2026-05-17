@@ -40,7 +40,7 @@ matters, verifying against current source.
 
 ## When to call `record_wiki_suggestion`
 
-Three kinds, mirroring a subset of `DreamWikiDetector` candidate kinds:
+Three kinds:
 
 - **missingConcept** — a real subsystem with no concept page covering it
   (multiple files, clear responsibility, the question revealed nothing
