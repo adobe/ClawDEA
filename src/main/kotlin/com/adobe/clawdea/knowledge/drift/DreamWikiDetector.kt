@@ -43,6 +43,9 @@ class DreamWikiDetector(
         force: Boolean,
         activeTurn: Boolean,
     ): DreamDetectionResult {
+        // Dream wiki maintenance is being removed (Task 12 of the wiki maintenance
+        // redesign). The body that referenced state.dream* fields has been stripped;
+        // this stub remains only to keep callers compiling until the file is deleted.
         return DreamDetectionResult(
             events = emptyList(),
             status = "not-run:dream-disabled",
@@ -50,40 +53,6 @@ class DreamWikiDetector(
             attempted = false,
             successful = false,
         )
-        @Suppress("UNREACHABLE_CODE")
-        if (!force) {
-            val decision = DreamDueGate.evaluate(
-                enabled = settings.enabled,
-                now = now,
-                state = state,
-                minElapsedHours = settings.minElapsedHours,
-                minSignalUnits = settings.minSignalUnits,
-                scanThrottleMinutes = settings.scanThrottleMinutes,
-                activeTurn = activeTurn,
-                lockHeld = state.dreamLockOwner.isNotBlank() ||
-                    DriftDetectionService.isDreamFilesystemLockHeld(projectRoot.resolve(".claude"), now),
-            )
-            if (!decision.due) {
-                return DreamDetectionResult(
-                    events = emptyList(),
-                    status = "not-due:${decision.reasons.joinToString(",")}",
-                    filteredCandidateCount = 0,
-                    attempted = false,
-                    successful = false,
-                )
-            }
-        }
-
-        return when (val result = invocation.run(projectRoot, buildPrompt(projectRoot))) {
-            is DreamInvocationResult.Unavailable -> DreamDetectionResult(
-                events = emptyList(),
-                status = result.reason,
-                filteredCandidateCount = 0,
-                attempted = true,
-                successful = false,
-            )
-            is DreamInvocationResult.Available -> validateScoreAndMap(projectRoot, result.json)
-        }
     }
 
     private fun validateScoreAndMap(projectRoot: Path, json: String): DreamDetectionResult {

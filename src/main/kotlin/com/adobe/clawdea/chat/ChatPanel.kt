@@ -1251,7 +1251,7 @@ class ChatPanel(
         val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
         return RefreshWikiStatusFormatter.format(
             RefreshWikiStatus(
-                lastRunAt = state.dreamLastRunAt,
+                lastRunAt = state.lastScanAt,
                 pendingEventTypes = service.current().map { refreshWikiEventName(it) },
             ),
         )

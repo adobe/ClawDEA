@@ -16,12 +16,8 @@ import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import java.nio.file.FileAlreadyExistsException
-import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.nio.file.StandardOpenOption
-import java.time.Duration
 import java.time.Instant
 
 @Service(Service.Level.PROJECT)
@@ -172,264 +168,19 @@ class DriftDetectionService(private val project: Project) {
             }
             out += beforeState.suggestions
 
-            val dreamState = if (runDreamScan) {
-                beforeState
-            } else {
-                observeCheapDreamSignals(claudeDir, beforeState, out)
-            }
-            val dreamResult = if (runDreamScan) {
-                detectDreamEvents(projectRoot, claudeDir, dreamState, settingsState, now, detectDreams)
-            } else {
-                cheapDreamDueCheck(claudeDir, dreamState, settingsState, now)
-            }
-            out += dreamResult.events
-
+            // Dream wiki maintenance is being removed (Task 12 of the wiki
+            // maintenance redesign). The dream-scan helpers that referenced
+            // state.dream* fields have been stripped; rescan only updates
+            // lastScanAt going forward.
             return RawCollection(
                 events = out,
-                newState = updateDreamState(dreamState, dreamResult, now).copy(
-                    lastScanAt = now.toString(),
-                ),
+                newState = beforeState.copy(lastScanAt = now.toString()),
             )
-        }
-
-        private fun detectDreamEvents(
-            projectRoot: Path,
-            claudeDir: Path,
-            state: DriftState,
-            settingsState: ClawDEASettings.State,
-            now: Instant,
-            detectDreams: DreamDetectionRunner,
-        ): DreamDetectionResult {
-            if (state.dreamLockOwner.isNotBlank()) {
-                return DreamDetectionResult(
-                    events = emptyList(),
-                    status = "not-run:lock-held",
-                    filteredCandidateCount = state.dreamFilteredCandidateCount,
-                    attempted = false,
-                    successful = false,
-                )
-            }
-            if (!settingsState.enableKnowledgeLayer || !settingsState.enableDreamWikiMaintenance) {
-                return DreamDetectionResult(
-                    events = emptyList(),
-                    status = "not-run:disabled",
-                    filteredCandidateCount = state.dreamFilteredCandidateCount,
-                    attempted = false,
-                    successful = false,
-                )
-            }
-            val lock = acquireDreamLock(claudeDir, now) ?: return DreamDetectionResult(
-                events = emptyList(),
-                status = "not-run:lock-held",
-                filteredCandidateCount = state.dreamFilteredCandidateCount,
-                attempted = false,
-                successful = false,
-            )
-            val settings = DreamWikiSettings(
-                enabled = settingsState.enableKnowledgeLayer && settingsState.enableDreamWikiMaintenance,
-                minElapsedHours = settingsState.dreamWikiMinElapsedHours,
-                minSignalUnits = settingsState.dreamWikiMinSignalUnits,
-                scanThrottleMinutes = settingsState.dreamWikiScanThrottleMinutes,
-            )
-            return try {
-                detectDreams.detect(
-                    projectRoot = projectRoot,
-                    state = state.copy(dreamLockOwner = lock.owner, dreamLockAcquiredAt = now.toString()),
-                    settings = settings,
-                    now = now,
-                    force = true,
-                    activeTurn = false,
-                )
-            } catch (e: Throwable) {
-                LOG.warn("Dream wiki detection failed: ${e.message}")
-                DreamDetectionResult(
-                    events = emptyList(),
-                    status = "error:${e.javaClass.simpleName}:${e.message.orEmpty()}",
-                    filteredCandidateCount = 0,
-                    attempted = true,
-                    successful = false,
-                )
-            } finally {
-                releaseDreamLock(lock)
-            }
-        }
-
-        private fun cheapDreamDueCheck(
-            claudeDir: Path,
-            state: DriftState,
-            settingsState: ClawDEASettings.State,
-            now: Instant,
-        ): DreamDetectionResult {
-            val settings = DreamWikiSettings(
-                enabled = settingsState.enableKnowledgeLayer && settingsState.enableDreamWikiMaintenance,
-                minElapsedHours = settingsState.dreamWikiMinElapsedHours,
-                minSignalUnits = settingsState.dreamWikiMinSignalUnits,
-                scanThrottleMinutes = settingsState.dreamWikiScanThrottleMinutes,
-            )
-            val decision = DreamDueGate.evaluate(
-                enabled = settings.enabled,
-                now = now,
-                state = state,
-                minElapsedHours = settings.minElapsedHours,
-                minSignalUnits = settings.minSignalUnits,
-                scanThrottleMinutes = settings.scanThrottleMinutes,
-                activeTurn = false,
-                lockHeld = state.dreamLockOwner.isNotBlank() || isDreamFilesystemLockHeld(claudeDir, now),
-            )
-            return DreamDetectionResult(
-                events = emptyList(),
-                status = if (decision.due) "due" else "not-due:${decision.reasons.joinToString(",")}",
-                filteredCandidateCount = state.dreamFilteredCandidateCount,
-                attempted = false,
-                successful = false,
-            )
-        }
-
-        private fun observeCheapDreamSignals(
-            claudeDir: Path,
-            state: DriftState,
-            rawEvents: List<DriftEvent>,
-        ): DriftState {
-            val lastSuccessfulScan = parseInstantOrNull(state.dreamLastSuccessfulScanAt)
-            val signalUnits = (
-                countRelevantFileSignals(claudeDir, lastSuccessfulScan) +
-                    countRawDriftSignals(rawEvents, lastSuccessfulScan)
-                ).coerceAtMost(MAX_CHEAP_SIGNAL_UNITS)
-            if (signalUnits <= 0) return state
-            val observed = maxOf(
-                state.dreamObservedSignalUnits,
-                (state.dreamProcessedSignalUnits + signalUnits).coerceAtMost(MAX_OBSERVED_SIGNAL_UNITS),
-            )
-            return state.copy(dreamObservedSignalUnits = observed)
-        }
-
-        private fun countRelevantFileSignals(claudeDir: Path, lastSuccessfulScan: Instant?): Int {
-            var count = 0
-            if (changedSince(claudeDir.resolve("REPO_STATE.md"), lastSuccessfulScan)) count++
-            if (changedSince(claudeDir.resolve("notes").resolve("CURRENT.md"), lastSuccessfulScan)) count++
-
-            val wikiDir = claudeDir.resolve("wiki")
-            if (Files.isDirectory(wikiDir)) {
-                val stream = Files.walk(wikiDir)
-                try {
-                    count += stream
-                        .filter { path -> Files.isRegularFile(path) && path.fileName.toString().endsWith(".md") }
-                        .filter { path -> changedSince(path, lastSuccessfulScan) }
-                        .limit(MAX_CHEAP_SIGNAL_UNITS.toLong())
-                        .count()
-                        .toInt()
-                } finally {
-                    stream.close()
-                }
-            }
-            return count.coerceAtMost(MAX_CHEAP_SIGNAL_UNITS)
-        }
-
-        private fun countRawDriftSignals(rawEvents: List<DriftEvent>, lastSuccessfulScan: Instant?): Int =
-            rawEvents.count { event ->
-                when (event) {
-                    is DriftEvent.CodeRename -> changedSince(event.wikiPage, lastSuccessfulScan)
-                    is DriftEvent.ManifestStale -> changedSince(event.manifestPath, lastSuccessfulScan)
-                    else -> false
-                }
-            }.coerceAtMost(MAX_CHEAP_SIGNAL_UNITS)
-
-        private fun changedSince(path: Path, lastSuccessfulScan: Instant?): Boolean {
-            if (!Files.isRegularFile(path)) return false
-            if (lastSuccessfulScan == null) return true
-            return try {
-                Files.getLastModifiedTime(path).toInstant().isAfter(lastSuccessfulScan)
-            } catch (_: Exception) {
-                false
-            }
-        }
-
-        private fun parseInstantOrNull(text: String): Instant? =
-            try {
-                Instant.parse(text)
-            } catch (_: Exception) {
-                null
-            }
-
-        private data class DreamLock(val file: Path, val owner: String, val content: String)
-
-        private fun acquireDreamLock(claudeDir: Path, now: Instant): DreamLock? {
-            val wikiDir = claudeDir.resolve("wiki")
-            Files.createDirectories(wikiDir)
-            val file = wikiDir.resolve(DREAM_LOCK_FILE)
-            return tryCreateDreamLock(file, now) ?: if (deleteStaleDreamLock(file, now)) {
-                tryCreateDreamLock(file, now)
-            } else {
-                null
-            }
-        }
-
-        private fun tryCreateDreamLock(file: Path, now: Instant): DreamLock? {
-            val owner = "pid:${ProcessHandle.current().pid()}:thread:${Thread.currentThread().threadId()}"
-            val content = "$owner\n$now"
-            return try {
-                Files.writeString(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-                DreamLock(file, owner, content)
-            } catch (_: FileAlreadyExistsException) {
-                null
-            }
-        }
-
-        private fun deleteStaleDreamLock(file: Path, now: Instant): Boolean {
-            val acquiredAt = readDreamLockAcquiredAt(file) ?: return false
-            if (Duration.between(acquiredAt, now) <= DREAM_LOCK_STALE_AFTER) return false
-            return try {
-                Files.deleteIfExists(file)
-            } catch (_: Exception) {
-                false
-            }
         }
 
         internal fun isDreamFilesystemLockHeld(claudeDir: Path, now: Instant): Boolean {
-            val file = claudeDir.resolve("wiki").resolve(DREAM_LOCK_FILE)
-            if (!Files.exists(file)) return false
-            val acquiredAt = readDreamLockAcquiredAt(file) ?: return true
-            return Duration.between(acquiredAt, now) <= DREAM_LOCK_STALE_AFTER
-        }
-
-        private fun readDreamLockAcquiredAt(file: Path): Instant? =
-            try {
-                Files.readString(file).lineSequence().drop(1).firstOrNull()?.let(Instant::parse)
-            } catch (_: Exception) {
-                null
-            }
-
-        private fun releaseDreamLock(lock: DreamLock) {
-            try {
-                if (Files.exists(lock.file) && Files.readString(lock.file) == lock.content) {
-                    Files.deleteIfExists(lock.file)
-                }
-            } catch (e: Exception) {
-                LOG.warn("Failed to release Dream wiki lock ${lock.file}: ${e.message}")
-            }
-        }
-
-        private fun updateDreamState(
-            beforeState: DriftState,
-            result: DreamDetectionResult,
-            now: Instant,
-        ): DriftState {
-            val nowText = now.toString()
-            return beforeState.copy(
-                dreamLastRunAt = if (result.attempted) nowText else beforeState.dreamLastRunAt,
-                dreamLastDueCheckAt = nowText,
-                dreamLastStatus = result.status,
-                dreamLastSuccessfulScanAt = if (result.successful) nowText else beforeState.dreamLastSuccessfulScanAt,
-                dreamLastFailedScanAt = if (result.attempted && !result.successful) nowText else beforeState.dreamLastFailedScanAt,
-                dreamProcessedSignalUnits = if (result.successful) {
-                    beforeState.dreamObservedSignalUnits
-                } else {
-                    beforeState.dreamProcessedSignalUnits
-                },
-                dreamFilteredCandidateCount = result.filteredCandidateCount,
-                dreamLockOwner = "",
-                dreamLockAcquiredAt = "",
-            )
+            // Stub: removed in Task 12 alongside the rest of the dream pipeline.
+            return false
         }
 
         internal fun filterDismissed(raw: List<DriftEvent>, state: DriftState): List<DriftEvent> {
@@ -454,9 +205,5 @@ class DriftDetectionService(private val project: Project) {
             return remaining to ApplyResult(applied, newState)
         }
 
-        private const val DREAM_LOCK_FILE = ".dream.lock"
-        private const val MAX_CHEAP_SIGNAL_UNITS = 100
-        private const val MAX_OBSERVED_SIGNAL_UNITS = 10_000
-        private val DREAM_LOCK_STALE_AFTER: Duration = Duration.ofHours(6)
     }
 }

@@ -11,11 +11,15 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
-import java.time.Duration
 import java.time.Instant
 
 data class DreamDueDecision(val due: Boolean, val reasons: List<String>)
 
+/**
+ * Stub: Dream wiki maintenance is being removed (Task 12 of the wiki maintenance
+ * redesign). The body referenced state.dream* fields that have been deleted; the
+ * gate now always reports "not-due:disabled". The file itself is deleted in Task 12.
+ */
 object DreamDueGate {
 
     fun evaluate(
@@ -27,36 +31,5 @@ object DreamDueGate {
         scanThrottleMinutes: Int,
         activeTurn: Boolean,
         lockHeld: Boolean,
-    ): DreamDueDecision {
-        val reasons = mutableListOf<String>()
-        if (!enabled) reasons += "disabled"
-        if (activeTurn) reasons += "active-turn"
-        if (lockHeld) reasons += "lock-held"
-        if (!hasElapsed(state.dreamLastSuccessfulScanAt, now, Duration.ofHours(minElapsedHours.toLong()))) {
-            reasons += "elapsed-time"
-        }
-        if (minSignalUnits > 0 && state.dreamObservedSignalUnits - state.dreamProcessedSignalUnits < minSignalUnits) {
-            reasons += "insufficient-signal"
-        }
-        if (!scanThrottleElapsed(state, now, scanThrottleMinutes)) {
-            reasons += "scan-throttle"
-        }
-        return DreamDueDecision(due = reasons.isEmpty(), reasons = reasons)
-    }
-
-    private fun scanThrottleElapsed(state: DriftState, now: Instant, scanThrottleMinutes: Int): Boolean {
-        val threshold = Duration.ofMinutes(scanThrottleMinutes.toLong())
-        return hasElapsed(state.dreamLastDueCheckAt, now, threshold) &&
-            hasElapsed(state.dreamLastFailedScanAt, now, threshold)
-    }
-
-    private fun hasElapsed(timestamp: String, now: Instant, threshold: Duration): Boolean {
-        if (threshold.isZero || threshold.isNegative) return true
-        val last = try {
-            Instant.parse(timestamp)
-        } catch (_: Exception) {
-            return true
-        }
-        return !Duration.between(last, now).minus(threshold).isNegative
-    }
+    ): DreamDueDecision = DreamDueDecision(due = false, reasons = listOf("disabled"))
 }

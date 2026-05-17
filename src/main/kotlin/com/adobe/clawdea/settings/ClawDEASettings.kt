@@ -97,10 +97,6 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          * The Phase 4 drift detector also honors this flag.
          */
         var autoUpdateWiki: Boolean = false,
-        var enableDreamWikiMaintenance: Boolean = true,
-        var dreamWikiMinElapsedHours: Int = 24,
-        var dreamWikiMinSignalUnits: Int = 5,
-        var dreamWikiScanThrottleMinutes: Int = 10,
         // Knowledge layer (Phase 3: workspace manifest)
         /**
          * Top-level toggle for Phase 3 cross-project context. When true,

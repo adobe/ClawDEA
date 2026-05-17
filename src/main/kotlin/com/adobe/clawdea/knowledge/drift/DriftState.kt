@@ -27,23 +27,15 @@ data class UserCorrectionRecord(
 
 /**
  * Persisted drift state. Loaded from `.claude/wiki/.drift-state.json` per project.
- * Empty state is the default when the file is missing or malformed.
+ * Empty state is the default when the file is missing or malformed. Older files
+ * that contain the now-removed `dream*` fields read cleanly: Gson ignores extra
+ * JSON fields when no matching property exists.
  */
 data class DriftState(
     val lastScanAt: String = "",
     val dismissed: List<String> = emptyList(),
     val probeMisses: List<ProbeMiss> = emptyList(),
     val userCorrections: List<UserCorrectionRecord> = emptyList(),
-    val dreamLastRunAt: String = "",
-    val dreamLastSuccessfulScanAt: String = "",
-    val dreamLastFailedScanAt: String = "",
-    val dreamLastDueCheckAt: String = "",
-    val dreamLastStatus: String = "",
-    val dreamProcessedSignalUnits: Int = 0,
-    val dreamObservedSignalUnits: Int = 0,
-    val dreamFilteredCandidateCount: Int = 0,
-    val dreamLockOwner: String = "",
-    val dreamLockAcquiredAt: String = "",
     val suggestions: List<DriftEvent.WikiSuggestion> = emptyList(),
 ) {
     companion object {

@@ -32,34 +32,6 @@ class DriftStateStoreTest {
         assertEquals("2026-05-04T10:00:00Z", state.lastScanAt)
     }
 
-    @Test fun `write then read round-trips dream state fields`() {
-        val tmp = Files.createTempDirectory("drift")
-        DriftStateStore.write(claudeDir = tmp,
-            state = DriftState(
-                dreamLastRunAt = "2026-05-09T09:00:00Z",
-                dreamLastSuccessfulScanAt = "2026-05-09T08:00:00Z",
-                dreamLastFailedScanAt = "2026-05-09T08:30:00Z",
-                dreamLastDueCheckAt = "2026-05-09T07:00:00Z",
-                dreamLastStatus = "completed",
-                dreamProcessedSignalUnits = 4,
-                dreamObservedSignalUnits = 11,
-                dreamFilteredCandidateCount = 2,
-                dreamLockOwner = "dream-worker",
-                dreamLockAcquiredAt = "2026-05-09T06:00:00Z",
-            ))
-        val state = DriftStateStore.read(claudeDir = tmp)
-        assertEquals("2026-05-09T09:00:00Z", state.dreamLastRunAt)
-        assertEquals("2026-05-09T08:00:00Z", state.dreamLastSuccessfulScanAt)
-        assertEquals("2026-05-09T08:30:00Z", state.dreamLastFailedScanAt)
-        assertEquals("2026-05-09T07:00:00Z", state.dreamLastDueCheckAt)
-        assertEquals("completed", state.dreamLastStatus)
-        assertEquals(4, state.dreamProcessedSignalUnits)
-        assertEquals(11, state.dreamObservedSignalUnits)
-        assertEquals(2, state.dreamFilteredCandidateCount)
-        assertEquals("dream-worker", state.dreamLockOwner)
-        assertEquals("2026-05-09T06:00:00Z", state.dreamLockAcquiredAt)
-    }
-
     @Test fun `update modifies state atomically`() {
         val tmp = Files.createTempDirectory("drift")
         DriftStateStore.write(claudeDir = tmp,
@@ -103,23 +75,29 @@ class DriftStateStoreTest {
         assertEquals("query51", state.probeMisses[0].query)
     }
 
-    @Test fun `read defaults dream fields for old state JSON`() {
-        val tmp = Files.createTempDirectory("drift")
-        val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
-        Files.writeString(wikiDir.resolve(".drift-state.json"), """{"lastScanAt":"2026-05-04T10:00:00Z","dismissed":["a"]}""")
-        val state = DriftStateStore.read(claudeDir = tmp)
-        assertEquals("2026-05-04T10:00:00Z", state.lastScanAt)
-        assertEquals(listOf("a"), state.dismissed)
-        assertEquals("", state.dreamLastRunAt)
-        assertEquals("", state.dreamLastSuccessfulScanAt)
-        assertEquals("", state.dreamLastFailedScanAt)
-        assertEquals("", state.dreamLastDueCheckAt)
-        assertEquals("", state.dreamLastStatus)
-        assertEquals(0, state.dreamProcessedSignalUnits)
-        assertEquals(0, state.dreamObservedSignalUnits)
-        assertEquals(0, state.dreamFilteredCandidateCount)
-        assertEquals("", state.dreamLockOwner)
-        assertEquals("", state.dreamLockAcquiredAt)
+    @Test fun `read silently ignores dream fields from older state files`() {
+        val tmp = Files.createTempDirectory("drift-state-back-compat")
+        try {
+            val wikiDir = tmp.resolve("wiki")
+            Files.createDirectories(wikiDir)
+            // A v1 file with dream fields the new schema no longer declares.
+            val legacyJson = """
+                {
+                  "lastScanAt": "2026-05-10T00:00:00Z",
+                  "dismissed": ["x"],
+                  "dreamLastRunAt": "2026-05-10T00:00:00Z",
+                  "dreamProcessedSignalUnits": 42
+                }
+            """.trimIndent()
+            Files.writeString(wikiDir.resolve(".drift-state.json"), legacyJson)
+
+            val state = DriftStateStore.read(tmp)
+            assertEquals("2026-05-10T00:00:00Z", state.lastScanAt)
+            assertEquals(listOf("x"), state.dismissed)
+            // No assertion on dream fields — they're gone.
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
     }
 
     @Test fun `read returns empty suggestions when file is missing`() {
