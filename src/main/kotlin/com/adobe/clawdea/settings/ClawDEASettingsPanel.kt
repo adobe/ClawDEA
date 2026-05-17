@@ -147,6 +147,9 @@ class ClawDEASettingsPanel {
     val enableKnowledgeLayerCheckbox = JBCheckBox("Enable knowledge layer", true).apply {
         toolTipText = "Main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools."
     }
+    val enableWikiLibrarianCheckbox = JBCheckBox("Enable wiki librarian", true).apply {
+        toolTipText = "When on, the primer instructs the main agent to delegate design questions to the wiki-librarian Claude Code subagent via Task. The subagent is injected per-session via --agents and search_wiki is not registered as an MCP tool. When off, the legacy search_wiki probe directive is used."
+    }
     val enableWorkspaceCheckbox = JBCheckBox("Enable workspace manifest", true).apply {
         toolTipText = "Read sibling repos from .clawdea-workspace.md and surface them via list_workspace_repos / read_sibling_* MCP tools."
     }
@@ -210,6 +213,7 @@ class ClawDEASettingsPanel {
         .addSeparator()
         .addLabeledComponent(JBLabel("Knowledge layer"), JPanel(), 0, false)
         .addComponent(enableKnowledgeLayerCheckbox, 1)
+        .addComponent(enableWikiLibrarianCheckbox, 2)
         .addComponent(enableWorkspaceCheckbox, 2)
         .addComponent(autoUpdateWikiCheckbox, 2)
         .addComponent(enableDreamWikiMaintenanceCheckbox, 2)
@@ -424,6 +428,7 @@ class ClawDEASettingsPanel {
         preloadSkillCatalogCheckbox.isSelected = state.preloadSkillCatalog
         gatewayBareModeCheckbox.isSelected = state.gatewayBareMode
         enableKnowledgeLayerCheckbox.isSelected = state.enableKnowledgeLayer
+        enableWikiLibrarianCheckbox.isSelected = state.enableWikiLibrarian
         enableWorkspaceCheckbox.isSelected = state.enableWorkspace
         autoUpdateWikiCheckbox.isSelected = state.autoUpdateWiki
         enableDreamWikiMaintenanceCheckbox.isSelected = state.enableDreamWikiMaintenance
@@ -468,6 +473,7 @@ class ClawDEASettingsPanel {
         state.preloadSkillCatalog = preloadSkillCatalogCheckbox.isSelected
         state.gatewayBareMode = gatewayBareModeCheckbox.isSelected
         state.enableKnowledgeLayer = enableKnowledgeLayerCheckbox.isSelected
+        state.enableWikiLibrarian = enableWikiLibrarianCheckbox.isSelected
         state.enableWorkspace = enableWorkspaceCheckbox.isSelected
         state.autoUpdateWiki = autoUpdateWikiCheckbox.isSelected
         state.enableDreamWikiMaintenance = enableDreamWikiMaintenanceCheckbox.isSelected
@@ -509,6 +515,7 @@ class ClawDEASettingsPanel {
             preloadSkillCatalogCheckbox.isSelected != state.preloadSkillCatalog ||
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
             enableKnowledgeLayerCheckbox.isSelected != state.enableKnowledgeLayer ||
+            enableWikiLibrarianCheckbox.isSelected != state.enableWikiLibrarian ||
             enableWorkspaceCheckbox.isSelected != state.enableWorkspace ||
             autoUpdateWikiCheckbox.isSelected != state.autoUpdateWiki ||
             enableDreamWikiMaintenanceCheckbox.isSelected != state.enableDreamWikiMaintenance ||
@@ -585,6 +592,7 @@ class ClawDEASettingsPanel {
     private fun updateKnowledgeLayerEnabledState() {
         val knowledgeEnabled = enableKnowledgeLayerCheckbox.isSelected
         val dreamEnabled = knowledgeEnabled && enableDreamWikiMaintenanceCheckbox.isSelected
+        enableWikiLibrarianCheckbox.isEnabled = knowledgeEnabled
         enableWorkspaceCheckbox.isEnabled = knowledgeEnabled
         autoUpdateWikiCheckbox.isEnabled = knowledgeEnabled
         enableDreamWikiMaintenanceCheckbox.isEnabled = knowledgeEnabled
