@@ -1043,6 +1043,11 @@ class ChatPanel(
         ) { _ ->
             val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
             val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
+            val capWording = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
+                "all concept areas worth documenting (main subsystems, key APIs, active feature work, architectural decisions worth capturing). Err on the side of more focused pages over fewer dense ones — there is no upper bound. A 200-file project might have 5 concepts; a 5,000-file project might have 50."
+            } else {
+                "5–10 concept areas worth documenting (main subsystems, key APIs, active\n               feature work, architectural decisions worth capturing)."
+            }
             """
             Bootstrap an initial wiki for this project at .claude/wiki/.
 
@@ -1057,8 +1062,7 @@ class ChatPanel(
                package.json, build.gradle.kts) to understand the project shape.
             2. Call the get_primer MCP tool to see the auto-generated REPO_STATE
                (current branch, recent commits, hot files), then identify
-               5–10 concept areas worth documenting (main subsystems, key APIs, active
-               feature work, architectural decisions worth capturing).
+               $capWording
             3. **Classify each concept independently** into one of:
                - `pipeline` — multi-step resolution with cache boundaries or registration order
                  a reasoner could get wrong (content policy resolution, dispatcher invalidation,
@@ -1221,7 +1225,12 @@ class ChatPanel(
             return RefreshWikiResult.Local("(no drift events detected)")
         }
 
-        return RefreshWikiResult.ReviewPrompt(buildRefreshWikiPrompt(events))
+        val prompt = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
+            com.adobe.clawdea.knowledge.drift.WikiAuthorDigestBuilder.build(events)
+        } else {
+            buildLegacyRefreshWikiPrompt(events)
+        }
+        return RefreshWikiResult.ReviewPrompt(prompt)
     }
 
     private fun dispatchOrQueueRefreshPrompt(prompt: String) {
@@ -1281,7 +1290,7 @@ class ChatPanel(
             is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> event.title
         }
 
-    private fun buildRefreshWikiPrompt(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
+    private fun buildLegacyRefreshWikiPrompt(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
         val sb = StringBuilder()
         sb.appendLine("The following drift events were detected. Review each and apply fixes via `propose_edit` or `propose_write`:")
         sb.appendLine()
@@ -1303,6 +1312,8 @@ class ChatPanel(
                     sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.CommitDrift -> {
+                    // Should not appear when enableWikiLibrarian=false (the detector is gated),
+                    // but render minimally for safety.
                     sb.appendLine("- **CommitDrift** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - commits: ${event.commitShas.joinToString(", ")}")
                     sb.appendLine("  - touched paths: ${event.touchedPaths.joinToString(", ")}")

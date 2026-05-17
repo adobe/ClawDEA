@@ -195,6 +195,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <postStartupActivity
             implementation="com.adobe.clawdea.mcp.McpServerStartupActivity"/>
 
+        <!-- Git Repository Change Subscriber (drives drift rescan on git events) -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriber"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriberStartupActivity"/>
+
         <!-- Claude Gateway -->
         <applicationService
             serviceImplementation="com.adobe.clawdea.gateway.ClaudeGateway"/>
