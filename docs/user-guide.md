@@ -250,7 +250,7 @@ Dream-backed wiki maintenance can detect low-signal index growth, stale/duplicat
 
 For any non-trivial question about this project's design, ClawDEA's main chat delegates to a `wiki-librarian` Claude Code subagent rather than running a keyword search itself. The librarian reads `.claude/wiki/` in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
 
-The agent file lives at `.claude/agents/wiki-librarian.md` per project. ClawDEA installs it automatically on first knowledge-layer use and on `/seed-wiki`. To pick up an updated version that ships with a new plugin release, delete the file and run ClawDEA — the installer re-writes it. User-edited copies are preserved (the installer never overwrites).
+The agent definition is bundled with the plugin and injected per-session via the Claude Code CLI's `--agents` flag — there is no file to install or manage. Each new plugin release ships the current agent text; restart your IDE (or end the chat session) to pick up changes. The agent is project-scoped: it isn't registered globally on disk and doesn't appear in other projects' subagent lists.
 
 **When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in `.claude/wiki/.drift-state.json` alongside other drift events and surface through the existing flow:
 
@@ -259,7 +259,7 @@ The agent file lives at `.claude/agents/wiki-librarian.md` per project. ClawDEA 
 
 The librarian never writes wiki files directly. Authoring stays user-initiated: review the suggestion, decide yes/no, and either dismiss it or draft the wiki change through the main chat.
 
-**Opt out** by clearing **Enable wiki librarian** in plugin settings. This restores the legacy "search_wiki probe" directive and re-registers `search_wiki` as an MCP tool. The librarian agent file remains on disk; it's simply not invoked.
+**Opt out** by clearing **Enable wiki librarian** in plugin settings. This restores the legacy "search_wiki probe" directive in the primer, re-registers `search_wiki` as an MCP tool, and stops injecting the subagent via `--agents`.
 
 ### Personal notes (`.claude/notes/CURRENT.md`)
 
