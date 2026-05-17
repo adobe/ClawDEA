@@ -54,6 +54,9 @@ class EventStreamHandler(
     var turnHasContent = false
     var streamStartTime: Long = 0
     var totalTokensUsed = 0
+    // Context window for the model in use, as reported by CC's `result.modelUsage`.
+    // 0 until the first turn completes — ChatPanel falls back to a default until then.
+    var contextWindow = 0
     var lastAssistantText: String = ""
 
     private val toolNameById = mutableMapOf<String, String>()
@@ -343,6 +346,9 @@ class EventStreamHandler(
                     totalTokensUsed = event.contextTokens
                 } else {
                     totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.text)
+                }
+                if (event.contextWindow > 0) {
+                    contextWindow = event.contextWindow
                 }
                 onContextLabelUpdate()
 

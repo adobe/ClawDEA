@@ -53,6 +53,12 @@ sealed class CliEvent {
          * outputs and never decayed.
          */
         val contextTokens: Int = 0,
+        /**
+         * Context window size for the model used this turn, from `modelUsage.<model>.contextWindow`.
+         * Zero if unknown — caller should fall back to a default. Critical for Opus 4.7 (1M)
+         * which would otherwise be measured against the 200K Sonnet/Opus default.
+         */
+        val contextWindow: Int = 0,
     ) : CliEvent()
 
     data class Unknown(

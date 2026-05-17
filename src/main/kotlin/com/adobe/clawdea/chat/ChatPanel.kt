@@ -925,10 +925,11 @@ class ChatPanel(
     }
 
     private fun updateContextLabel() {
-        // Claude Sonnet/Opus context window is 200K tokens. `chatTokenBudget` is the
-        // per-completion budget for inline completions, not the chat context — using
-        // it here saturated the indicator at 100% almost immediately.
-        val budget = CHAT_CONTEXT_WINDOW_TOKENS
+        // Use CC's reported contextWindow when available — Opus 4.7 is 1M, Sonnet 4.6 is
+        // 200K. Hardcoding 200K pegged the indicator at 100% on Opus 4.7 because the
+        // primer + skills system prompt alone consumes ~200K. Default to 200K only until
+        // the first `result` event lands so we have something sensible to render.
+        val budget = if (eventHandler.contextWindow > 0) eventHandler.contextWindow else DEFAULT_CONTEXT_WINDOW_TOKENS
         val pct = ((eventHandler.totalTokensUsed.toLong() * 100) / budget).toInt().coerceAtMost(100)
         contextLabel.text = "context: $pct% used"
     }
@@ -1864,9 +1865,10 @@ class ChatPanel(
     }
 
     companion object {
-        // Claude Sonnet/Opus base context window. The CLI's auto-compaction kicks
-        // in around ~80% of this, so values above 80% are effectively a warning.
-        private const val CHAT_CONTEXT_WINDOW_TOKENS = 200_000
+        // Fallback context window before the first `result` event tells us the real
+        // value (200K Sonnet vs 1M Opus 4.7). The CLI's auto-compaction kicks in
+        // around ~80% of the actual window.
+        private const val DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 
         // Resume on the first prompt-start stall (transient slow-first-byte / network blip).
         // Escalate to a fresh restart on the second consecutive stall — at that point the

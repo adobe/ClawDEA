@@ -110,10 +110,17 @@ class CliEventParser {
             val cacheCreate = extractNumber(usageBlock, "\"cache_creation_input_tokens\"").toInt()
             input + cacheRead + cacheCreate
         } else 0
+        // contextWindow lives inside modelUsage.<model>.contextWindow. Search after
+        // the modelUsage marker so we don't accidentally read a numeric field with
+        // that name from elsewhere; if absent, the caller falls back to a default.
+        val modelUsageStart = json.indexOf("\"modelUsage\"")
+        val contextWindow = if (modelUsageStart != -1) {
+            extractNumber(json.substring(modelUsageStart), "\"contextWindow\"").toInt()
+        } else 0
         if (isError && looksLikeAuthFailure(text)) {
             return CliEvent.AuthFailure(text)
         }
-        return CliEvent.Result(text, isError, costUsd, sessionId, contextTokens)
+        return CliEvent.Result(text, isError, costUsd, sessionId, contextTokens, contextWindow)
     }
 
     private fun looksLikeAuthFailure(text: String): Boolean {

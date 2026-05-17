@@ -94,6 +94,16 @@ class CliEventParserTest {
     }
 
     @Test
+    fun `extracts contextTokens and contextWindow from result usage and modelUsage`() {
+        val json = """{"type":"result","subtype":"success","is_error":false,"result":"hi","total_cost_usd":0.01,"session_id":"s1","usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":500,"output_tokens":42},"modelUsage":{"claude-opus-4-7":{"inputTokens":10,"contextWindow":1000000,"maxOutputTokens":32000}}}"""
+        val event = parser.parse(json)
+        assertTrue(event is CliEvent.Result)
+        val result = event as CliEvent.Result
+        assertEquals(1510, result.contextTokens)
+        assertEquals(1_000_000, result.contextWindow)
+    }
+
+    @Test
     fun `parses result error event`() {
         val json = """{"type":"result","subtype":"error","is_error":true,"result":"Something failed","total_cost_usd":0.0,"session_id":"abc-123"}"""
         val event = parser.parse(json)
