@@ -400,6 +400,14 @@ class ChatPanel(
                 for (line in driftBanner.autoApplyNotificationLines(applied)) {
                     appendHtml(renderer.renderInfoMessage(line))
                 }
+                // One-line summary note after wiki-author auto-applies (Task 11).
+                // Skip when nothing was applied or the auto-update setting is off.
+                if (applied.isNotEmpty() && ClawDEASettings.getInstance().state.autoUpdateWiki) {
+                    val acted = applied.size
+                    val msg = "Auto-applied wiki updates from drift events: $acted acted on. " +
+                        "See `.claude/wiki/.drift-state.json` for details."
+                    appendHtml(renderer.renderInfoMessage(msg))
+                }
             }
         }
         // Initial render based on current state (StartupActivity may have already run rescan).
