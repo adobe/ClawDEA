@@ -118,7 +118,7 @@ These expand an in-plugin prompt template and forward to the CLI, which drives t
 |---------|-------------|
 | `/learn` | Capture a learning from the current session into the project wiki |
 | `/seed-wiki` | Bootstrap `.claude/wiki/` with an index and initial concept pages |
-| `/refresh-wiki [--dream|--status|--apply-low-risk]` | Review and refresh wiki drift, including Dream-backed maintenance suggestions |
+| `/refresh-wiki [--status|--apply-low-risk]` | Review and refresh wiki drift via the bundled `wiki-author` subagent |
 | `/seed-workspace` | Create a `.clawdea-workspace.md` manifest for cross-repo navigation |
 
 ### CLI-forwarded commands
@@ -242,9 +242,15 @@ The templates live in `src/main/resources/prompts/wiki-page-invariant.md` and `w
 
 **Probe-miss capture and `/wiki-gap`.** When `search_wiki` returns low-hit results for a non-trivial query, the miss is recorded in `.claude/wiki/.drift-state.json`. `/wiki-gap` clusters recent misses by path-token Jaccard similarity and suggests concept-page slugs, giving `/refresh-wiki` a concrete work queue.
 
-**Correction capture.** When you follow an assistant message with a correction ("no, actually the policy is inert because…"), ClawDEA detects it heuristically, records a `USER_CORRECTION` evidence signal, and surfaces a `/learn <auto-drafted-topic>` suggestion in chat. The Dream scorer ranks candidates backed by user corrections ahead of peers.
+**Correction capture.** When you follow an assistant message with a correction ("no, actually the policy is inert because…"), ClawDEA detects it heuristically, records a `USER_CORRECTION` evidence signal, and surfaces a `/learn <auto-drafted-topic>` suggestion in chat.
 
-Dream-backed wiki maintenance can detect low-signal index growth, stale/duplicate concept pages, and old wiki link syntax. Low-risk cleanup, such as high-confidence single-target Dream link normalization when the target concept exists, can apply automatically only when Auto-update wiki on drift is enabled; substantive page creation and rewrites still go through diff review.
+### Commit-driven wiki maintenance
+
+ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On any change, `CommitWikiDriftDetector` reads commits since the last drift rescan and flags any `.claude/wiki/concepts/*.md` page whose mentioned files or class names appear in the touched paths. Each flagged page becomes a `CommitDrift` drift event.
+
+If **Auto-update wiki on drift** is enabled, ClawDEA invokes the bundled `wiki-author` subagent in a fresh `claude -p` subprocess to draft the page edits — `propose_write` / `propose_edit` calls open diff dialogs (or apply silently if **Auto-accept edits** is also enabled). A one-line note in any active chat reports the outcome.
+
+If **Auto-update wiki on drift** is disabled, the drift banner shows the events; clicking `/refresh-wiki to review` hands the digest to the same `wiki-author` subagent inline (visible as a `Task` tool-use in the chat).
 
 ### Wiki librarian
 
@@ -254,7 +260,7 @@ The agent definition is bundled with the plugin and injected per-session via the
 
 **When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in `.claude/wiki/.drift-state.json` alongside other drift events and surface through the existing flow:
 
-- With **Auto-update wiki on drift** enabled, suggestions appear in the periodic Dream-scan notification cycle.
+- With **Auto-update wiki on drift** enabled, suggestions surface alongside other drift events when the commit-driven detector fires.
 - Without it, suggestions wait until `/refresh-wiki` is invoked.
 
 The librarian never writes wiki files directly. Authoring stays user-initiated: review the suggestion, decide yes/no, and either dismiss it or draft the wiki change through the main chat.
@@ -271,14 +277,12 @@ For multi-repo work, `/seed-workspace` creates a manifest listing sibling repos 
 
 ### Settings
 
-**Settings → Tools → ClawDEA → Knowledge layer** exposes the knowledge, workspace, drift, and Dream maintenance controls:
+**Settings → Tools → ClawDEA → Knowledge layer** exposes the knowledge, workspace, and drift controls:
 
 - **Enable knowledge layer** — main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools.
 - **Enable wiki librarian** — on by default. The primer directs the main agent to delegate design questions to the `wiki-librarian` Claude Code subagent via `Task`, and `search_wiki` is not registered as an MCP tool. When off, the legacy "first call must be a `search_wiki` probe" directive is emitted and `search_wiki` returns. See [Wiki librarian](#wiki-librarian).
 - **Enable workspace manifest** — read sibling repos from `.clawdea-workspace.md` and surface them via `list_workspace_repos` / `read_sibling_*`.
-- **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently; learn-on-probe-miss writes use `Write`/`Edit` instead of `propose_*`. When off, every change goes through diff review.
-- **Enable Dream wiki maintenance** — controls both automatic/default Dream due checks and explicit `/refresh-wiki --dream`. When off, Dream scans do not run.
-- **Dream min elapsed (hours)**, **Dream min signal units**, and **Dream scan throttle (minutes)** — tune when automatic/default Dream maintenance becomes due. Manual `/refresh-wiki --dream` bypasses these due gates, but still respects the enable setting, filesystem lock, and active-turn safety.
+- **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently and the commit-driven detector hands `CommitDrift` events to the `wiki-author` subagent for unattended drafting. When off, every change goes through diff review.
 
 ---
 
