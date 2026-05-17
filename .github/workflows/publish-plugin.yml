@@ -55,6 +55,18 @@ jobs:
             exit 1
           fi
 
+      - name: Verify plugin.xml change-notes contains an entry for this version
+        # Marketplace's "What's New" panel is sourced from the <change-notes> block
+        # in plugin.xml — not the GitHub release body. Releases that bump
+        # pluginVersion without adding a matching <h3>X.Y.Z</h3> entry ship with
+        # stale notes (this happened for 1.3.5, 1.3.6, 1.4.0). Fail loudly here.
+        run: |
+          VERSION="$(grep -E '^pluginVersion' gradle.properties | awk '{print $3}')"
+          if ! grep -qE "<h3>${VERSION}</h3>" src/main/resources/META-INF/plugin.xml; then
+            echo "::error::plugin.xml <change-notes> is missing an <h3>${VERSION}</h3> entry. Add a section describing what's new in ${VERSION} before releasing."
+            exit 1
+          fi
+
       - name: Materialize signing key files
         run: |
           umask 077

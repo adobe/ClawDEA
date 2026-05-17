@@ -102,10 +102,18 @@ class CliEventParser {
         val isError = json.contains("\"is_error\":true")
         val costUsd = extractNumber(json, "\"total_cost_usd\"")
         val sessionId = extractString(json, "\"session_id\"") ?: ""
+        val usageStart = json.indexOf("\"usage\"")
+        val contextTokens = if (usageStart != -1) {
+            val usageBlock = json.substring(usageStart)
+            val input = extractNumber(usageBlock, "\"input_tokens\"").toInt()
+            val cacheRead = extractNumber(usageBlock, "\"cache_read_input_tokens\"").toInt()
+            val cacheCreate = extractNumber(usageBlock, "\"cache_creation_input_tokens\"").toInt()
+            input + cacheRead + cacheCreate
+        } else 0
         if (isError && looksLikeAuthFailure(text)) {
             return CliEvent.AuthFailure(text)
         }
-        return CliEvent.Result(text, isError, costUsd, sessionId)
+        return CliEvent.Result(text, isError, costUsd, sessionId, contextTokens)
     }
 
     private fun looksLikeAuthFailure(text: String): Boolean {

@@ -44,6 +44,15 @@ sealed class CliEvent {
         val isError: Boolean,
         val costUsd: Double,
         val sessionId: String,
+        /**
+         * Total context tokens consumed at the end of this turn, as reported by CC's
+         * `result` event `usage` object. Sum of `input_tokens` + `cache_read_input_tokens`
+         * + `cache_creation_input_tokens`. Zero if unknown (older CC versions or stream
+         * format changes). This is the authoritative number for the context-budget
+         * indicator — replaces our stream-side estimation which double-counted tool
+         * outputs and never decayed.
+         */
+        val contextTokens: Int = 0,
     ) : CliEvent()
 
     data class Unknown(

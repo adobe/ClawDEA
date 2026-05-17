@@ -146,13 +146,11 @@ class EventStreamHandler(
                 if (messageBuffer.isNotEmpty()) {
                     val bufText = messageBuffer.toString()
                     browserRenderer.appendHtml(renderer.renderAssistantText(bufText))
-                    totalTokensUsed += ContextBudgetCalculator.estimateTokens(bufText)
                     lastAssistantText = bufText
                     messageBuffer.clear()
                     turnHasContent = true
                 } else if (event.text.isNotBlank()) {
                     browserRenderer.appendHtml(renderer.renderAssistantText(event.text))
-                    totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.text)
                     lastAssistantText = event.text
                     turnHasContent = true
                 }
@@ -169,7 +167,6 @@ class EventStreamHandler(
                     // would miss the signal and the marker never renders.
                     // ToolResult arrives strictly after request_permission
                     // returns, so the signal is reliably present by then.
-                    totalTokensUsed += ContextBudgetCalculator.estimateTokens(toolUse.input)
                     toolStartTime = System.currentTimeMillis()
 
                     // Render task tools as collapsed blocks; all others as full tool blocks
@@ -288,7 +285,6 @@ class EventStreamHandler(
                     // interactive question card and the CLI's textual recap is
                     // redundant.
                 } else if (event.content.isNotBlank()) {
-                    totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.content)
                     val autoAllowed = autoAllowedToolIds.remove(event.toolUseId)
                     browserRenderer.injectToolOutput(
                         event.toolUseId,
@@ -340,7 +336,14 @@ class EventStreamHandler(
                     taskWidget.reset()
                 }
 
-                totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.text)
+                // Replace the stream-side estimate with CC's authoritative number
+                // when available. Falls back to the running estimate only when CC
+                // didn't include a `usage` object (older versions / format changes).
+                if (event.contextTokens > 0) {
+                    totalTokensUsed = event.contextTokens
+                } else {
+                    totalTokensUsed += ContextBudgetCalculator.estimateTokens(event.text)
+                }
                 onContextLabelUpdate()
 
                 // Layer 2 post-turn feedback for rejected/modified edits

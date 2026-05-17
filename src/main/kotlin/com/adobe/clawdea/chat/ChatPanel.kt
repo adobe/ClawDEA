@@ -925,9 +925,11 @@ class ChatPanel(
     }
 
     private fun updateContextLabel() {
-        val settings = ClawDEASettings.getInstance().state
-        val budget = settings.chatTokenBudget
-        val pct = if (budget > 0) ((eventHandler.totalTokensUsed.toLong() * 100) / budget).toInt().coerceAtMost(100) else 0
+        // Claude Sonnet/Opus context window is 200K tokens. `chatTokenBudget` is the
+        // per-completion budget for inline completions, not the chat context — using
+        // it here saturated the indicator at 100% almost immediately.
+        val budget = CHAT_CONTEXT_WINDOW_TOKENS
+        val pct = ((eventHandler.totalTokensUsed.toLong() * 100) / budget).toInt().coerceAtMost(100)
         contextLabel.text = "context: $pct% used"
     }
 
@@ -1862,6 +1864,10 @@ class ChatPanel(
     }
 
     companion object {
+        // Claude Sonnet/Opus base context window. The CLI's auto-compaction kicks
+        // in around ~80% of this, so values above 80% are effectively a warning.
+        private const val CHAT_CONTEXT_WINDOW_TOKENS = 200_000
+
         // Resume on the first prompt-start stall (transient slow-first-byte / network blip).
         // Escalate to a fresh restart on the second consecutive stall — at that point the
         // resumed session is poisoned and resuming it again will just stall the same way.
