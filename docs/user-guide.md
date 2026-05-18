@@ -75,7 +75,7 @@ If Claude uses built-in Edit/Write tools instead, a fallback layer renders inlin
 
 Tool calls go through ClawDEA's `--permission-prompt-tool` integration. The behavior depends on **Tool approval mode** in Settings:
 
-- **Confirm all** — every tool call (Bash, search, etc.) shows an inline permission card in chat with **Allow**, **Always allow...**, and **Deny** buttons. The CLI blocks until you click. Best for tight control, e.g. when running unfamiliar prompts.
+- **Confirm all** — every tool call (Bash, search, etc.) shows an inline permission card in the chat tab that triggered the call (multi-panel routing — approvals never land on the wrong tab) with **Allow**, **Always allow...**, and **Deny** buttons. The CLI blocks until you click. Best for tight control, e.g. when running unfamiliar prompts.
 - **Allow safe** — ClawDEA-trusted read-only operations (file reads and IntelliJ MCP tools) auto-approve silently, and Claude's native auto-mode classifier may also approve routine actions. Calls that need explicit approval still show a fresh permission card.
 - **Allow all** — every tool call auto-approves silently. A small notice appears in chat for each auto-approved call so you can see exactly what ran. Best when you trust the prompt entirely.
 
@@ -105,6 +105,7 @@ Type `/` in the chat input to see available commands.
 | `/skills` | Browse and invoke Claude Code skills                  |
 | `/cc` | Open Claude Code popup (same session as ClawDEA chat) |
 | `/refresh-view` | Re-render the chat panel                              |
+| `/profile` | Profile a test, run config, or imported recording (`/profile`, `/profile test ...`, `/profile import ...`) |
 | `/note` | Append a quick note to `.claude/notes/CURRENT.md` (personal notes layer) |
 | `/promote-to-wiki` | Promote a personal note into a shared wiki concept page |
 | `/wiki-audit` | Audit `.claude/wiki/` for stale source-file links |
@@ -206,7 +207,8 @@ ClawDEA runs a local MCP server that gives Claude direct access to IntelliJ's in
 | Tool | What it does |
 |------|-------------|
 | `read_wiki_page` | Read a concept, source, or index page from `.claude/wiki/` |
-| `search_wiki` | Search the project wiki. Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
+| `search_wiki` | Search the project wiki (registered only when **Enable wiki librarian** is off — otherwise the librarian subagent owns wiki access). Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
+| `record_wiki_suggestion` | Allow-listed for the `wiki-librarian` subagent — records a `missingConcept` / `staleConcept` / `incompleteConcept` suggestion that surfaces at refresh time |
 | `list_workspace_repos` | List sibling repos from `.clawdea-workspace.md` |
 | `read_sibling_wiki` | Read a wiki page from a sibling repo |
 | `read_sibling_repo_state` | Read `REPO_STATE.md` from a sibling repo |
@@ -217,7 +219,21 @@ ClawDEA runs a local MCP server that gives Claude direct access to IntelliJ's in
 |------|-------------|
 | `propose_edit` | Propose a file edit with diff review |
 | `propose_write` | Propose writing a new file |
-| `propose_multi_edit` | Propose edits to multiple files |
+| `propose_multi_edit` | Propose multiple sequential edits to a single file in one diff dialog |
+| `propose_notebook_edit` | Propose an edit to a Jupyter notebook cell |
+
+### Profiling tools
+
+| Tool | What it does |
+|------|-------------|
+| `profiling_start` | Start a profiling session against a run config, test FQN, or PID |
+| `profiling_stop` | Stop an active profiling session |
+| `profiling_status` | Query the state of a session (non-blocking) |
+| `profiling_list` | List available recordings with metadata |
+| `profiling_import` | Import a `.jfr` or `.hprof` file for analysis |
+| `profiling_analyze_cpu` | Analyze CPU hotspots in a recording |
+| `profiling_analyze_allocations` | Analyze allocation hotspots in a recording |
+| `profiling_analyze_leaks` | Analyze memory leaks in a `.hprof` heap dump |
 
 ---
 

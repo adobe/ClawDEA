@@ -23,7 +23,7 @@ Optionally builds a knowledge base to enhance LLM understanding of current and r
 
 **MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search via `search_text`, profiling (8 tools), and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present — faster and more accurate than filesystem grep.
 
-**Knowledge layer** — Project-local wiki under `.claude/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer). The primer ships with every turn so Claude starts each conversation already oriented. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`.
+**Knowledge layer** — Project-local wiki under `.claude/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer). The primer ships with every turn so Claude starts each conversation already oriented. A bundled `wiki-librarian` subagent fields project-design questions in its own fresh context, citing concept pages and verifying claims against current source. A bundled `wiki-author` subagent drafts page edits when the commit-driven drift detector finds stale claims; with **Auto-update wiki on drift** enabled it lands edits unattended in the background. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`.
 Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA/blob/main/.claude/wiki/index.md
 
 **Debugger integration** — 21 MCP tools let Claude drive IntelliJ's debugger: launch sessions, set breakpoints (with conditions and log expressions), step through code, inspect variables, evaluate expressions, and modify values at runtime. Breakpoint ownership tracking ensures your breakpoints are never deleted.
@@ -32,7 +32,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Edit review** — When "Auto-accept Edits" is off, each proposed change opens a native IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that slip through are caught by a fallback layer with inline buttons and file revert.
 
-**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When the CLI requests permission for a tool call, ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in chat with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
+**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When the CLI requests permission for a tool call, ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in the chat tab that triggered the tool call (multi-panel routing) with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
 
 **@ mentions** — Type `@` for inline autocomplete (open editor tabs + recently git-modified files); press `@` then Tab to open a full picker with grouped Files and Symbols sections, backed by IntelliJ's filename and short-name caches.
 
@@ -40,7 +40,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Intention actions** (Alt+Enter) — Explain, Optimize, Generate Test, Security Check, Add Documentation, Refactor, Ask Claude, Fix with Claude.
 
-**Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/resume`, `/skills`, `/callers`, `/usages`, `/implementations`, `/supertypes`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
+**Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/context`, `/resume`, `/skills`, `/login`, `/cc`, `/init`, `/profile`, `/callers`, `/usages`, `/implementations`, `/supertypes`, `/refresh-view`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/wiki-gap`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
 
 **Session resume** — Pick up a previous Claude Code session with conversation history replayed in the chat panel.
 
@@ -80,7 +80,7 @@ src/main/kotlin/com/adobe/clawdea/
   context/       Context engine for gathering editor state
   debug/         DebugBridge, McpDebugTools, BreakpointTracker, SuspendGate
   gateway/       Claude API gateway for completions
-  knowledge/     Drift detection, wiki maintenance, Dream auto-apply
+  knowledge/     Drift detection, wiki maintenance, wiki-author auto-apply
   mcp/           MCP HTTP server, tool router, index/IDE/context/edit-review tools
   profiling/     JFR backend, CPU/allocation/leak analysis, MCP profiling tools
   settings/      Plugin settings and configurable UI
