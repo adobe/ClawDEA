@@ -113,10 +113,19 @@ class DriftDetectionService(private val project: Project) {
     }
 
     private fun buildInvoker(basePath: String): WikiAuthorInvoker {
-        val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(ClawDEASettings.getInstance().state.cliPath)
+        val settings = ClawDEASettings.getInstance()
+        val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
+        val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+        val effectiveProvider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+        // Match the chat's behaviour: pass --model only if the user has
+        // explicitly selected one for this project. Otherwise let the CLI
+        // pick its built-in default (Opus 4.7 on the current Anthropic CLI).
+        val modelId = settings.getCliModelId(basePath, effectiveProvider)
         return DefaultWikiAuthorInvoker(
             claudeCliPath = cliPath,
             projectRoot = Paths.get(basePath),
+            mcpPort = mcpPort,
+            modelId = modelId,
         )
     }
 
@@ -170,6 +179,7 @@ class DriftDetectionService(private val project: Project) {
             today: String,
             wikiAuthorInvoker: WikiAuthorInvoker,
         ): Pair<List<DriftEvent>, ApplyResult> {
+            LOG.info("applyAndDismiss: events=${events.size} autoUpdate=$autoUpdateEnabled kinds=${events.groupingBy { it::class.simpleName }.eachCount()}")
             if (!autoUpdateEnabled || events.isEmpty()) {
                 return events to ApplyResult(emptyList(), beforeState)
             }

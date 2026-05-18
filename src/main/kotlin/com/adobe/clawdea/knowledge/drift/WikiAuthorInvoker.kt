@@ -42,6 +42,8 @@ class DefaultWikiAuthorInvoker(
     private val runner: ProcessRunner = DefaultProcessRunner,
     private val claudeCliPath: String,
     private val projectRoot: Path,
+    private val mcpPort: Int = 0,
+    private val modelId: String = "",
     private val timeoutSeconds: Long = 300,
 ) : WikiAuthorInvoker {
 
@@ -50,35 +52,67 @@ class DefaultWikiAuthorInvoker(
             return WikiAuthorInvoker.Result(emptySet(), emptySet(), null)
         }
         val signatures = events.map { it.signature }.toSet()
+        LOG.info("wiki-author invoke: ${events.size} events; kinds=${events.groupingBy { it::class.simpleName }.eachCount()}")
         val agentsJson = try {
             WikiAgentsArg.buildAuthorOnlyJson()
         } catch (e: Throwable) {
+            LOG.warn("wiki-author failed to build --agents arg: ${e.message}", e)
             return WikiAuthorInvoker.Result(emptySet(), signatures,
                 "Failed to build wiki-author --agents arg: ${e.message}")
         }
         val digest = WikiAuthorDigestBuilder.build(events)
-        val command = listOf(
+        val mcpConfigFile = if (mcpPort > 0) {
+            try {
+                val tmp = java.io.File.createTempFile("clawdea-mcp-wiki-author-", ".json")
+                tmp.deleteOnExit()
+                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort))
+                tmp
+            } catch (e: Throwable) {
+                LOG.warn("wiki-author failed to write MCP config: ${e.message}", e)
+                null
+            }
+        } else null
+
+        val command = mutableListOf(
             claudeCliPath,
             "-p",
             "--output-format", "stream-json",
+            "--verbose",
             "--no-session-persistence",
+            "--permission-mode", "bypassPermissions",
             "--agents", agentsJson,
-            "--disallowedTools", "Edit,Write,Bash",
-            digest,
+            "--disallowedTools", "Bash,mcp__clawdea-intellij__propose_write,mcp__clawdea-intellij__propose_edit,mcp__clawdea-intellij__propose_multi_edit",
         )
+        if (modelId.isNotBlank()) {
+            command.addAll(listOf("--model", modelId))
+            LOG.info("wiki-author using model: $modelId")
+        } else {
+            LOG.info("wiki-author no model selected; CC will use its default")
+        }
+        if (mcpConfigFile != null) {
+            command.addAll(listOf("--mcp-config", mcpConfigFile.absolutePath))
+        }
+        command.addAll(listOf("--", digest))
 
         val result = withContext(Dispatchers.IO) {
             try {
                 runner.run(command, projectRoot, timeoutSeconds)
             } catch (e: Exception) {
-                ProcessResult(-1, "", e.message.orEmpty(), timedOut = false)
+                LOG.warn("wiki-author runner.run threw: ${e.javaClass.simpleName}: ${e.message}", e)
+                ProcessResult(-1, "", "${e.javaClass.simpleName}: ${e.message}", timedOut = false)
             }
         }
         return when {
-            result.timedOut -> WikiAuthorInvoker.Result(emptySet(), signatures,
-                "wiki-author subprocess timed out after ${timeoutSeconds}s")
-            result.exitCode != 0 -> WikiAuthorInvoker.Result(emptySet(), signatures,
-                "wiki-author subprocess exit code ${result.exitCode}: ${result.stderr.takeLast(500)}")
+            result.timedOut -> {
+                LOG.warn("wiki-author subprocess timed out after ${timeoutSeconds}s for ${signatures.size} events")
+                WikiAuthorInvoker.Result(emptySet(), signatures,
+                    "wiki-author subprocess timed out after ${timeoutSeconds}s")
+            }
+            result.exitCode != 0 -> {
+                LOG.warn("wiki-author subprocess exit=${result.exitCode} for ${signatures.size} events; stderr tail: ${result.stderr.takeLast(500)}")
+                WikiAuthorInvoker.Result(emptySet(), signatures,
+                    "wiki-author subprocess exit code ${result.exitCode}: ${result.stderr.takeLast(500)}")
+            }
             else -> {
                 LOG.info("wiki-author dismissed ${signatures.size} events (strategy-b)")
                 WikiAuthorInvoker.Result(signatures, emptySet(), null)
@@ -94,10 +128,18 @@ class DefaultWikiAuthorInvoker(
 
     object DefaultProcessRunner : ProcessRunner {
         override fun run(command: List<String>, projectRoot: Path, timeoutSeconds: Long): ProcessResult {
-            val process = ProcessBuilder(command)
+            val pb = ProcessBuilder(command)
                 .directory(projectRoot.toFile())
                 .redirectErrorStream(false)
-                .start()
+                .redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+            val merged = mutableMapOf<String, String>()
+            com.adobe.clawdea.cli.CliEnvironment.applyTo(merged)
+            for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)
+            com.adobe.clawdea.auth.AuthManager.getInstance().applyToEnvironment(merged)
+            val env = pb.environment()
+            env.clear()
+            env.putAll(merged)
+            val process = pb.start()
             val stdout = StringBuilder()
             val stderr = StringBuilder()
             val out = drain(process.inputStream.bufferedReader(StandardCharsets.UTF_8), stdout)

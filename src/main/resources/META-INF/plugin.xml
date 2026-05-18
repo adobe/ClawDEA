@@ -111,18 +111,46 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
-<h3>1.4.0</h3>
+<h3>1.4.1</h3>
+<p><b>Auto-update wiki now actually edits the wiki.</b> When you turn on "Auto-update wiki on drift", the wiki-author subagent now lands its proposed changes to disk in the background. Previously the subagent ran but its edits never reached your wiki because it was waiting for a diff-approval dialog that nobody could see.</p>
 <ul>
-  <li><b>Wiki knowledge layer:</b> wiki-librarian routing in the system prompt grounds answers in synthesized concept pages with verified source citations; wiki-author subagent rewrites stale pages from a commit-driven drift detector; with "Auto-update wiki" on, drift events are handled silently without surfacing the banner</li>
-  <li><b>Multi-panel permission routing:</b> replaced winner-take-all dispatcher with <code>PermissionRouterRegistry</code> that routes each <code>request_permission</code> call to the correct ChatPanel by <code>tool_use_id</code></li>
-  <li><b>Auto-allowed badge:</b> the "⚡ Auto-allowed" marker now shows reliably on fast tool calls (was racing with the HTTP signal)</li>
-  <li><b>Compact permission card:</b> removed redundant tool name/input echo since it's already shown in the tool header above</li>
+  <li>Recording wiki suggestions ("missingConcept", "staleConcept", "incompleteConcept" via the librarian) is now reliable &mdash; previously failed silently for some inputs</li>
+  <li>The wiki-author runs in fully unattended mode, has access to the project's IntelliJ index tools (find_symbol, search_text, etc.), and inherits your auth (subscription / Bedrock / Vertex) just like the chat</li>
+  <li>Failures are now logged with enough context (exit code, stderr) to tell you why a wiki update didn't land instead of failing silently</li>
+</ul>
+
+<h3>1.4.0</h3>
+<h4>Wiki knowledge layer</h4>
+<ul>
+  <li><b>Agent-based wiki:</b> replaced system-prompt-based wiki usage with specialized sub-agents <i>wiki-librarian</i> and <i>wiki-author</i> &mdash; slimmer system prompt, always-fresh findings (no long-session decay), supports larger wikis with better coverage on big projects</li>
+  <li><b>Wiki-librarian routing:</b> Claude now consults the wiki-librarian subagent before answering project-understanding questions, grounding answers in synthesized concept pages with verified source citations</li>
+  <li><b>Wiki-author subagent:</b> replaces the dream-based wiki maintenance system with a commit-driven drift detector that identifies stale wiki claims from git history, and a wiki-author subagent that rewrites affected pages</li>
+  <li><b>Drift banner suppression:</b> with "Auto-update wiki" enabled, wiki-author events are handled silently without surfacing the drift banner; only truly unresolvable events remain visible</li>
+</ul>
+<h4>Permission UX</h4>
+<ul>
+  <li><b>Multi-panel routing:</b> permission cards now appear in the chat tab that triggered the tool call instead of whichever tab is focused, fixing wrong-tab approvals in multi-tab projects</li>
+  <li><b>Auto-allowed badge:</b> the "⚡ Auto-allowed" marker now shows reliably on fast tool calls (it was racing with the HTTP signal on sub-second tools)</li>
+  <li><b>Compact permission card:</b> removed redundant tool name and input echo since that info is already visible in the tool header above</li>
+</ul>
+
+<h3>1.3.6</h3>
+<ul>
+  <li><b>Windows: CLI permission settings no longer crash the CLI</b> &mdash; cmd.exe was stripping double-quotes from <code>.cmd</code> shim arguments, mangling the inline permission JSON; settings are now passed via a temp file</li>
+  <li><b>Windows: tool-call panels show just the filename</b> for Read/Write/Edit actions, matching macOS behavior (was showing the full <code>C:\\...</code> path)</li>
+</ul>
+
+<h3>1.3.5</h3>
+<ul>
+  <li><b>Windows: ClawDEA now finds the Claude CLI when IntelliJ is launched from the Start menu/Explorer</b> &mdash; probes <code>%APPDATA%\\npm</code>, <code>%LOCALAPPDATA%\\Volta\\bin</code>, <code>%USERPROFILE%\\.local\\bin</code>, and <code>C:\\Program Files\\nodejs</code>. PowerShell shims are transparently redirected to the sibling <code>.cmd</code></li>
+  <li><b>Windows: <code>.cmd</code>/<code>.bat</code> shims now launch correctly</b> &mdash; the executability check no longer rejects them (Windows decides launchability via <code>PATHEXT</code>, not the executable bit)</li>
+  <li><b>Large system prompts no longer overflow the OS command-line limit</b> &mdash; the appended system prompt is now written to a temp file and passed via <code>--append-system-prompt-file</code>, fixing crashes on Windows (32 KB limit) and risk on Linux (<code>ARG_MAX</code>) when the skill catalog or primer grows large</li>
+  <li><b>Release workflow now attaches the signed plugin zip to GitHub releases</b> automatically</li>
 </ul>
 
 <h3>1.3.4</h3>
 <ul>
-  <li>Remove internal-API usage flagged by JetBrains Marketplace moderation: profiling now finds running processes via <code>RunContentManager</code> instead of <code>ExecutionManager.getRunningDescriptors</code></li>
-  <li>Replace deprecated <code>ReadAction.compute</code> call site with <code>runReadActionBlocking</code></li>
+  <li>Compatibility fix for JetBrains Marketplace: profiling no longer uses an internal API flagged by Marketplace moderation</li>
 </ul>
 
 <h3>1.3.3</h3>

@@ -120,4 +120,34 @@ class WikiSuggestionWriterTest {
             "Some rationale of the gap.", ".claude/wiki/concepts/foo.txt", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
     }
+
+    @Test fun `bare slug is normalized to concepts path with md suffix`() {
+        val claudeDir = newClaudeDir()
+        val writer = WikiSuggestionWriter(claudeDir)
+        val result = writer.record("missingConcept", "Add cli-bridge concept",
+            "Page is missing for the CLI bridge subsystem.", "cli-bridge", null)
+        assertTrue(result is WikiSuggestionWriter.Result.Recorded)
+        val state = DriftStateStore.read(claudeDir)
+        assertEquals(listOf(".claude/wiki/concepts/cli-bridge.md"), state.suggestions[0].targetFiles)
+    }
+
+    @Test fun `concepts-prefixed path is normalized with claude wiki prefix`() {
+        val claudeDir = newClaudeDir()
+        val writer = WikiSuggestionWriter(claudeDir)
+        val result = writer.record("missingConcept", "Add foo concept",
+            "Page foo is missing from concepts.", "concepts/foo.md", null)
+        assertTrue(result is WikiSuggestionWriter.Result.Recorded)
+        val state = DriftStateStore.read(claudeDir)
+        assertEquals(listOf(".claude/wiki/concepts/foo.md"), state.suggestions[0].targetFiles)
+    }
+
+    @Test fun `index slug normalizes to wiki index`() {
+        val claudeDir = newClaudeDir()
+        val writer = WikiSuggestionWriter(claudeDir)
+        val result = writer.record("incompleteConcept", "Index needs entry",
+            "TOC missing the new concept page.", "index", null)
+        assertTrue(result is WikiSuggestionWriter.Result.Recorded)
+        val state = DriftStateStore.read(claudeDir)
+        assertEquals(listOf(".claude/wiki/index.md"), state.suggestions[0].targetFiles)
+    }
 }

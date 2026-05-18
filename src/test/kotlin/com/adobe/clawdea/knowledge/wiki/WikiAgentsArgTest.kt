@@ -78,13 +78,17 @@ class WikiAgentsArgTest {
             "mcp__clawdea-intellij__propose_edit" in toolNames)
     }
 
-    @Test fun `author tools allowlist has propose_ tools and lacks record_wiki_suggestion`() {
+    @Test fun `author tools allowlist has Edit and Write and lacks record_wiki_suggestion`() {
         val root = JsonParser.parseString(WikiAgentsArg.buildJson()).asJsonObject
         val tools = root.getAsJsonObject("wiki-author").getAsJsonArray("tools")
         val toolNames = (0 until tools.size()).map { tools[it].asString }
-        assertTrue("author must have propose_write",
+        // The auto-update path runs unattended; propose_* tools block on a diff
+        // dialog that nobody is watching. The author writes via Edit/Write.
+        assertTrue("author must have Edit", "Edit" in toolNames)
+        assertTrue("author must have Write", "Write" in toolNames)
+        assertFalse("author must NOT have propose_write",
             "mcp__clawdea-intellij__propose_write" in toolNames)
-        assertTrue("author must have propose_edit",
+        assertFalse("author must NOT have propose_edit",
             "mcp__clawdea-intellij__propose_edit" in toolNames)
         assertFalse("author must NOT have record_wiki_suggestion",
             "mcp__clawdea-intellij__record_wiki_suggestion" in toolNames)

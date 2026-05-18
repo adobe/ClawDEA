@@ -46,15 +46,17 @@ class WikiSuggestionWriter(private val claudeDir: Path) {
         if (rationale.length !in 10..800)
             return Result.Invalid("rationale length must be 10..800 (got ${rationale.length})")
 
-        val targetFiles = targetFilesCsv.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val targetFiles = targetFilesCsv.split(',')
+            .map { normalizeWikiPath(it.trim()) }
+            .filter { it.isNotEmpty() }
         if (targetFiles.isEmpty())
-            return Result.Invalid("target_files must list at least one wiki path")
+            return Result.Invalid("target_files must list at least one wiki path (e.g. '.claude/wiki/concepts/foo.md' or 'concepts/foo')")
         targetFiles.firstOrNull { !isSafeWikiPath(it) }?.let { bad ->
-            return Result.Invalid("target_files entry is not a safe wiki path: $bad")
+            return Result.Invalid("target_files entry is not a safe wiki path: $bad (expected under .claude/wiki/, ending in .md, no '..' segments)")
         }
-        val safeSourcePage = sourcePage?.trim()?.takeIf { it.isNotEmpty() }
+        val safeSourcePage = sourcePage?.trim()?.takeIf { it.isNotEmpty() }?.let { normalizeWikiPath(it) }
         if (safeSourcePage != null && !isSafeWikiPath(safeSourcePage)) {
-            return Result.Invalid("source_page is not a safe wiki path: $safeSourcePage")
+            return Result.Invalid("source_page is not a safe wiki path: $safeSourcePage (expected under .claude/wiki/, ending in .md)")
         }
 
         val event = DriftEvent.WikiSuggestion(
@@ -83,6 +85,22 @@ class WikiSuggestionWriter(private val claudeDir: Path) {
         SuggestionKind.valueOf(raw)
     } catch (_: IllegalArgumentException) {
         null
+    }
+
+    private fun normalizeWikiPath(raw: String): String {
+        if (raw.isBlank()) return ""
+        val p = raw.trim().removePrefix("/").removePrefix("./")
+        val rooted = when {
+            p.startsWith(".claude/wiki/") -> p
+            p.startsWith("wiki/") -> ".claude/$p"
+            p.startsWith("concepts/") || p.startsWith("sources/") -> ".claude/wiki/$p"
+            p == "index" || p == "index.md" -> ".claude/wiki/index.md"
+            !p.contains('/') -> ".claude/wiki/concepts/$p"
+            else -> return p
+        }
+        val lastSegment = rooted.substringAfterLast('/')
+        val hasExtension = lastSegment.contains('.')
+        return if (hasExtension) rooted else "$rooted.md"
     }
 
     private fun isSafeWikiPath(path: String): Boolean {

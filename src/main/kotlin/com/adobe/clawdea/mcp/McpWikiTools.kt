@@ -43,7 +43,7 @@ class McpWikiTools(private val project: Project) {
                 Triple("kind", "string", "One of missingConcept, staleConcept, incompleteConcept"),
                 Triple("title", "string", "3-7 word title for the proposed change"),
                 Triple("rationale", "string", "1-2 sentence explanation of what was observed"),
-                Triple("target_files", "string", "Comma-separated wiki paths the change would touch (each under .claude/wiki/, ending in .md)"),
+                Triple("target_files", "array:string", "Wiki paths the change would touch (each under .claude/wiki/, ending in .md). Pass as a JSON array of strings."),
                 Triple("source_page", "string", "Optional: wiki page consulted when the gap was noticed"),
             ),
             required = listOf("kind", "title", "rationale", "target_files"),
@@ -96,12 +96,14 @@ class McpWikiTools(private val project: Project) {
         val kind = args["kind"] ?: return McpToolRouter.ToolResult("Missing 'kind' argument", isError = true)
         val title = args["title"] ?: return McpToolRouter.ToolResult("Missing 'title' argument", isError = true)
         val rationale = args["rationale"] ?: return McpToolRouter.ToolResult("Missing 'rationale' argument", isError = true)
-        val targetFiles = args["target_files"] ?: return McpToolRouter.ToolResult("Missing 'target_files' argument", isError = true)
+        val rawTargetFiles = args["target_files"]
+            ?: return McpToolRouter.ToolResult("Missing 'target_files' argument", isError = true)
+        val targetFilesCsv = coerceToCsv(rawTargetFiles)
         val result = writer.record(
             kind = kind,
             title = title,
             rationale = rationale,
-            targetFilesCsv = targetFiles,
+            targetFilesCsv = targetFilesCsv,
             sourcePage = args["source_page"],
         )
         return when (result) {
@@ -130,6 +132,21 @@ class McpWikiTools(private val project: Project) {
             sb.appendLine()
         }
         return McpToolRouter.ToolResult(sb.toString().trimEnd())
+    }
+
+    private fun coerceToCsv(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.startsWith("[")) {
+            return try {
+                GSON.fromJson<List<String>>(trimmed, STRING_LIST_TYPE)
+                    ?.filter { it.isNotBlank() }
+                    ?.joinToString(",")
+                    ?: trimmed
+            } catch (_: Exception) {
+                trimmed
+            }
+        }
+        return trimmed
     }
 
     private fun parsePathTokens(raw: String?): List<String> {

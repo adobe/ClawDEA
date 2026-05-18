@@ -10,6 +10,9 @@
 - Permission settings JSON is also written to a temp file and passed via `--settings`, never inline. On Windows the entry point is `claude.cmd`, so ProcessBuilder routes args through `cmd.exe` which strips inner quotes and splits on unquoted spaces — inline JSON gets corrupted ([CliProcess.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt)).
 - A reader job is generation-scoped: `expectedExitGeneration` and `activeGeneration` ensure a stale reader from a previous CLI process can never emit events that look like a crash after a restart ([CliBridge.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliBridge.kt)).
 - `CliEventParser` parses NDJSON manually (no Gson) for high-volume stream throughput. The sealed `CliEvent` hierarchy is the only wire-shape contract ([CliEvent.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEvent.kt)).
+- `CliEvent.Result.contextTokens` is **per-turn** (input + cache_read + cache_creation from `result.usage`), not a cumulative running total. `EventStreamHandler` overwrites `totalTokensUsed = event.contextTokens` on each Result rather than adding — summing across turns would double-count cache reads ([CliEventParser.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEventParser.kt), [EventStreamHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/EventStreamHandler.kt)).
+- `CliEvent.Result.contextWindow` is read from `result.modelUsage.<model>.contextWindow` and is the **authoritative denominator** for the context-budget indicator. Falling back to a hardcoded 200K (the previous behavior, fixed in 861cf1e) underreports headroom for Opus 4.7 (1M) by 5x ([CliEventParser.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEventParser.kt), [ChatPanel.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/ChatPanel.kt)).
+- The per-message `stream_event.message_delta.usage` block (emitted with `--include-partial-messages`) is intentionally **not** parsed into a CliEvent — it represents that single message's tokens and must not be summed with `result.usage`. Only the `result` event's usage is consumed for the budget label; intermediate `message_delta` events are dropped to `CliEvent.Unknown` by design ([CliFixtureReplayTest.kt](../../../src/test/kotlin/com/adobe/clawdea/cli/CliFixtureReplayTest.kt)).
 
 ## Resolution pipeline
 
@@ -33,6 +36,8 @@
 - **Adding `--include-hook-events`** — Will produce event shapes `CliEventParser` does not model and will collide with edit-review and permission UIs. There is a drift watcher entry (#94) flagging upstream changes to hook semantics.
 - **Using Gson in `CliEventParser`** — The manual parser is a deliberate perf optimization for high-volume `--include-partial-messages` streams. Switching to Gson regressed allocation hotspots in past profiles.
 - **Reading process output without checking the reader generation** — A late-arriving line from a previous process will be parsed and emitted as a fresh event, producing phantom crashes or duplicate Results. Always gate emission on `isCurrentReader(readerGeneration)`.
+- **Summing `message_delta.usage` across messages, or adding it to `result.usage`** — Both shapes report tokens for their own scope (one message vs end-of-turn). Adding them double-counts. The budget indicator must read only `result.usage`.
+- **Hardcoding the context-window denominator** — The window is model-dependent (Sonnet/Opus default 200K, Opus 4.7 1M, future variants unknown). Use `event.contextWindow` from the Result and fall back to `DEFAULT_CONTEXT_WINDOW_TOKENS` only when CC didn't report one. Regression fixed in commit 861cf1e (PR #73).
 
 ## Source pointers
 

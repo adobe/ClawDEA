@@ -55,9 +55,11 @@ Provide:
 - `title` — 3–7 words, e.g. "Add concept page for FilesystemRefreshCoordinator".
 - `rationale` — 1–2 sentences: what you observed + why a wiki change
   helps the *next* question of this shape.
-- `target_files` — comma-separated paths under `.claude/wiki/` that
-  would change. For a new page, list both
-  `.claude/wiki/concepts/<slug>.md` and `.claude/wiki/index.md`.
+- `target_files` — JSON array of paths under `.claude/wiki/` that
+  would change (e.g. `[".claude/wiki/concepts/foo.md", ".claude/wiki/index.md"]`).
+  Bare slugs like `"foo"` or `"concepts/foo"` are accepted and
+  normalized. For a new page, list both the concept page and the
+  index.
 - `source_page` — optional; the page you were reading when you noticed
   the gap.
 
