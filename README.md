@@ -23,23 +23,24 @@ Optionally builds a knowledge base to enhance LLM understanding of current and r
 
 **MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search via `search_text`, profiling (8 tools), and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present — faster and more accurate than filesystem grep.
 
-**@ mentions** — Type `@` for inline autocomplete (open editor tabs + recently git-modified files); press `@` then Tab to open a full picker with grouped Files and Symbols sections, backed by IntelliJ's filename and short-name caches.
-
-**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When the CLI requests permission for a tool call, ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in chat with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
-
-**Edit review** — When "Auto-accept Edits" is off, each proposed change opens a native IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that slip through are caught by a fallback layer with inline buttons and file revert.
+**Knowledge layer** — Project-local wiki under `.claude/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer). The primer ships with every turn so Claude starts each conversation already oriented. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`.
+Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA/blob/main/.claude/wiki/index.md
 
 **Debugger integration** — 21 MCP tools let Claude drive IntelliJ's debugger: launch sessions, set breakpoints (with conditions and log expressions), step through code, inspect variables, evaluate expressions, and modify values at runtime. Breakpoint ownership tracking ensures your breakpoints are never deleted.
 
 **Profiling** — Claude can profile your code via JDK Flight Recorder: launch tests or run configurations with JFR instrumentation, then analyze CPU hotspots, allocation pressure, and memory leaks. Three entry points: `/profile` slash command, gutter icon on `@Test` methods, or imported `.jfr`/`.hprof` files. Claude reads the analysis results and proposes source-level fixes.
+
+**Edit review** — When "Auto-accept Edits" is off, each proposed change opens a native IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that slip through are caught by a fallback layer with inline buttons and file revert.
+
+**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When the CLI requests permission for a tool call, ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in chat with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
+
+**@ mentions** — Type `@` for inline autocomplete (open editor tabs + recently git-modified files); press `@` then Tab to open a full picker with grouped Files and Symbols sections, backed by IntelliJ's filename and short-name caches.
 
 **Inline completions** — Tab-completions powered by the Claude API, using editor context gathered by the context engine.
 
 **Intention actions** (Alt+Enter) — Explain, Optimize, Generate Test, Security Check, Add Documentation, Refactor, Ask Claude, Fix with Claude.
 
 **Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/resume`, `/skills`, `/callers`, `/usages`, `/implementations`, `/supertypes`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
-
-**Knowledge layer** — Project-local wiki under `.claude/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer) plus a personal notes layer (`.claude/notes/CURRENT.md`). The primer ships with every turn so Claude starts each conversation already oriented. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`.
 
 **Session resume** — Pick up a previous Claude Code session with conversation history replayed in the chat panel.
 
