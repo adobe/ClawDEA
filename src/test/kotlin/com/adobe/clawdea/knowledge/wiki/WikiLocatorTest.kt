@@ -50,4 +50,54 @@ class WikiLocatorTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    @Test fun `team mode reads wikiPath from clawdea config`() {
+        val tmp = Files.createTempDirectory("wiki-locator-team")
+        try {
+            val configDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(configDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+            val resolved = WikiLocator.resolve(
+                projectBase = tmp,
+                claudeDirName = ".claude",
+                wikiSubdir = "wiki",
+                configReader = { Files.readString(configDir.resolve("config.json")) },
+            )
+            assertEquals(tmp.resolve("docs").resolve("llm-wiki"), resolved.wikiDir)
+            assertEquals(true, resolved.teamMode)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `malformed config falls back to default mode`() {
+        val tmp = Files.createTempDirectory("wiki-locator-bad")
+        try {
+            val resolved = WikiLocator.resolve(
+                projectBase = tmp,
+                claudeDirName = ".claude",
+                wikiSubdir = "wiki",
+                configReader = { "{not json" },
+            )
+            assertEquals(tmp.resolve(".claude").resolve("wiki"), resolved.wikiDir)
+            assertEquals(false, resolved.teamMode)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `blank wikiPath in config falls back to default`() {
+        val tmp = Files.createTempDirectory("wiki-locator-blank")
+        try {
+            val resolved = WikiLocator.resolve(
+                projectBase = tmp,
+                claudeDirName = ".claude",
+                wikiSubdir = "wiki",
+                configReader = { """{"wikiPath":""}""" },
+            )
+            assertEquals(tmp.resolve(".claude").resolve("wiki"), resolved.wikiDir)
+            assertEquals(false, resolved.teamMode)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }

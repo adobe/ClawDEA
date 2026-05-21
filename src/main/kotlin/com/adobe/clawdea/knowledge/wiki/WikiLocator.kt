@@ -25,9 +25,8 @@ import java.nio.file.Paths
  *    (default `.claude/wiki/`), honoring [ClawDEASettings] overrides.
  *  - **Team**: `.clawdea/config.json` present with a non-blank `wikiPath` → wiki at
  *    `<base>/<wikiPath>`. Auto-activated when cloning a repo that already has the
- *    config file.
- *
- * Team-mode reading is added in a later task. This first version only resolves the default mode.
+ *    config file. Malformed JSON or a missing/blank `wikiPath` silently falls back
+ *    to default mode.
  */
 @Service(Service.Level.PROJECT)
 class WikiLocator(private val project: Project) {
@@ -40,12 +39,31 @@ class WikiLocator(private val project: Project) {
             projectBase = Paths.get(basePath),
             claudeDirName = state.claudeDirName,
             wikiSubdir = state.wikiSubdir,
-            configReader = { null },
+            configReader = { readConfigJson(Paths.get(basePath)) },
         ).wikiDir
     }
 
-    /** True when `.clawdea/config.json` is the source of truth. Always false in this task. */
-    fun isTeamMode(): Boolean = false
+    /** True when `.clawdea/config.json` is the source of truth. */
+    fun isTeamMode(): Boolean {
+        val basePath = project.basePath ?: return false
+        val state = ClawDEASettings.getInstance().state
+        return resolve(
+            projectBase = Paths.get(basePath),
+            claudeDirName = state.claudeDirName,
+            wikiSubdir = state.wikiSubdir,
+            configReader = { readConfigJson(Paths.get(basePath)) },
+        ).teamMode
+    }
+
+    private fun readConfigJson(projectBase: Path): String? {
+        val file = projectBase.resolve(".clawdea").resolve("config.json")
+        if (!java.nio.file.Files.isRegularFile(file)) return null
+        return try {
+            java.nio.file.Files.readString(file)
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     companion object {
 
@@ -56,11 +74,24 @@ class WikiLocator(private val project: Project) {
             wikiSubdir: String,
             configReader: () -> String?,
         ): Resolved {
-            val configWikiPath = configReader()?.takeIf { it.isNotBlank() }
+            val configWikiPath = parseWikiPath(configReader())
             return if (configWikiPath != null) {
                 Resolved(projectBase.resolve(configWikiPath), teamMode = true)
             } else {
                 Resolved(projectBase.resolve(claudeDirName).resolve(wikiSubdir), teamMode = false)
+            }
+        }
+
+        private fun parseWikiPath(configJson: String?): String? {
+            if (configJson.isNullOrBlank()) return null
+            return try {
+                val obj = com.google.gson.JsonParser.parseString(configJson)
+                if (!obj.isJsonObject) return null
+                val wikiPath = obj.asJsonObject.get("wikiPath")?.takeIf { it.isJsonPrimitive }
+                    ?.asJsonPrimitive?.takeIf { it.isString }?.asString
+                wikiPath?.takeIf { it.isNotBlank() }
+            } catch (_: Throwable) {
+                null
             }
         }
 
