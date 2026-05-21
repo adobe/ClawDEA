@@ -536,7 +536,7 @@ Debug tool guidelines:
 Wiki-knowledge routing:
 For any non-trivial question whose answer depends on how THIS PROJECT works, your FIRST tool call MUST be:
 
-  Agent(subagent_type="wiki-librarian", prompt="<the user's question, verbatim or paraphrased>")
+  Agent(description="<3-5 word task summary>", subagent_type="wiki-librarian", prompt="<the user's question, verbatim or paraphrased>")
 
 This covers — non-exhaustively:
 - "how does X work?", "where is Y?", "what is the contract of Z?"

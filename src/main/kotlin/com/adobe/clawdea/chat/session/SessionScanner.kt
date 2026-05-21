@@ -34,7 +34,8 @@ data class SessionInfo(
 sealed class HistoryEntry {
     data class UserMessage(val text: String) : HistoryEntry()
     data class AssistantText(val text: String) : HistoryEntry()
-    data class ToolUse(val name: String, val input: String) : HistoryEntry()
+    data class ToolUse(val id: String, val name: String, val input: String) : HistoryEntry()
+    data class ToolResult(val toolUseId: String, val content: String, val isError: Boolean) : HistoryEntry()
 }
 
 /**
@@ -62,6 +63,16 @@ object SessionScanner {
     fun loadHistory(projectBasePath: String, sessionId: String): List<HistoryEntry> {
         val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
         val file = File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath + "/$sessionId.jsonl")
+        return loadHistoryFromFile(file)
+    }
+
+    /**
+     * Overload for tests — accepts an arbitrary file so fixtures can live
+     * under a temp folder without colliding with the user's real
+     * `~/.claude/projects/` cache. Production callers should use the
+     * [loadHistory] overload that takes a project path + session id.
+     */
+    internal fun loadHistoryFromFile(file: File): List<HistoryEntry> {
         if (!file.exists()) return emptyList()
 
         val entries = mutableListOf<HistoryEntry>()
@@ -77,10 +88,7 @@ object SessionScanner {
                                 parseAssistantBlocks(line, entries)
                             }
                             line.contains("\"type\":\"user\"") -> {
-                                val text = extractUserContent(line)
-                                if (!text.isNullOrBlank()) {
-                                    entries.add(HistoryEntry.UserMessage(text))
-                                }
+                                parseUserBlocks(line, entries)
                             }
                         }
                     }
@@ -94,29 +102,9 @@ object SessionScanner {
     }
 
     private fun parseAssistantBlocks(json: String, entries: MutableList<HistoryEntry>) {
-        // Find "content":[ in the message
-        val messageIdx = json.indexOf("\"message\"")
-        if (messageIdx == -1) return
-        val contentArrayStart = json.indexOf("\"content\":[", messageIdx)
-        if (contentArrayStart == -1) return
-
-        val arrayStart = json.indexOf('[', contentArrayStart)
-        if (arrayStart == -1) return
-
-        // Walk through content blocks
-        var pos = arrayStart + 1
-        while (pos < json.length) {
-            // Find next object
-            val objStart = json.indexOf('{', pos)
-            if (objStart == -1) break
-
-            val objEnd = findMatchingBrace(json, objStart)
-            if (objEnd == -1) break
-
-            val block = json.substring(objStart, objEnd + 1)
-            val blockType = extractString(block, "\"type\"")
-
-            when (blockType) {
+        val blocks = extractMessageContentBlocks(json) ?: return
+        for (block in blocks) {
+            when (extractString(block, "\"type\"")) {
                 "text" -> {
                     val text = extractString(block, "\"text\"")
                     if (!text.isNullOrBlank()) {
@@ -124,14 +112,229 @@ object SessionScanner {
                     }
                 }
                 "tool_use" -> {
+                    val id = extractString(block, "\"id\"") ?: ""
                     val name = extractString(block, "\"name\"") ?: ""
                     val input = extractObject(block, "\"input\"") ?: "{}"
-                    entries.add(HistoryEntry.ToolUse(name, input))
+                    entries.add(HistoryEntry.ToolUse(id, name, input))
                 }
             }
-
-            pos = objEnd + 1
+            // Skip "thinking" blocks and anything else.
         }
+    }
+
+    /**
+     * A `type:"user"` JSONL line can be one of:
+     *  - A real user-typed message (`message.content` is a string)
+     *  - A tool_result envelope CC writes back to the model (`message.content`
+     *    is an array containing a `tool_result` block)
+     *  - An array of `text`/`image` blocks (multimodal user input or
+     *    system-reminder injections)
+     *
+     * Live rendering classifies these via [CliEventParser.parseUserMessage]:
+     * tool_result blocks become a `ToolResult` event, everything else is
+     * routed back to the user-input field. The previous implementation here
+     * naively recursed into nested content arrays and pulled tool_result text
+     * out as a user message — that's what made approved edits and sub-agent
+     * output appear under a "You" label after `/resume`.
+     */
+    private fun parseUserBlocks(json: String, entries: MutableList<HistoryEntry>) {
+        // `isMeta:true` lines are CC-injected synthetic prompts — skill
+        // bodies, init prompts, hook-driven context dumps. The live chat
+        // panel never renders these (they go straight to the model as
+        // hidden context), so resume mustn't surface them under a "You"
+        // label either. This guard is what suppresses the long
+        // "Base directory for this skill: ..." text that used to follow
+        // every `/superpowers:*` invocation in the replay.
+        if (json.contains("\"isMeta\":true")) return
+
+        // String content — the common case for user-typed prompts.
+        val stringContent = extractStringContent(json)
+        if (stringContent != null) {
+            val cleaned = cleanUserText(stringContent)
+            if (cleaned.isNotBlank()) {
+                entries.add(HistoryEntry.UserMessage(cleaned))
+            }
+            return
+        }
+
+        // Array content — walk blocks and classify by type.
+        val blocks = extractMessageContentBlocks(json) ?: return
+        val userTextParts = mutableListOf<String>()
+        for (block in blocks) {
+            when (extractString(block, "\"type\"")) {
+                "tool_result" -> {
+                    val id = extractString(block, "\"tool_use_id\"") ?: ""
+                    val content = extractToolResultContent(block)
+                    val isError = block.contains("\"is_error\":true")
+                    entries.add(HistoryEntry.ToolResult(id, content, isError))
+                }
+                "text" -> {
+                    extractString(block, "\"text\"")?.let { userTextParts.add(it) }
+                }
+                // Skip "image" and other multimodal block types — there's no
+                // first-class image rendering in the history view.
+            }
+        }
+        if (userTextParts.isNotEmpty()) {
+            val cleaned = cleanUserText(userTextParts.joinToString("\n\n"))
+            if (cleaned.isNotBlank()) {
+                entries.add(HistoryEntry.UserMessage(cleaned))
+            }
+        }
+    }
+
+    /**
+     * Reconstruct the user-visible text from a raw `message.content` payload:
+     *  - If it's a slash-command envelope, rebuild `<command-name> <args>`
+     *    so the replay looks like the line the user actually typed.
+     *  - Otherwise strip `<system-reminder>` / `<command-message>` style
+     *    wrappers that the model emits as context but that should never
+     *    appear under a "You" label.
+     */
+    private fun cleanUserText(raw: String): String {
+        val invocation = extractSlashCommandInvocation(raw)
+        if (invocation != null) return invocation
+        return stripSystemReminders(raw)
+    }
+
+    private fun extractSlashCommandInvocation(text: String): String? {
+        if (!text.contains("<command-")) return null
+        val name = COMMAND_NAME_RE.find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        val args = COMMAND_ARGS_RE.find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        // command-message echoes the human-readable command label
+        // (e.g. "superpowers:brainstorming"). We prefer command-name
+        // because that's the actual slash command the user typed.
+        if (name.isEmpty() && args.isEmpty()) return null
+        return listOf(name, args).filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    /**
+     * Returns the raw substring of each top-level object in `message.content`
+     * when it's an array, or null if `message.content` is a string / absent.
+     */
+    private fun extractMessageContentBlocks(json: String): List<String>? {
+        val messageIdx = json.indexOf("\"message\"")
+        if (messageIdx == -1) return null
+        val contentArrayStart = json.indexOf("\"content\":[", messageIdx)
+        if (contentArrayStart == -1) return null
+        val arrayStart = json.indexOf('[', contentArrayStart)
+        if (arrayStart == -1) return null
+        val arrayEnd = findMatchingBracket(json, arrayStart)
+        if (arrayEnd == -1) return null
+
+        val blocks = mutableListOf<String>()
+        var i = arrayStart + 1
+        while (i < arrayEnd) {
+            val c = json[i]
+            if (c == '{') {
+                val end = findMatchingBrace(json, i)
+                if (end == -1 || end > arrayEnd) break
+                blocks.add(json.substring(i, end + 1))
+                i = end + 1
+            } else {
+                i++
+            }
+        }
+        return blocks
+    }
+
+    /** Returns the value of `message.content` when it's a JSON string. */
+    private fun extractStringContent(json: String): String? {
+        val messageIdx = json.indexOf("\"message\"")
+        if (messageIdx == -1) return null
+        val contentKey = json.indexOf("\"content\"", messageIdx)
+        if (contentKey == -1) return null
+        val colon = json.indexOf(':', contentKey + 9)
+        if (colon == -1) return null
+        val afterColon = json.substring(colon + 1).trimStart()
+        if (afterColon.isEmpty() || afterColon[0] != '"') return null
+        return extractString(json.substring(contentKey), "\"content\"")
+    }
+
+    /**
+     * Extract the textual content of a tool_result block. The block's
+     * `content` field is either a string or an array of `text`/`image`
+     * blocks — concatenate the text portions.
+     */
+    private fun extractToolResultContent(block: String): String {
+        val contentIdx = block.indexOf("\"content\"")
+        if (contentIdx == -1) return ""
+        val colon = block.indexOf(':', contentIdx + 9)
+        if (colon == -1) return ""
+        val afterColon = block.substring(colon + 1).trimStart()
+        if (afterColon.isEmpty()) return ""
+
+        // String content
+        if (afterColon[0] == '"') {
+            return extractString(block.substring(contentIdx), "\"content\"") ?: ""
+        }
+
+        // Array content — pull every text block
+        if (afterColon[0] == '[') {
+            val arrayStart = block.indexOf('[', colon)
+            val arrayEnd = findMatchingBracket(block, arrayStart)
+            if (arrayEnd == -1) return ""
+            val parts = mutableListOf<String>()
+            var i = arrayStart + 1
+            while (i < arrayEnd) {
+                val c = block[i]
+                if (c == '{') {
+                    val end = findMatchingBrace(block, i)
+                    if (end == -1 || end > arrayEnd) break
+                    val inner = block.substring(i, end + 1)
+                    if (extractString(inner, "\"type\"") == "text") {
+                        extractString(inner, "\"text\"")?.let { parts.add(it) }
+                    }
+                    i = end + 1
+                } else {
+                    i++
+                }
+            }
+            return parts.joinToString("\n")
+        }
+
+        return ""
+    }
+
+    /**
+     * Strip `<system-reminder>` and `<command-message>` envelopes that CC
+     * splices into user content. Those are agent-only instructions, not text
+     * the user actually typed, so they shouldn't appear under the "You"
+     * label after `/resume`.
+     */
+    private fun stripSystemReminders(text: String): String {
+        if (!text.contains('<')) return text.trim()
+        var out = text
+        for (tag in SYSTEM_TAGS) {
+            val open = "<$tag>"
+            val close = "</$tag>"
+            while (true) {
+                val start = out.indexOf(open)
+                if (start == -1) break
+                val end = out.indexOf(close, start)
+                if (end == -1) break
+                out = out.substring(0, start) + out.substring(end + close.length)
+            }
+        }
+        return out.trim()
+    }
+
+    private fun findMatchingBracket(json: String, start: Int): Int {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (i in start until json.length) {
+            val c = json[i]
+            if (escaped) { escaped = false; continue }
+            if (c == '\\' && inString) { escaped = true; continue }
+            if (c == '"') { inString = !inString; continue }
+            if (inString) continue
+            when (c) {
+                '[' -> depth++
+                ']' -> { depth--; if (depth == 0) return i }
+            }
+        }
+        return -1
     }
 
     private fun findMatchingBrace(json: String, start: Int): Int {
@@ -227,30 +430,31 @@ object SessionScanner {
         )
     }
 
+    /**
+     * Fallback extractor for [parseSessionFile] — accepts string or
+     * text-array content. Mirrors what we'd want to show in a session
+     * picker, so tool_result envelopes are intentionally ignored.
+     */
     private fun extractUserContent(json: String): String? {
-        // Try "message":{"role":"user","content":"..."}
         val messageIdx = json.indexOf("\"message\"")
         if (messageIdx == -1) return null
         val contentIdx = json.indexOf("\"content\"", messageIdx)
         if (contentIdx == -1) return null
-
         val colonIdx = json.indexOf(':', contentIdx + 9)
         if (colonIdx == -1) return null
         val afterColon = json.substring(colonIdx + 1).trimStart()
 
-        // String content
         if (afterColon.startsWith("\"")) {
             return extractString(json.substring(contentIdx), "\"content\"")
         }
-
-        // Array content — find first text block
         if (afterColon.startsWith("[")) {
+            // Skip tool_result wrappers — they aren't user-typed text.
+            if (afterColon.contains("\"type\":\"tool_result\"")) return null
             val textIdx = afterColon.indexOf("\"type\":\"text\"")
             if (textIdx != -1) {
                 return extractString(afterColon.substring(textIdx), "\"text\"")
             }
         }
-
         return null
     }
 
@@ -294,4 +498,13 @@ object SessionScanner {
             null
         }
     }
+
+    // Note: `command-args` is intentionally not in this list — slash-command
+    // envelopes are unwrapped via [extractSlashCommandInvocation] which
+    // preserves the args text. Stripping it here would silently drop the
+    // user's actual input.
+    private val SYSTEM_TAGS = listOf("system-reminder", "command-message", "command-name")
+
+    private val COMMAND_NAME_RE = Regex("<command-name>([\\s\\S]*?)</command-name>")
+    private val COMMAND_ARGS_RE = Regex("<command-args>([\\s\\S]*?)</command-args>")
 }

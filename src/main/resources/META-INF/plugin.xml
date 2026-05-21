@@ -111,6 +111,9 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.4.2</h3>
+<p><b>/resume now renders past sessions the way they actually looked.</b> Resumed conversations were showing empty Write tools, edits as bare paths under the wrong "You" label, and AskUserQuestion / Task widgets rendered completely differently from the live stream. The replay path now shares a single rendering pipeline with the live event stream, so what you see when you resume matches what you saw the first time. (<a href="https://github.com/adobe/ClawDEA/issues/7">#7</a>)</p>
+
 <h3>1.4.1</h3>
 <p><b>Auto-update wiki now actually edits the wiki.</b> When you turn on "Auto-update wiki on drift", the wiki-author subagent now lands its proposed changes to disk in the background. Previously the subagent ran but its edits never reached your wiki because it was waiting for a diff-approval dialog that nobody could see.</p>
 <ul>
