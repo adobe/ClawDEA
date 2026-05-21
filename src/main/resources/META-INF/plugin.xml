@@ -225,6 +225,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <projectService
             serviceImplementation="com.adobe.clawdea.mcp.McpServer"/>
 
+        <!-- Wiki Locator -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.knowledge.wiki.WikiLocator"/>
+
         <!-- Debug Bridge -->
         <projectService
             serviceImplementation="com.adobe.clawdea.debug.DebugBridge"/>
