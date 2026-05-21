@@ -19,11 +19,11 @@ import java.time.Instant
 
 /**
  * Validates a librarian-recorded wiki suggestion and persists it into
- * `.claude/wiki/.drift-state.json`'s `suggestions` array. Idempotent on
+ * the wiki's `.drift-state.json`'s `suggestions` array. Idempotent on
  * signature: re-recording the same gap updates the existing entry's
  * title/rationale/recordedAt rather than appending a duplicate.
  */
-class WikiSuggestionWriter(private val claudeDir: Path) {
+class WikiSuggestionWriter(private val wikiDir: Path) {
 
     sealed class Result {
         data class Recorded(val signature: String, val isNew: Boolean) : Result()
@@ -68,7 +68,7 @@ class WikiSuggestionWriter(private val claudeDir: Path) {
             recordedAt = recordedAt.toString(),
         )
 
-        val state = DriftStateStore.read(claudeDir)
+        val state = DriftStateStore.read(wikiDir)
         if (event.signature in state.dismissed) return Result.Dismissed(event.signature)
 
         val existing = state.suggestions.indexOfFirst { it.signature == event.signature }
@@ -77,7 +77,7 @@ class WikiSuggestionWriter(private val claudeDir: Path) {
         } else {
             state.suggestions + event
         }
-        DriftStateStore.write(claudeDir, state.copy(suggestions = newSuggestions))
+        DriftStateStore.write(wikiDir, state.copy(suggestions = newSuggestions))
         return Result.Recorded(event.signature, isNew = existing < 0)
     }
 

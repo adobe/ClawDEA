@@ -12,19 +12,19 @@
 package com.adobe.clawdea.knowledge.primer.sources
 
 import com.adobe.clawdea.knowledge.primer.PrimerSource
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.adobe.clawdea.knowledge.wiki.WikiPageReader
 import com.adobe.clawdea.knowledge.wiki.WikiPath
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.project.Project
-import java.nio.file.Paths
 
 class WikiIndexSource : PrimerSource {
     override val id = "wikiIndex"
 
     override fun load(project: Project): String? {
-        val basePath = project.basePath ?: return null
+        if (project.basePath == null) return null
         val state = ClawDEASettings.getInstance().state
-        val wikiDir = Paths.get(basePath, state.claudeDirName, state.wikiSubdir)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val reader = WikiPageReader(WikiPath(wikiDir))
         val index = reader.readIndex() ?: return null
         // When the librarian is on, ship a one-line anchor sitting right next to

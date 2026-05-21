@@ -12,6 +12,7 @@
 package com.adobe.clawdea.mcp
 
 import com.adobe.clawdea.knowledge.drift.DriftDetectionService
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.adobe.clawdea.knowledge.wiki.WikiPageReader
 import com.adobe.clawdea.knowledge.wiki.WikiPath
 import com.adobe.clawdea.knowledge.wiki.WikiSearcher
@@ -20,7 +21,6 @@ import com.adobe.clawdea.settings.ClawDEASettings
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.intellij.openapi.project.Project
-import java.nio.file.Paths
 
 class McpWikiTools(private val project: Project) {
 
@@ -64,9 +64,8 @@ class McpWikiTools(private val project: Project) {
     }
 
     private fun wikiPath(): WikiPath? {
-        val basePath = project.basePath ?: return null
-        val state = ClawDEASettings.getInstance().state
-        return WikiPath(Paths.get(basePath, state.claudeDirName, state.wikiSubdir))
+        if (project.basePath == null) return null
+        return WikiPath(WikiLocator.getInstance(project).wikiDir())
     }
 
     private fun readWikiPage(args: Map<String, String>): McpToolRouter.ToolResult {
@@ -88,11 +87,11 @@ class McpWikiTools(private val project: Project) {
     }
 
     private fun recordWikiSuggestion(args: Map<String, String>): McpToolRouter.ToolResult {
-        val basePath = project.basePath
-            ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
-        val state = ClawDEASettings.getInstance().state
-        val claudeDir = Paths.get(basePath, state.claudeDirName)
-        val writer = WikiSuggestionWriter(claudeDir)
+        if (project.basePath == null) {
+            return McpToolRouter.ToolResult("No project basePath", isError = true)
+        }
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
+        val writer = WikiSuggestionWriter(wikiDir)
         val kind = args["kind"] ?: return McpToolRouter.ToolResult("Missing 'kind' argument", isError = true)
         val title = args["title"] ?: return McpToolRouter.ToolResult("Missing 'title' argument", isError = true)
         val rationale = args["rationale"] ?: return McpToolRouter.ToolResult("Missing 'rationale' argument", isError = true)

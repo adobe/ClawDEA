@@ -16,10 +16,9 @@ import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler
 import com.adobe.clawdea.commands.CommandInfo
 import com.adobe.clawdea.knowledge.wiki.WikiAuditor
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.adobe.clawdea.knowledge.wiki.WikiPath
-import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.project.Project
-import java.nio.file.Paths
 
 class WikiAuditCommandHandler(private val project: Project) : CommandHandler {
     override val info = CommandInfo(
@@ -29,13 +28,11 @@ class WikiAuditCommandHandler(private val project: Project) : CommandHandler {
     )
 
     override fun execute(args: String, context: CommandContext) {
-        val basePath = project.basePath
-        if (basePath == null) {
+        if (project.basePath == null) {
             context.appendHtml("""<div class="info-block">No project basePath; cannot audit wiki.</div>""")
             return
         }
-        val state = ClawDEASettings.getInstance().state
-        val wikiPath = WikiPath(Paths.get(basePath, state.claudeDirName, state.wikiSubdir))
+        val wikiPath = WikiPath(WikiLocator.getInstance(project).wikiDir())
         val report = WikiAuditor(wikiPath).audit()
         val text = report.format()
             .replace("&", "&amp;")

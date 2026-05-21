@@ -22,10 +22,9 @@ object DriftStateStore {
     private val LOG = Logger.getInstance(DriftStateStore::class.java)
     private val GSON = Gson()
     private const val FILE_NAME = ".drift-state.json"
-    private const val WIKI_SUBDIR = "wiki"
 
-    fun read(claudeDir: Path): DriftState {
-        val file = claudeDir.resolve(WIKI_SUBDIR).resolve(FILE_NAME)
+    fun read(wikiDir: Path): DriftState {
+        val file = wikiDir.resolve(FILE_NAME)
         if (!Files.isRegularFile(file)) return DriftState()
         return try {
             val text = Files.readString(file)
@@ -36,11 +35,10 @@ object DriftStateStore {
         }
     }
 
-    fun write(claudeDir: Path, state: DriftState) {
-        val dir = claudeDir.resolve(WIKI_SUBDIR)
-        Files.createDirectories(dir)
-        val target = dir.resolve(FILE_NAME)
-        val temp = Files.createTempFile(dir, ".drift-state.json.tmp", "")
+    fun write(wikiDir: Path, state: DriftState) {
+        Files.createDirectories(wikiDir)
+        val target = wikiDir.resolve(FILE_NAME)
+        val temp = Files.createTempFile(wikiDir, ".drift-state.json.tmp", "")
         try {
             Files.writeString(temp, GSON.toJson(state))
             try {
@@ -55,9 +53,9 @@ object DriftStateStore {
         }
     }
 
-    fun update(claudeDir: Path, transform: (DriftState) -> DriftState) {
-        val current = read(claudeDir)
+    fun update(wikiDir: Path, transform: (DriftState) -> DriftState) {
+        val current = read(wikiDir)
         val next = transform(current)
-        write(claudeDir, next)
+        write(wikiDir, next)
     }
 }

@@ -15,9 +15,10 @@ import com.adobe.clawdea.commands.CommandCategory
 import com.adobe.clawdea.commands.CommandInfo
 import com.adobe.clawdea.knowledge.notes.NotesPaths
 import com.adobe.clawdea.knowledge.notes.PromoteToWikiPromptBuilder
-import com.adobe.clawdea.settings.ClawDEASettings
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.intellij.openapi.project.Project
 import java.nio.file.Files
+import java.nio.file.Paths
 
 object PromoteToWikiHandler {
     fun create(project: Project): BridgeExpandingHandler =
@@ -27,7 +28,7 @@ object PromoteToWikiHandler {
             val arg = args.trim()
             if (arg.isEmpty()) return@BridgeExpandingHandler "usage: `/promote-to-wiki <file>` (path is relative to the personal notes directory; e.g. `CURRENT.md`)"
 
-            project.basePath
+            val basePath = project.basePath
                 ?: return@BridgeExpandingHandler "(no project basePath — cannot resolve notes directory)"
 
             val sourcePath = NotesPaths.resolveNoteFile(project, arg)
@@ -43,8 +44,8 @@ object PromoteToWikiHandler {
             val sourceContent = runCatching { Files.readString(sourcePath) }.getOrNull()
                 ?: return@BridgeExpandingHandler "Could not read note at `$sourcePath`."
 
-            val state = ClawDEASettings.getInstance().state
-            val wikiRelativePath = "${state.claudeDirName}/${state.wikiSubdir}"
+            val wikiDir = WikiLocator.getInstance(project).wikiDir()
+            val wikiRelativePath = Paths.get(basePath).relativize(wikiDir).toString().replace('\\', '/')
 
             PromoteToWikiPromptBuilder.build(
                 sourceAbsolutePath = sourcePath.toString(),

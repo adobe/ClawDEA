@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.adobe.clawdea.knowledge.workspace.WorkspaceDiscovery
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
@@ -37,14 +38,14 @@ class DriftDetectionService(private val project: Project) {
             notifyListeners()
             return emptyList<DriftEvent>() to emptyList()
         }
-        val claudeDir = Paths.get(basePath).resolve(".claude")
-        val state = DriftStateStore.read(claudeDir)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
+        val state = DriftStateStore.read(wikiDir)
         val settings = ClawDEASettings.getInstance().state
         val now = Instant.now()
         val raw = collectRaw(
             project = project,
             projectRoot = Paths.get(basePath),
-            claudeDir = claudeDir,
+            wikiDir = wikiDir,
             beforeState = state,
             settingsState = settings,
             now = now,
@@ -56,7 +57,7 @@ class DriftDetectionService(private val project: Project) {
         }
         val newState = applied.newState.copy(lastScanAt = now.toString())
         if (newState != state) {
-            DriftStateStore.write(claudeDir, newState)
+            DriftStateStore.write(wikiDir, newState)
         }
         lastEvents = remaining
         lastApplied = applied.events
@@ -68,29 +69,29 @@ class DriftDetectionService(private val project: Project) {
     fun lastAppliedEvents(): List<DriftEvent> = synchronized(mutex) { lastApplied }
 
     fun recordProbeMiss(query: String, pathTokens: List<String>, hits: Int, contextHash: String) {
-        val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
+        if (project.basePath == null) return
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val miss = ProbeMiss(query, pathTokens, hits, contextHash, Instant.now().toString())
-        DriftStateStore.update(claudeDir) { state ->
+        DriftStateStore.update(wikiDir) { state ->
             val updated = state.probeMisses + miss
             state.copy(probeMisses = updated.takeLast(DriftState.MAX_PROBE_MISSES))
         }
     }
 
     fun recordUserCorrection(correctionSummary: String, contextHash: String) {
-        val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
+        if (project.basePath == null) return
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val correction = UserCorrectionRecord(correctionSummary.take(500), contextHash, Instant.now().toString())
-        DriftStateStore.update(claudeDir) { state ->
+        DriftStateStore.update(wikiDir) { state ->
             val updated = state.userCorrections + correction
             state.copy(userCorrections = updated.takeLast(DriftState.MAX_USER_CORRECTIONS))
         }
     }
 
     fun dismiss(signature: String) {
-        val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
-        DriftStateStore.update(claudeDir) { state ->
+        if (project.basePath == null) return
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
+        DriftStateStore.update(wikiDir) { state ->
             state.copy(
                 dismissed = state.dismissed + signature,
                 suggestions = state.suggestions.filterNot { it.signature == signature },
@@ -137,13 +138,12 @@ class DriftDetectionService(private val project: Project) {
         internal fun collectRaw(
             project: Project,
             projectRoot: Path,
-            claudeDir: Path,
+            wikiDir: Path,
             beforeState: DriftState,
             settingsState: ClawDEASettings.State,
             now: Instant,
         ): List<DriftEvent> {
             val out = mutableListOf<DriftEvent>()
-            val wikiDir = claudeDir.resolve("wiki")
             out += CodeRenameDetector.detect(
                 wikiDir = wikiDir,
                 sourceRoots = listOf(
