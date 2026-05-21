@@ -1266,6 +1266,7 @@ class ChatPanel(
             }
         })
         commandRegistry.register("/wiki-audit", com.adobe.clawdea.commands.handlers.WikiAuditCommandHandler(project))
+        commandRegistry.register("/wiki-relocate", com.adobe.clawdea.commands.handlers.WikiRelocateHandler(project))
     }
 
     private sealed class RefreshWikiResult {
