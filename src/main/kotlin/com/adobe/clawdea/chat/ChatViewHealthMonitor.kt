@@ -12,9 +12,9 @@
 package com.adobe.clawdea.chat
 
 /**
- * Pure gap-detection helper for the chat-view heartbeat. The actual ticking
+ * Pure gap-detection helpers for the chat-view heartbeat. The actual ticking
  * loop lives inline in ChatPanel; this object exists to hold the constants
- * and the unit-testable gap predicate.
+ * and the unit-testable predicates.
  */
 internal object ChatViewHealthMonitor {
     const val TICK_INTERVAL_MS: Long = 2000
@@ -26,4 +26,33 @@ internal object ChatViewHealthMonitor {
      */
     fun isSuspendGap(elapsedMs: Long, tickInterval: Long, threshold: Long): Boolean =
         elapsedMs >= tickInterval + threshold
+
+    /**
+     * Snapshot of the display state we track between heartbeat ticks. We
+     * compare the [scaleX]/[scaleY] (DPI), the screen [bounds], and the
+     * [deviceId] of the GraphicsDevice the chat panel is currently shown on.
+     *
+     * Any change between ticks indicates the user (un)plugged a monitor,
+     * dragged the IDE window between displays with different DPI, or
+     * resumed onto a different display layout than they slept on. JCEF's
+     * OSR backing surface does not pick those changes up on its own —
+     * we have to call notifyScreenInfoChanged + wasResized on the CEF
+     * browser, which is what ChatBrowserRenderer.forceRedraw() does.
+     */
+    data class DisplaySnapshot(
+        val deviceId: String,
+        val scaleX: Double,
+        val scaleY: Double,
+        val bounds: java.awt.Rectangle,
+    )
+
+    /**
+     * True when [previous] and [current] disagree on any field that affects
+     * how CEF should render: screen identity, DPI scale, or screen bounds.
+     * A null [previous] means "first sample, no change yet".
+     */
+    fun isDisplayChanged(previous: DisplaySnapshot?, current: DisplaySnapshot): Boolean {
+        if (previous == null) return false
+        return previous != current
+    }
 }

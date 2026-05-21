@@ -611,9 +611,11 @@ class ChatPanel(
                 },
             )
 
-        // Chat-view freeze recovery: detect JVM suspend gaps and recover.
+        // Chat-view freeze recovery: detect JVM suspend gaps + display
+        // configuration changes and recover the JCEF compositor.
         scope.launch(Dispatchers.Default) {
             var lastTickAt = System.currentTimeMillis()
+            var lastDisplay: ChatViewHealthMonitor.DisplaySnapshot? = null
             while (isActive) {
                 delay(ChatViewHealthMonitor.TICK_INTERVAL_MS)
                 val now = System.currentTimeMillis()
@@ -628,8 +630,46 @@ class ChatPanel(
                     log.info("view-health: suspend gap of ${elapsed}ms detected, probing")
                     ApplicationManager.getApplication().invokeLater { sessionManager.onWakeDetected() }
                 }
+
+                // Display configuration change recovery (issue #36): when the
+                // user (un)plugs an external monitor or drags the IDE window
+                // between displays with different DPI, JCEF's OSR surface
+                // keeps its old screen info and renders at the wrong scale
+                // ("half resolution") until something forces a re-acquire.
+                // We sample the current GraphicsConfiguration here and kick
+                // the compositor whenever it changes. Reading
+                // graphicsConfiguration / its device + transform is
+                // thread-safe and cheap enough to run from the heartbeat
+                // dispatcher without bouncing through the EDT.
+                val snapshot = runCatching { sampleDisplay() }.getOrNull()
+                if (snapshot != null && ChatViewHealthMonitor.isDisplayChanged(lastDisplay, snapshot)) {
+                    log.info(
+                        "view-health: display config changed " +
+                            "(was=$lastDisplay, now=$snapshot), kicking compositor",
+                    )
+                    ApplicationManager.getApplication().invokeLater { browserRenderer.forceRedraw() }
+                }
+                if (snapshot != null) lastDisplay = snapshot
             }
         }
+    }
+
+    /**
+     * Snapshot the [java.awt.GraphicsConfiguration] of the chat browser
+     * component for comparison across heartbeat ticks. Returns null when the
+     * component is not yet displayable (e.g. during early IDE startup or
+     * while the tool window is hidden) so we don't trigger spurious "display
+     * changed" recoveries on the first few ticks.
+     */
+    private fun sampleDisplay(): ChatViewHealthMonitor.DisplaySnapshot? {
+        val gc = browser.component.graphicsConfiguration ?: return null
+        val tx = gc.defaultTransform
+        return ChatViewHealthMonitor.DisplaySnapshot(
+            deviceId = gc.device.iDstring,
+            scaleX = tx.scaleX,
+            scaleY = tx.scaleY,
+            bounds = gc.bounds,
+        )
     }
 
     // ── Title bar ──────────────────────────────────────────────────
@@ -968,6 +1008,10 @@ class ChatPanel(
         commandRegistry.register("/refresh-view", LocalHandler(
             CommandInfo("/refresh-view", "Rebuild the chat view from session history", CommandCategory.LOCAL),
         ) { _, _ ->
+            // Kick the JCEF compositor first (issue #36): on its own, a page
+            // reload only paints once and then the surface freezes again
+            // because the post-wake CEF rendering loop never recovers.
+            browserRenderer.forceRedraw()
             sessionManager.reloadAndReplay("manual")
         })
 

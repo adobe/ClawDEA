@@ -264,6 +264,49 @@ class ChatBrowserRenderer(
         )
     }
 
+    /**
+     * Recover from a frozen JCEF compositor without disturbing the page DOM.
+     *
+     * Symptoms this addresses (issue #36):
+     *  - After laptop sleep/wake, the page keeps receiving JS updates but the
+     *    visible surface stops repainting. `loadHTML` papers over it for one
+     *    frame because navigation forces a full repaint, but subsequent
+     *    JS-driven appends never reach the screen again.
+     *  - After plugging/unplugging an external monitor, the OSR backing
+     *    surface keeps its old DPI scale and renders at "half resolution".
+     *
+     * The CEF native browser exposes three signals that, together, force the
+     * rendering pipeline to re-acquire screen info and emit a fresh frame:
+     *  - [org.cef.browser.CefBrowser.notifyScreenInfoChanged] re-reads the
+     *    DPI/scale of the current GraphicsConfiguration.
+     *  - [org.cef.browser.CefBrowser.wasResized] makes CEF treat the OSR
+     *    surface as if it had just been resized, which restarts its paint
+     *    loop on both OSR and windowed variants.
+     *  - [org.cef.browser.CefBrowser.invalidate] requests a full repaint of
+     *    the current viewport, which is what we ultimately need.
+     *
+     * On older JCEF builds where any of these methods may behave as no-ops,
+     * the calls are wrapped in `runCatching` so a missing-method failure
+     * never blocks the recovery sequence. The Swing pass at the end is
+     * always run — it ensures the AWT peer notices any GraphicsConfiguration
+     * change too.
+     */
+    fun forceRedraw() {
+        val cef = browser.cefBrowser
+        val component = browser.component
+        runCatching { cef.notifyScreenInfoChanged() }
+        val w = component.width
+        val h = component.height
+        if (w > 0 && h > 0) {
+            runCatching { cef.wasResized(w, h) }
+        }
+        runCatching { cef.invalidate() }
+
+        component.invalidate()
+        component.parent?.revalidate()
+        component.repaint()
+    }
+
     companion object {
         private const val MAX_PENDING = 500
 

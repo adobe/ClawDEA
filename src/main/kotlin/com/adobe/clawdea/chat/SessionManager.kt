@@ -201,9 +201,17 @@ class SessionManager(
      * a sleep/wake cycle.
      */
     fun onWakeDetected() {
-        // Always reload — the JS-based health probe passes even when JCEF's
-        // rendering pipeline is frozen (JS engine ≠ compositor).
-        log.info("view-health: wake detected, reloading chat view")
+        // The JS-based health probe passes even when JCEF's rendering
+        // pipeline is frozen (JS engine ≠ compositor), so we can't rely on
+        // it as a gate. Two-step recovery (issue #36):
+        //   1. Kick the CEF compositor so post-wake JS-driven appends can
+        //      actually paint. This is the part that was missing — without
+        //      it, /refresh-view shows a fresh frame once but goes stale
+        //      again the moment new content arrives.
+        //   2. Reload the page with the latest history so the chat reflects
+        //      anything that happened during the suspend window.
+        log.info("view-health: wake detected, kicking compositor and reloading chat view")
+        browserRenderer.forceRedraw()
         reloadAndReplay("wake-recovery")
     }
 
