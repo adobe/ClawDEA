@@ -422,4 +422,199 @@ class MessageRendererTest {
         assertFalse("should not have inline onclick", html.contains("onclick"))
     }
 
+    @Test
+    fun `renderToolUseFromHistory renders Edit as accepted edit link with file name`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Edit",
+            input = """{"file_path":"/src/main/Foo.kt","old_string":"a","new_string":"b"}""",
+            toolUseId = "toolu_h1",
+            resultContent = "The file /src/main/Foo.kt has been updated.",
+        )
+        assertTrue(html.contains("edit-link"))
+        assertTrue("Should display Accepted status", html.contains("Accepted"))
+        assertTrue("Should show file name", html.contains(">Foo.kt<"))
+        assertFalse("Should not show in-flight actions", html.contains("edit-action-accept"))
+        assertFalse("Result content rendered separately is suppressed for edits", html.contains("has been updated"))
+    }
+
+    @Test
+    fun `renderToolUseFromHistory renders Write with Write label`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Write",
+            input = """{"file_path":"/src/main/Bar.kt","content":"package x"}""",
+            toolUseId = "toolu_h2",
+        )
+        assertTrue(html.contains("edit-link"))
+        assertTrue(html.contains(">Write<"))
+        assertTrue(html.contains(">Bar.kt<"))
+        assertTrue(html.contains("Accepted"))
+    }
+
+    @Test
+    fun `renderToolUseFromHistory marks errored edit as Failed`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Edit",
+            input = """{"file_path":"/src/main/Foo.kt","old_string":"a","new_string":"b"}""",
+            toolUseId = "toolu_h3",
+            resultContent = "file not found",
+            isError = true,
+        )
+        assertTrue(html.contains("Failed"))
+        assertFalse(html.contains("Accepted"))
+    }
+
+    @Test
+    fun `renderToolUseFromHistory renders Read as file link with no inlined result`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Read",
+            input = """{"file_path":"/src/main/Foo.kt"}""",
+            toolUseId = "toolu_h4",
+            resultContent = "file contents here",
+        )
+        assertTrue(html.contains("edit-link"))
+        assertTrue(html.contains(">Read<"))
+        assertTrue(html.contains(">Foo.kt<"))
+        assertFalse("Read should not surface its (often huge) file body", html.contains("file contents here"))
+    }
+
+    @Test
+    fun `renderToolUseFromHistory suppresses AskUserQuestion entirely`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "AskUserQuestion",
+            input = """{"question":"pick one","options":["a","b"]}""",
+            toolUseId = "toolu_h5",
+            resultContent = "answer: a",
+        )
+        assertEquals("", html)
+    }
+
+    @Test
+    fun `renderToolUseFromHistory renders TodoWrite as collapsed block`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "TodoWrite",
+            input = """{"todos":[{"id":"1","content":"thing","status":"pending"}]}""",
+            toolUseId = "toolu_h6",
+        )
+        assertTrue(html.contains("tool-block-collapsed"))
+        assertTrue(html.contains("TodoWrite"))
+    }
+
+    @Test
+    fun `renderToolUseFromHistory inlines result for generic tool inside the tool block`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Bash",
+            input = """{"command":"ls","description":"List files"}""",
+            toolUseId = "toolu_h7",
+            resultContent = "foo.txt\nbar.txt",
+        )
+        assertTrue(html.contains("tool-block"))
+        assertTrue(html.contains("List files"))
+        // Result HTML is appended INSIDE the tool block so the live "Output"
+        // toggle and the replayed view look the same.
+        assertTrue(html.contains("tool-result-header"))
+        assertTrue(html.contains("foo.txt"))
+        val resultIdx = html.indexOf("tool-result-header")
+        val closingBlockIdx = html.lastIndexOf("</div>")
+        assertTrue("Result HTML should sit inside the outer tool-block container", resultIdx < closingBlockIdx)
+    }
+
+    @Test
+    fun `renderToolUseFromHistory omits stop button since the call already finished`() {
+        val html = renderer.renderToolUseFromHistory(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_h8",
+        )
+        assertFalse(html.contains("tool-stop-btn"))
+    }
+
+    // ---- renderToolUseEvent in Live mode: same routing the live stream uses ----
+
+    @Test
+    fun `renderToolUseEvent Live with auto-accept renders edit as Auto-accepted`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Edit",
+            input = """{"file_path":"/src/Foo.kt","old_string":"a","new_string":"b"}""",
+            toolUseId = "toolu_L1",
+            mode = ToolMode.Live(autoAcceptEdits = true),
+        )
+        assertTrue(html.contains("Auto-accepted"))
+        assertTrue(html.contains("edit-status-accepted"))
+        assertFalse("auto-accept should not render in-flight actions", html.contains("edit-action-accept"))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live with manual review renders propose tool as Reviewing`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "propose_edit",
+            input = """{"file_path":"/src/Foo.kt","old_string":"a","new_string":"b"}""",
+            toolUseId = "toolu_L2",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue(html.contains("Reviewing..."))
+        assertFalse(html.contains("edit-action-accept"))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live with manual review renders built-in Edit with inline actions`() {
+        // Layer 2 fallback: CC used the built-in Edit/Write rather than the
+        // MCP propose tools, so the live UI shows in-line accept/reject buttons
+        // instead of a status badge. The "Applied" status passed to
+        // renderEditLink is intentionally suppressed when showActions=true.
+        val html = renderer.renderToolUseEvent(
+            toolName = "Edit",
+            input = """{"file_path":"/src/Foo.kt","old_string":"a","new_string":"b"}""",
+            toolUseId = "toolu_L3",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue(html.contains("edit-action-accept"))
+        assertTrue(html.contains("edit-action-reject"))
+        assertTrue(html.contains(">Foo.kt<"))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live for task tool emits no HTML (task widget owns display)`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "TodoWrite",
+            input = """{"todos":[]}""",
+            toolUseId = "toolu_L4",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertEquals("", html)
+    }
+
+    @Test
+    fun `renderToolUseEvent Live for generic tool keeps stop button`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_L5",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue(html.contains("tool-stop-btn"))
+        assertTrue(html.contains("""data-tool-id="toolu_L5""""))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live for Read renders file link`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Read",
+            input = """{"file_path":"/src/Foo.kt"}""",
+            toolUseId = "toolu_L6",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue(html.contains("edit-link"))
+        assertTrue(html.contains(">Foo.kt<"))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live suppresses AskUserQuestion`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "AskUserQuestion",
+            input = """{"question":"pick","options":[]}""",
+            toolUseId = "toolu_L7",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertEquals("", html)
+    }
 }

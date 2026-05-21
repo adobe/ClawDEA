@@ -172,56 +172,34 @@ class EventStreamHandler(
                     // returns, so the signal is reliably present by then.
                     toolStartTime = System.currentTimeMillis()
 
-                    // Render task tools as collapsed blocks; all others as full tool blocks
-                    val isTaskTool = toolUse.name in setOf("TaskCreate", "TaskUpdate", "TodoWrite", "TodoRead")
+                    // Side effects that only make sense live: track for the
+                    // task widget, capture edit content for diff/revert.
+                    val isTaskTool = toolUse.name in MessageRenderer.TASK_TOOLS
                     if (isTaskTool) {
                         pendingToolUses[toolUse.id] = toolUse
-                    } else if (toolUse.name == "AskUserQuestion") {
-                        // Rendered by the permission flow as an interactive multi-choice
-                        // card — skip the generic tool-use block to avoid duplication.
-                    } else if (EditReviewCoordinator.isProposeTool(toolUse.name)) {
-                        // Layer 1: MCP propose_edit/propose_write — dialog is shown by MCP handler
+                    } else if (EditReviewCoordinator.isProposeTool(toolUse.name) ||
+                        EditReviewCoordinator.isEditTool(toolUse.name)) {
+                        // Store proposedContent so the diff dialog works even
+                        // when the CLI refuses to apply the edit (Subscription
+                        // auth denying built-in Edit in a non-bypass mode):
+                        // without it, current == original and the diff shows
+                        // zero changes.
                         val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
                         val file = java.io.File(filePath)
                         val originalContent = if (file.exists()) file.readText() else ""
                         val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
                         editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
-                        val label = if (toolUse.name.contains("write", ignoreCase = true)) "Write" else "Edit"
-                        val initialStatus = if (renderer.autoAcceptEdits) "Auto-accepted" else "Reviewing..."
-                        browserRenderer.appendHtml(renderer.renderEditLink(filePath, toolUse.id, initialStatus, label))
-                    } else if (EditReviewCoordinator.isEditTool(toolUse.name) && !renderer.autoAcceptEdits) {
-                        // Layer 2: built-in Edit/Write slipped through — capture content for revert.
-                        // Store proposedContent too so the diff dialog works when the CLI
-                        // refuses to apply the edit (e.g. Subscription auth denying built-in
-                        // Edit in a mode that doesn't bypass permissions): without it,
-                        // current == original and the diff shows 0 changes.
-                        val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
-                        val file = java.io.File(filePath)
-                        val originalContent = if (file.exists()) file.readText() else ""
-                        val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
-                        editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
-                        val label = if (toolUse.name.contains("Write", ignoreCase = true)) "Write" else "Edit"
-                        browserRenderer.appendHtml(renderer.renderEditLink(filePath, toolUse.id, "Applied", label, showActions = true))
-                    } else if (EditReviewCoordinator.isEditTool(toolUse.name) && renderer.autoAcceptEdits) {
-                        // Auto-accept: edit applied by CLI, capture content so diff is viewable on click.
-                        // Also store proposedContent as a fallback for the same reason as above.
-                        val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
-                        val file = java.io.File(filePath)
-                        val originalContent = if (file.exists()) file.readText() else ""
-                        val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
-                        editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
-                        val label = if (toolUse.name.contains("Write", ignoreCase = true)) "Write" else "Edit"
-                        browserRenderer.appendHtml(renderer.renderEditLink(filePath, toolUse.id, "Auto-accepted", label))
-                    } else if (toolUse.name == "Read") {
-                        val filePath = MessageRenderer.extractJsonString(toolUse.input, "file_path")
-                        if (filePath != null) {
-                            browserRenderer.appendHtml(renderer.renderFileLink(filePath, toolUse.id))
-                        } else {
-                            browserRenderer.appendHtml(renderer.renderToolUse(toolUse.name, toolUse.input, toolUse.id))
-                        }
-                    } else {
-                        browserRenderer.appendHtml(renderer.renderToolUse(toolUse.name, toolUse.input, toolUse.id))
                     }
+
+                    // Single source of truth for the HTML — same routing the
+                    // replay path uses, just in Live mode.
+                    val html = renderer.renderToolUseEvent(
+                        toolName = toolUse.name,
+                        input = toolUse.input,
+                        toolUseId = toolUse.id,
+                        mode = ToolMode.Live(autoAcceptEdits = renderer.autoAcceptEdits),
+                    )
+                    if (html.isNotBlank()) browserRenderer.appendHtml(html)
                 }
                 onContextLabelUpdate()
             }

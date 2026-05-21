@@ -12,6 +12,17 @@
 package com.adobe.clawdea.chat
 
 /**
+ * Display context for [MessageRenderer.renderToolUseEvent]. See that
+ * method's docstring for how each variant changes the output.
+ */
+sealed class ToolMode {
+    /** Tool is still in flight; in-flight UI affordances render. */
+    data class Live(val autoAcceptEdits: Boolean) : ToolMode()
+    /** Tool already settled when this conversation was originally streamed. */
+    data class Replay(val resultContent: String?, val isError: Boolean) : ToolMode()
+}
+
+/**
  * Generates HTML fragments for appending into the JCEF chat view.
  * All output is designed for full Chromium CSS rendering.
  */
@@ -45,7 +56,104 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
         return renderToolUse(toolName, input, toolUseId)
     }
 
-    fun renderToolUse(toolName: String, input: String, toolUseId: String = ""): String {
+    /**
+     * Single source of truth for how a tool_use becomes an HTML fragment in
+     * the chat. Both the live event stream
+     * ([com.adobe.clawdea.chat.EventStreamHandler]) and `/resume` replay
+     * ([com.adobe.clawdea.chat.SessionManager]) route through this method
+     * so the two paths can never drift apart.
+     *
+     * Differences between live and replay are encoded in [mode]:
+     *  - [ToolMode.Live] knows the auto-accept setting, so edit links get
+     *    the right in-flight status ("Reviewing..." / "Auto-accepted" /
+     *    "Applied"+actions). Stop buttons render. Task-widget tools emit
+     *    no HTML — the [com.adobe.clawdea.chat.TaskWidgetController]
+     *    displays them out of band.
+     *  - [ToolMode.Replay] is settled: edits collapse to "Accepted" /
+     *    "Failed", no stop button, and the tool result (when supplied)
+     *    is inlined inside the tool block exactly the way
+     *    `injectToolOutput` renders it live. Task tools render as a
+     *    collapsed badge so the user can still see they ran.
+     */
+    fun renderToolUseEvent(
+        toolName: String,
+        input: String,
+        toolUseId: String,
+        mode: ToolMode,
+    ): String {
+        // Suppressed everywhere — the permission flow renders an interactive
+        // multi-choice card instead of a generic tool block.
+        if (toolName == "AskUserQuestion") return ""
+
+        if (toolName in TASK_TOOLS) {
+            // Live: the task widget owns task-tool display; emit nothing here.
+            // Replay: there's no task widget to populate, so a collapsed badge
+            // is the next best thing.
+            return if (mode is ToolMode.Replay) renderCollapsedToolBlock(toolName, toolUseId) else ""
+        }
+
+        val isPropose = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.isProposeTool(toolName)
+        val isEdit = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.isEditTool(toolName)
+        if (isPropose || isEdit) {
+            val filePath = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.extractFilePath(input)
+                ?: toolName
+            val label = if (toolName.contains("write", ignoreCase = true)) "Write" else "Edit"
+            val (status, showActions) = when (mode) {
+                is ToolMode.Live -> when {
+                    mode.autoAcceptEdits -> "Auto-accepted" to false
+                    isPropose -> "Reviewing..." to false
+                    // Layer-2 fallback: built-in Edit/Write slipped past
+                    // propose_edit, so render with inline accept/reject.
+                    else -> "Applied" to true
+                }
+                is ToolMode.Replay -> (if (mode.isError) "Failed" else "Accepted") to false
+            }
+            return renderEditLink(filePath, toolUseId, status, label, showActions = showActions)
+        }
+
+        if (toolName == "Read") {
+            val filePath = extractJsonString(input, "file_path")
+            if (filePath != null) return renderFileLink(filePath, toolUseId)
+            // Fall through to a generic tool block if Read came without file_path.
+        }
+
+        val extra = when (mode) {
+            is ToolMode.Replay -> if (!mode.resultContent.isNullOrBlank()) renderToolResult(mode.resultContent) else ""
+            is ToolMode.Live -> ""
+        }
+        // Replay has no in-flight call to stop, so drop the toolUseId from
+        // the outer block — that's the cue [renderToolUse] uses to decide
+        // whether to render the stop button.
+        val effectiveId = when (mode) {
+            is ToolMode.Live -> toolUseId
+            is ToolMode.Replay -> ""
+        }
+        return renderToolUse(toolName, input, effectiveId, extraInnerHtml = extra)
+    }
+
+    /**
+     * Back-compat replay shortcut used by [com.adobe.clawdea.chat.SessionManager].
+     * Delegates to [renderToolUseEvent] with [ToolMode.Replay].
+     */
+    fun renderToolUseFromHistory(
+        toolName: String,
+        input: String,
+        toolUseId: String,
+        resultContent: String? = null,
+        isError: Boolean = false,
+    ): String = renderToolUseEvent(
+        toolName = toolName,
+        input = input,
+        toolUseId = toolUseId,
+        mode = ToolMode.Replay(resultContent, isError),
+    )
+
+    fun renderToolUse(
+        toolName: String,
+        input: String,
+        toolUseId: String = "",
+        extraInnerHtml: String = "",
+    ): String {
         val parsed = parseToolInput(toolName, input)
         val icon = when {
             toolName.contains("Bash", ignoreCase = true) -> "▶"
@@ -74,6 +182,7 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
                 </div>
                 $bodyHtml
                 $extraHtml
+                $extraInnerHtml
             </div>
         """.trimIndent()
     }
@@ -213,6 +322,12 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
     }
 
     companion object {
+        // Task-widget tools — rendered as a single collapsed badge in the
+        // live stream because their full output drives the [TaskWidgetController]
+        // sidebar instead of the main chat. Keep the list in sync with the
+        // matching branch in `EventStreamHandler.handleEvent`.
+        internal val TASK_TOOLS = setOf("TaskCreate", "TaskUpdate", "TodoWrite", "TodoRead")
+
         private val KNOWN_EXTENSIONS = setOf(
             "kt", "java", "xml", "json", "html", "css", "js", "ts", "tsx", "jsx",
             "yaml", "yml", "properties", "gradle", "kts", "md", "txt", "sh", "py",
