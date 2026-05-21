@@ -99,4 +99,73 @@ class WikiAuthorDigestBuilderTest {
         )
         assertTrue(out.contains("summarise"))
     }
+
+    @Test fun `digest prefixes CommitDrift line with refresh icon`() {
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.CommitDrift(
+                    wikiPage = Paths.get(".claude/wiki/concepts/x.md"),
+                    commitShas = listOf("abc"),
+                    touchedPaths = listOf("src/main/kotlin/Foo.kt"),
+                    firstObservedAt = "2026-05-17T16:30:00Z",
+                ),
+            ),
+        )
+        assertTrue(
+            "expected '- ↻ CommitDrift' prefix in digest, got:\n$out",
+            out.contains("- ↻ CommitDrift on .claude/wiki/concepts/x.md"),
+        )
+    }
+
+    @Test fun `digest prefixes CodeRename line with link icon`() {
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.CodeRename(
+                    wikiPage = Paths.get(".claude/wiki/concepts/edit.md"),
+                    brokenLink = "src/old/Path.kt",
+                    suggestedReplacement = "src/new/Path.kt",
+                ),
+            ),
+        )
+        assertTrue(
+            "expected '- 🔗 CodeRename' prefix in digest, got:\n$out",
+            out.contains("- 🔗 CodeRename in .claude/wiki/concepts/edit.md"),
+        )
+    }
+
+    @Test fun `digest prefixes ManifestStale line with clipboard icon`() {
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.ManifestStale(
+                    repoKey = "core",
+                    groupName = "engine",
+                    manifestPath = Paths.get(".clawdea-workspace.md"),
+                    lineHint = 12,
+                ),
+            ),
+        )
+        assertTrue(
+            "expected '- 📋 ManifestStale' prefix in digest, got:\n$out",
+            out.contains("- 📋 ManifestStale in .clawdea-workspace.md"),
+        )
+    }
+
+    @Test fun `digest prefixes WikiSuggestion line with pen icon`() {
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.WikiSuggestion(
+                    kind = SuggestionKind.missingConcept,
+                    title = "Add WikiAuthor concept page",
+                    rationale = "WikiAuthor subagent has no page covering it.",
+                    targetFiles = listOf(".claude/wiki/concepts/wiki-author.md"),
+                    sourcePage = null,
+                    recordedAt = "2026-05-17T16:30:00Z",
+                ),
+            ),
+        )
+        assertTrue(
+            "expected '- ✍ WikiSuggestion' prefix in digest, got:\n$out",
+            out.contains("- ✍ WikiSuggestion (missingConcept): Add WikiAuthor concept page"),
+        )
+    }
 }

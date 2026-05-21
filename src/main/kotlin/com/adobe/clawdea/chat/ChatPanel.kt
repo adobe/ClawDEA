@@ -1364,7 +1364,8 @@ class ChatPanel(
     private fun formatAppliedWikiDrift(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
         if (events.isEmpty()) return "No low-risk wiki drift fixes were applied."
         val summary = events.joinToString(", ") { event ->
-            "${refreshWikiEventName(event)} ${refreshWikiEventTarget(event)}"
+            val icon = com.adobe.clawdea.knowledge.drift.DriftEventIcon.iconFor(event)
+            "$icon ${refreshWikiEventName(event)} ${refreshWikiEventTarget(event)}"
         }
         return "Applied ${events.size} low-risk wiki drift fix(es): $summary."
     }
@@ -1390,9 +1391,10 @@ class ChatPanel(
         sb.appendLine("The following drift events were detected. Review each and apply fixes via `propose_edit` or `propose_write`:")
         sb.appendLine()
         for (event in events) {
+            val icon = com.adobe.clawdea.knowledge.drift.DriftEventIcon.iconFor(event)
             when (event) {
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> {
-                    sb.appendLine("- **CodeRename** in `${event.wikiPage.fileName}`")
+                    sb.appendLine("- $icon **CodeRename** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - broken link: `${event.brokenLink}`")
                     if (event.suggestedReplacement != null) {
                         sb.appendLine("  - suggested replacement: `${event.suggestedReplacement}`")
@@ -1402,19 +1404,19 @@ class ChatPanel(
                     }
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> {
-                    sb.appendLine("- **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
+                    sb.appendLine("- $icon **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
                     sb.appendLine("  - missing repo key: `${event.repoKey}` (line ${event.lineHint})")
                     sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.CommitDrift -> {
                     // Should not appear when enableWikiLibrarian=false (the detector is gated),
                     // but render minimally for safety.
-                    sb.appendLine("- **CommitDrift** in `${event.wikiPage.fileName}`")
+                    sb.appendLine("- $icon **CommitDrift** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - commits: ${event.commitShas.joinToString(", ")}")
                     sb.appendLine("  - touched paths: ${event.touchedPaths.joinToString(", ")}")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> {
-                    sb.appendLine("- **WikiSuggestion (${event.kind.name})**: ${event.title}")
+                    sb.appendLine("- $icon **WikiSuggestion (${event.kind.name})**: ${event.title}")
                     sb.appendLine("  - rationale: ${event.rationale}")
                     sb.appendLine("  - target files: ${event.targetFiles.joinToString(", ")}")
                     if (event.sourcePage != null) {

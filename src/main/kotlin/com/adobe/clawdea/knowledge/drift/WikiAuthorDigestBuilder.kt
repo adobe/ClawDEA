@@ -30,26 +30,27 @@ object WikiAuthorDigestBuilder {
     }
 
     private fun renderEvent(sb: StringBuilder, event: DriftEvent) {
+        val icon = DriftEventIcon.iconFor(event)
         when (event) {
             is DriftEvent.CommitDrift -> {
-                sb.append("- CommitDrift on ${event.wikiPage}\n")
+                sb.append("- $icon CommitDrift on ${event.wikiPage}\n")
                 sb.append("  commits: ${event.commitShas.joinToString(", ")}\n")
                 sb.append("  touched paths that this page mentions: ${event.touchedPaths.joinToString(", ")}\n")
                 sb.append("  first observed at: ${event.firstObservedAt}\n")
             }
             is DriftEvent.CodeRename -> {
-                sb.append("- CodeRename in ${event.wikiPage}\n")
+                sb.append("- $icon CodeRename in ${event.wikiPage}\n")
                 sb.append("  broken link: ${event.brokenLink}\n")
                 if (event.suggestedReplacement != null) {
                     sb.append("  suggested replacement: ${event.suggestedReplacement}\n")
                 }
             }
             is DriftEvent.ManifestStale -> {
-                sb.append("- ManifestStale in ${event.manifestPath}\n")
+                sb.append("- $icon ManifestStale in ${event.manifestPath}\n")
                 sb.append("  repo key: ${event.repoKey} (group ${event.groupName}, line ${event.lineHint})\n")
             }
             is DriftEvent.WikiSuggestion -> {
-                sb.append("- WikiSuggestion (${event.kind.name}): ${event.title}\n")
+                sb.append("- $icon WikiSuggestion (${event.kind.name}): ${event.title}\n")
                 sb.append("  rationale: ${event.rationale}\n")
                 sb.append("  target files: ${event.targetFiles.joinToString(", ")}\n")
                 if (event.sourcePage != null) {
