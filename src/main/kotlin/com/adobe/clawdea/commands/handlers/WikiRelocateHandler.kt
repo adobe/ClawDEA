@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.commands.handlers
 
+import com.adobe.clawdea.chat.permission.AskUserQuestionInput
 import com.adobe.clawdea.commands.CommandCategory
 import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler
@@ -20,6 +21,18 @@ import com.intellij.openapi.project.Project
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+
+/**
+ * Asks the user a question via the existing AskUserQuestion card UI. Suspends
+ * until the user submits or cancels. Implementation lives in ChatPanel; this
+ * interface lets the handler be unit-tested with a fake.
+ */
+fun interface QuestionAsker {
+    /**
+     * Returns the chosen label (e.g. "Move"), or null if the user cancelled / skipped.
+     */
+    suspend fun ask(input: AskUserQuestionInput): String?
+}
 
 /**
  * Handles `/wiki-relocate <path>` — moves the wiki to a new project-relative path
@@ -99,6 +112,34 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             } finally {
                 if (Files.exists(temp)) try { Files.deleteIfExists(temp) } catch (_: Exception) {}
             }
+        }
+
+        /**
+         * Builds the AskUserQuestion payload for the move/copy/nothing prompt.
+         * Pure helper — testable without a [Project] or JCEF wiring. The actual
+         * card rendering and submit handling lives in [ChatPanel] (Tasks 10/11).
+         */
+        fun buildQuestion(newPath: String): AskUserQuestionInput {
+            val q = AskUserQuestionInput.Question(
+                question = "What about existing wiki contents (target: $newPath)?",
+                header = "Wiki relocate",
+                options = listOf(
+                    AskUserQuestionInput.Option(
+                        label = "Move",
+                        description = "Move existing wiki contents to the new path. Tracked files moved with `git mv` so rename history is preserved; untracked files moved via Files.move.",
+                    ),
+                    AskUserQuestionInput.Option(
+                        label = "Copy",
+                        description = "Copy existing wiki contents to the new path. The legacy location stays in place.",
+                    ),
+                    AskUserQuestionInput.Option(
+                        label = "Nothing",
+                        description = "Just point ClawDEA at the new path. Leave existing contents alone — you'll manage them yourself.",
+                    ),
+                ),
+                multiSelect = false,
+            )
+            return AskUserQuestionInput(questions = listOf(q))
         }
 
         /**

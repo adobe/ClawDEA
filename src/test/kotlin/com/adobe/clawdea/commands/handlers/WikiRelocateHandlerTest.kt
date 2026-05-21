@@ -83,4 +83,14 @@ class WikiRelocateHandlerTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    @Test fun `buildQuestion produces three options labeled Move Copy Nothing`() {
+        val q = WikiRelocateHandler.buildQuestion(newPath = "docs/llm-wiki")
+        val first = q.questions.single()
+        assertEquals(false, first.multiSelect)
+        assertEquals(listOf("Move", "Copy", "Nothing"), first.options.map { it.label })
+        // Each option carries a description.
+        assert(first.options.all { it.description.isNotBlank() })
+        assert(first.question.contains("docs/llm-wiki"))
+    }
 }
