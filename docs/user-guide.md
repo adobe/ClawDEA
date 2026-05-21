@@ -110,6 +110,7 @@ Type `/` in the chat input to see available commands.
 | `/promote-to-wiki` | Promote a personal note into a shared wiki concept page |
 | `/wiki-audit` | Audit `.claude/wiki/` for stale source-file links |
 | `/wiki-gap` | Show clustered wiki probe misses — use before `/refresh-wiki` |
+| `/wiki-relocate <repo-relative-path>` | Move the wiki to a new location and commit the path to `.clawdea/config.json` (team mode opt-in) |
 
 ### Knowledge-layer commands (CLI-expanded)
 
@@ -260,6 +261,24 @@ The templates live in `src/main/resources/prompts/wiki-page-invariant.md` and `w
 
 **Correction capture.** When you follow an assistant message with a correction ("no, actually the policy is inert because…"), ClawDEA detects it heuristically, records a `USER_CORRECTION` evidence signal, and surfaces a `/learn <auto-drafted-topic>` suggestion in chat.
 
+### Wiki team mode
+
+By default, the wiki lives at `.claude/wiki/` and each developer's drift state is local to their working copy. Teams can opt into a **shared wiki** committed to git:
+
+- Run `/wiki-relocate docs/llm-wiki` (or any repo-relative path). ClawDEA writes `.clawdea/config.json` with `{"wikiPath": "docs/llm-wiki"}`, moves any existing wiki contents (preserving git history via `git mv` for tracked files), and adds `.clawdea/wiki-state.local.json` to `.gitignore`.
+- Commit `.clawdea/config.json` and the new wiki path to share with the team. Teammates auto-discover team mode on next project open — no manual setup.
+
+In team mode the drift state splits into:
+
+| File | Tracked in git? | Holds |
+|------|-----------------|-------|
+| `<wikiDir>/.wiki-state.json` | Yes (team-shared) | `lastSyncedCommit` (the git SHA the wiki currently describes) and open librarian `suggestions` |
+| `.clawdea/wiki-state.local.json` | No (gitignored) | Per-user fields: `lastScanAt`, `dismissed`, `probeMisses`, `userCorrections` |
+
+`lastSyncedCommit` anchors commit-driven drift detection: `CommitWikiDriftDetector` only considers commits in `lastSyncedCommit..HEAD`, and the SHA bumps to HEAD after every drift cycle. Branch switching is automatic because the team file is git-tracked.
+
+To revert: delete `.clawdea/config.json` (and optionally move the wiki back to `.claude/wiki/`). The next project open returns to default mode.
+
 ### Commit-driven wiki maintenance
 
 ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On any change, `CommitWikiDriftDetector` reads commits since the last drift rescan and flags any `.claude/wiki/concepts/*.md` page whose mentioned files or class names appear in the touched paths. Each flagged page becomes a `CommitDrift` drift event.
@@ -267,6 +286,15 @@ ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On 
 If **Auto-update wiki on drift** is enabled, ClawDEA invokes the bundled `wiki-author` subagent in a fresh `claude -p` subprocess to draft the page edits — `propose_write` / `propose_edit` calls open diff dialogs (or apply silently if **Auto-accept edits** is also enabled). A one-line note in any active chat reports the outcome.
 
 If **Auto-update wiki on drift** is disabled, the drift banner shows the events; clicking `/refresh-wiki to review` hands the digest to the same `wiki-author` subagent inline (visible as a `Task` tool-use in the chat).
+
+**Drift event icons.** The drift banner and `wiki-author` digest mark each event with a per-kind icon so git-driven drift never visually conflates with broken-link drift:
+
+- 🔗 stale link (broken file/symbol reference in a wiki page)
+- 📋 stale manifest (workspace manifest entry pointing at a missing repo)
+- ↻ code changed (commit-driven drift — a wiki page mentions paths touched in `lastSyncedCommit..HEAD`)
+- ✍ suggested update (proposed by the `wiki-librarian` while answering a question)
+
+Auto-applied fixes and `/refresh-wiki` summaries carry the same icons. Wiki MCP tool calls in chat also use distinct icons: 📚 for reads (`read_wiki_page`, `search_wiki`, `read_sibling_wiki`) and 📝 for writes (`record_wiki_suggestion`) and edits whose `file_path` resolves under the wiki directory.
 
 ### Wiki librarian
 
