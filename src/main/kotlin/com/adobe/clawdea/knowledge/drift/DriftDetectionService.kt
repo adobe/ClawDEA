@@ -159,7 +159,7 @@ class DriftDetectionService(private val project: Project) {
                 out += CommitWikiDriftDetector.detect(
                     project = project,
                     wikiDir = wikiDir,
-                    lastScanAt = parseInstantOrNull(beforeState.lastScanAt),
+                    lastSyncedCommit = beforeState.lastSyncedCommit,
                     now = now,
                 )
             }
@@ -213,9 +213,5 @@ class DriftDetectionService(private val project: Project) {
             )
             return remaining to ApplyResult(applied, newState)
         }
-
-        private fun parseInstantOrNull(text: String): Instant? = try {
-            if (text.isBlank()) null else Instant.parse(text)
-        } catch (_: Exception) { null }
     }
 }

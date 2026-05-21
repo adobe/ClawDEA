@@ -13,6 +13,9 @@ package com.adobe.clawdea.knowledge.drift
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import git4idea.commands.Git
+import git4idea.commands.GitCommand
+import git4idea.commands.GitLineHandler
 import git4idea.history.GitHistoryUtils
 import git4idea.repo.GitRepositoryManager
 import java.nio.file.Files
@@ -20,10 +23,13 @@ import java.nio.file.Path
 import java.time.Instant
 
 /**
- * Reads commits since [lastScanAt] (inclusive of HEAD) on the current branch
- * via Git4Idea, intersects each commit's touched files with what
+ * Reads commits in `<lastSyncedCommit>..HEAD` on the current branch via
+ * Git4Idea, intersects each commit's touched files with what
  * `.claude/wiki/concepts/` markdown pages mention, and returns one
- * [DriftEvent.CommitDrift] per affected wiki page.
+ * [DriftEvent.CommitDrift] per affected wiki page. An empty or
+ * unreachable [lastSyncedCommit] is treated as a first run — the
+ * detector returns no events and the caller adopts current HEAD as
+ * the new baseline.
  *
  * The pure-Kotlin part [intersect] is fully unit-tested; the Git4Idea
  * adapter [detect] is exercised by the manual smoke checklist.
@@ -58,11 +64,11 @@ object CommitWikiDriftDetector {
     fun detect(
         project: Project,
         wikiDir: Path,
-        lastScanAt: Instant?,
+        lastSyncedCommit: String,
         now: Instant,
     ): List<DriftEvent.CommitDrift> {
         val commits = try {
-            collectCommits(project, lastScanAt)
+            collectCommits(project, lastSyncedCommit)
         } catch (e: Throwable) {
             LOG.warn("CommitWikiDriftDetector failed to collect commits: ${e.message}")
             emptyList()
@@ -148,17 +154,18 @@ object CommitWikiDriftDetector {
         return out
     }
 
-    private fun collectCommits(project: Project, lastScanAt: Instant?): List<CommitInfo> {
+    private fun collectCommits(project: Project, lastSyncedCommit: String): List<CommitInfo> {
         val repo = GitRepositoryManager.getInstance(project).repositories.firstOrNull() ?: return emptyList()
         val root = repo.root
-        val rangeArg = if (lastScanAt != null) listOf("--since=$lastScanAt") else listOf("--max-count=20")
-        val historyArgs = arrayOf("--name-only", "--pretty=format:%H") + rangeArg.toTypedArray()
+        val isAncestor: (String) -> Boolean = { sha -> isAncestorOfHead(project, root, sha) }
+        val rangeArg = commitRangeArgs(lastSyncedCommit, isAncestor) ?: return emptyList()
+        val historyArgs = arrayOf("--name-only", "--pretty=format:%H", rangeArg)
         // GitHistoryUtils.history(project, root, vararg String) — verified against
         // IntelliJ Platform 2026.1 git4idea (vcs-git.jar -> git4idea/history/GitHistoryUtils.class).
         val history = try {
             GitHistoryUtils.history(project, root, *historyArgs)
         } catch (e: NoSuchMethodError) {
-            LOG.warn("Git4Idea history API mismatch — see plan §Task 6 for the alternate entry point")
+            LOG.warn("Git4Idea history API mismatch — see plan §Task 4 for the alternate entry point")
             return emptyList()
         }
         val out = mutableListOf<CommitInfo>()
@@ -174,5 +181,31 @@ object CommitWikiDriftDetector {
             if (out.sumOf { it.touchedPaths.size } >= MAX_TOUCHED_FILES) break
         }
         return out
+    }
+
+    /**
+     * Pure helper for the range-argument decision. Returns null on first-run /
+     * unreachable cases (caller emits no events; baseline is current HEAD).
+     */
+    internal fun commitRangeArgs(
+        lastSyncedCommit: String,
+        isAncestor: (String) -> Boolean,
+    ): String? {
+        if (lastSyncedCommit.isBlank()) return null
+        if (!isAncestor(lastSyncedCommit)) return null
+        return "$lastSyncedCommit..HEAD"
+    }
+
+    private fun isAncestorOfHead(
+        project: Project,
+        root: com.intellij.openapi.vfs.VirtualFile,
+        sha: String,
+    ): Boolean {
+        val handler = GitLineHandler(project, root, GitCommand.MERGE_BASE)
+        handler.addParameters("--is-ancestor", sha, "HEAD")
+        handler.setSilent(true)
+        val result = Git.getInstance().runCommand(handler)
+        // `git merge-base --is-ancestor`: exit 0 = ancestor; exit 1 = not. Other = error → treat as not ancestor.
+        return result.exitCode == 0
     }
 }
