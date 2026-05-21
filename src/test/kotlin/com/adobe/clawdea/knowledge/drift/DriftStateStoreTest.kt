@@ -124,6 +124,34 @@ class DriftStateStoreTest {
         assertEquals(emptyList<DriftEvent.WikiSuggestion>(), state.suggestions)
     }
 
+    @Test fun `read tolerates legacy file without lastSyncedCommit`() {
+        val tmp = Files.createTempDirectory("drift-legacy")
+        try {
+            val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
+            Files.writeString(
+                wikiDir.resolve(".drift-state.json"),
+                """{"lastScanAt":"2026-05-21T00:00:00Z","dismissed":["x"]}""",
+            )
+            val state = DriftStateStore.read(wikiDir = wikiDir)
+            assertEquals("2026-05-21T00:00:00Z", state.lastScanAt)
+            assertEquals("", state.lastSyncedCommit)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `lastSyncedCommit round-trips through JSON`() {
+        val tmp = Files.createTempDirectory("drift-sha")
+        try {
+            val wikiDir = tmp.resolve("wiki")
+            DriftStateStore.write(wikiDir, DriftState(lastSyncedCommit = "abc1234deadbeef"))
+            val state = DriftStateStore.read(wikiDir)
+            assertEquals("abc1234deadbeef", state.lastSyncedCommit)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun `write then read round-trips suggestions list`() {
         val tmp = Files.createTempDirectory("drift")
         val wikiDir = tmp.resolve("wiki")
