@@ -68,6 +68,13 @@ class ChatPanel(
             autoAcceptEdits || ToolApprovalModeUi.isAllowAll(toolApprovalMode)
         },
         projectBasePath = project.basePath,
+        wikiDirResolver = {
+            try {
+                com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+            } catch (_: Throwable) {
+                null
+            }
+        },
     )
     private val indexQueryHandler = IndexQueryHandler(project)
     private val commandRegistry = CommandRegistry()
