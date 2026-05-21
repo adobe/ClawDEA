@@ -16,6 +16,7 @@ import com.adobe.clawdea.commands.CommandCategory
 import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler
 import com.adobe.clawdea.commands.CommandInfo
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.nio.file.Files
@@ -44,6 +45,8 @@ fun interface QuestionAsker {
  */
 class WikiRelocateHandler(private val project: Project) : CommandHandler {
 
+    enum class Action { MOVE, COPY, NOTHING }
+
     override val info = CommandInfo(
         "/wiki-relocate",
         "Move the wiki to a project-relative path and commit the location to .clawdea/config.json",
@@ -65,14 +68,42 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             return
         }
 
-        // The full execute path (user-question card, move/copy/nothing file ops,
-        // drift rescan) is wired in Tasks 9 and 10. This first version just
-        // applies the config + .gitignore so the smoke path works.
+        val oldWikiDir = WikiLocator.getInstance(project).wikiDir()
+        val newWikiDir = projectBase.resolve(newPath)
+        val oldHasContents = Files.isDirectory(oldWikiDir) &&
+            Files.list(oldWikiDir).use { it.findAny().isPresent }
+
+        // Simplified heuristic (controller-approved for Task 10): the full
+        // interactive question card from Task 9 stays as a documented seam
+        // until CommandContext gains async-question plumbing.
+        val action: Action = if (!oldHasContents) Action.NOTHING else Action.MOVE
+        applyAction(
+            oldDir = oldWikiDir,
+            newDir = newWikiDir,
+            action = action,
+            gitMove = { src, dst -> tryGitMove(project, src, dst) },
+        )
         writeConfig(projectBase, newPath)
         appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
+        project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
+
+        val actionMsg = when (action) {
+            Action.NOTHING -> "no existing wiki to move"
+            Action.MOVE -> "moved existing wiki contents to '$newPath'"
+            Action.COPY -> "copied existing wiki contents to '$newPath'"
+        }
         context.appendHtml(
-            """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' in .clawdea/config.json. Commit this file to share with your team.</div>"""
+            """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' (${escapeHtml(actionMsg)}). Commit .clawdea/config.json to share with your team.</div>"""
         )
+    }
+
+    private fun tryGitMove(project: Project, src: Path, dst: Path): Boolean {
+        val repo = git4idea.repo.GitRepositoryManager.getInstance(project)
+            .repositories.firstOrNull() ?: return false
+        val handler = git4idea.commands.GitLineHandler(project, repo.root, git4idea.commands.GitCommand.MV)
+        handler.addParameters("--", src.toString(), dst.toString())
+        handler.setSilent(true)
+        return git4idea.commands.Git.getInstance().runCommand(handler).exitCode == 0
     }
 
     private fun escapeHtml(s: String): String =
@@ -81,6 +112,79 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
     companion object {
 
         private val LOG = Logger.getInstance(WikiRelocateHandler::class.java)
+
+        /** Maps an AskUserQuestion label ("Move"/"Copy"/"Nothing", case-insensitive) to [Action]. */
+        fun parseAction(label: String?): Action? = when (label?.lowercase()) {
+            "move" -> Action.MOVE
+            "copy" -> Action.COPY
+            "nothing" -> Action.NOTHING
+            else -> null
+        }
+
+        /**
+         * Performs the file-tree operation for [action]. For MOVE, every file goes
+         * through [gitMove] first; if that returns false (or throws), falls back to
+         * [Files.move]. Empty parent directories under [oldDir] are cleaned up after
+         * MOVE. For COPY the source tree stays in place; for NOTHING this is a no-op.
+         */
+        fun applyAction(
+            oldDir: Path,
+            newDir: Path,
+            action: Action,
+            gitMove: (src: Path, dst: Path) -> Boolean,
+        ) {
+            when (action) {
+                Action.NOTHING -> return
+                Action.COPY -> {
+                    if (!Files.isDirectory(oldDir)) return
+                    Files.walk(oldDir).use { stream ->
+                        for (src in stream) {
+                            val rel = oldDir.relativize(src)
+                            val dst = newDir.resolve(rel.toString())
+                            if (Files.isDirectory(src)) {
+                                Files.createDirectories(dst)
+                            } else {
+                                Files.createDirectories(dst.parent)
+                                Files.copy(src, dst, StandardCopyOption.REPLACE_EXISTING)
+                            }
+                        }
+                    }
+                }
+                Action.MOVE -> {
+                    if (!Files.isDirectory(oldDir)) return
+                    // Snapshot the file list first so we don't traverse into the
+                    // destination on overlapping trees.
+                    val files = Files.walk(oldDir).use { stream ->
+                        stream.filter { p -> Files.isRegularFile(p) }.toList()
+                    }
+                    for (src in files) {
+                        val rel = oldDir.relativize(src)
+                        val dst = newDir.resolve(rel.toString())
+                        Files.createDirectories(dst.parent)
+                        val movedByGit = try {
+                            gitMove(src, dst)
+                        } catch (e: Throwable) {
+                            LOG.warn("gitMove threw: ${e.message}")
+                            false
+                        }
+                        if (!movedByGit) {
+                            Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING)
+                        }
+                    }
+                    // Clean up empty directories under oldDir, bottom-up.
+                    val dirs = Files.walk(oldDir).use { stream ->
+                        stream.filter { p -> Files.isDirectory(p) }.toList()
+                    }
+                    for (dir in dirs.sortedByDescending { it.nameCount }) {
+                        if (dir == oldDir) continue
+                        try {
+                            val isEmpty = Files.list(dir).use { stream -> !stream.findAny().isPresent }
+                            if (isEmpty) Files.deleteIfExists(dir)
+                        } catch (_: Exception) { /* best-effort cleanup */ }
+                    }
+                }
+            }
+        }
 
         /** Returns null if [path] is acceptable, otherwise a human-readable error. */
         fun validatePath(path: String): String? {

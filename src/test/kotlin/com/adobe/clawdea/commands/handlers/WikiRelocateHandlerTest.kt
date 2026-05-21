@@ -93,4 +93,77 @@ class WikiRelocateHandlerTest {
         assert(first.options.all { it.description.isNotBlank() })
         assert(first.question.contains("docs/llm-wiki"))
     }
+
+    @Test fun `applyAction NOTHING leaves files where they are`() {
+        val tmp = Files.createTempDirectory("relocate-nothing")
+        try {
+            val oldDir = Files.createDirectories(tmp.resolve("old"))
+            val newDir = tmp.resolve("new")
+            Files.writeString(oldDir.resolve("foo.md"), "x")
+            WikiRelocateHandler.applyAction(
+                oldDir = oldDir,
+                newDir = newDir,
+                action = WikiRelocateHandler.Action.NOTHING,
+                gitMove = { _, _ -> true },
+            )
+            assert(Files.exists(oldDir.resolve("foo.md")))
+            assert(!Files.exists(newDir.resolve("foo.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `applyAction COPY duplicates the tree without removing originals`() {
+        val tmp = Files.createTempDirectory("relocate-copy")
+        try {
+            val oldDir = Files.createDirectories(tmp.resolve("old"))
+            val newDir = tmp.resolve("new")
+            Files.writeString(oldDir.resolve("foo.md"), "x")
+            Files.createDirectories(oldDir.resolve("concepts"))
+            Files.writeString(oldDir.resolve("concepts").resolve("bar.md"), "y")
+            WikiRelocateHandler.applyAction(
+                oldDir = oldDir,
+                newDir = newDir,
+                action = WikiRelocateHandler.Action.COPY,
+                gitMove = { _, _ -> true },
+            )
+            assertEquals("x", Files.readString(oldDir.resolve("foo.md")))
+            assertEquals("x", Files.readString(newDir.resolve("foo.md")))
+            assertEquals("y", Files.readString(newDir.resolve("concepts").resolve("bar.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `applyAction MOVE delegates each file to gitMove and falls back to filesystem move`() {
+        val tmp = Files.createTempDirectory("relocate-move")
+        try {
+            val oldDir = Files.createDirectories(tmp.resolve("old"))
+            val newDir = tmp.resolve("new")
+            Files.writeString(oldDir.resolve("tracked.md"), "t")
+            Files.writeString(oldDir.resolve("untracked.md"), "u")
+            val gitMoveCalls = mutableListOf<Pair<java.nio.file.Path, java.nio.file.Path>>()
+            WikiRelocateHandler.applyAction(
+                oldDir = oldDir,
+                newDir = newDir,
+                action = WikiRelocateHandler.Action.MOVE,
+                gitMove = { src, dst ->
+                    gitMoveCalls += src to dst
+                    // Simulate: tracked.md is tracked (git mv succeeds), untracked.md isn't.
+                    if (src.fileName.toString() == "tracked.md") {
+                        java.nio.file.Files.createDirectories(dst.parent)
+                        java.nio.file.Files.move(src, dst)
+                        true
+                    } else false
+                },
+            )
+            assertEquals("t", Files.readString(newDir.resolve("tracked.md")))
+            assertEquals("u", Files.readString(newDir.resolve("untracked.md")))
+            assert(!Files.exists(oldDir.resolve("tracked.md")))
+            assert(!Files.exists(oldDir.resolve("untracked.md")))
+            assertEquals(2, gitMoveCalls.size)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }
