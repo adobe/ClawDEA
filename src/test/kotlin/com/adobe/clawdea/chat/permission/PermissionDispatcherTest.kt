@@ -42,7 +42,8 @@ class PermissionDispatcherTest {
         thread.start()
 
         assertTrue(posted.await(2, TimeUnit.SECONDS))
-        dispatcher.resolve(capturedId, PermissionRequest.Decision.ALLOW)
+        val late = dispatcher.resolve(capturedId, PermissionRequest.Decision.ALLOW)
+        assertFalse("in-time resolve must report late=false", late)
         thread.join(2_000)
         assertTrue(renderRecord.size == 1)
     }
@@ -86,9 +87,10 @@ class PermissionDispatcherTest {
     }
 
     @Test
-    fun `resolve with unknown id is a no-op`() {
+    fun `resolve with unknown id is a no-op and reports not-late`() {
         val dispatcher = PermissionDispatcher(onRender = { _ -> /* render no-op */ })
-        dispatcher.resolve("missing", PermissionRequest.Decision.ALLOW) // must not throw
+        val late = dispatcher.resolve("missing", PermissionRequest.Decision.ALLOW)
+        assertFalse("unknown id is not a late resolution", late)
     }
 
     @Test
@@ -106,8 +108,11 @@ class PermissionDispatcherTest {
 
         assertTrue(renderCompleted.await(2, TimeUnit.SECONDS))
         val id = capturedReq!!.requestId
-        dispatcher.resolve(id, PermissionRequest.Decision.ALLOW)
-        dispatcher.resolve(id, PermissionRequest.Decision.DENY) // should be ignored
+        assertFalse("first resolve is in-time", dispatcher.resolve(id, PermissionRequest.Decision.ALLOW))
+        assertFalse(
+            "duplicate resolve must report late=false (no-op)",
+            dispatcher.resolve(id, PermissionRequest.Decision.DENY),
+        )
         thread.join(2_000)
         assertEquals(PermissionRequest.Decision.ALLOW, capturedReq!!.decision)
     }
@@ -180,7 +185,8 @@ class PermissionDispatcherTest {
         assertTrue(first.timedOut)
 
         // User finally clicks Allow long after the submit returned.
-        dispatcher.resolve(capturedReq!!.requestId, PermissionRequest.Decision.ALLOW)
+        val late = dispatcher.resolve(capturedReq!!.requestId, PermissionRequest.Decision.ALLOW)
+        assertTrue("resolve after submit timeout must report late=true", late)
         assertFalse("late resolve must clean inFlight", dispatcher.hasInFlightRequests())
         assertEquals(1, dispatcher.pendingDecisionCount())
 
