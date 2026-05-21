@@ -56,8 +56,10 @@ class DriftDetectionService(private val project: Project) {
             applyAndDismiss(filtered, settings.autoUpdateWiki, state, DriftAutoApplier.todayIso(), invoker)
         }
         val newState = applied.newState.copy(lastScanAt = now.toString())
-        if (newState != state) {
-            DriftStateStore.write(wikiDir, newState)
+        val headSha = currentHeadSha(project) ?: ""
+        val newStateWithSync = bumpSyncedCommit(newState, headSha)
+        if (newStateWithSync != state) {
+            DriftStateStore.write(wikiDir, newStateWithSync)
         }
         lastEvents = remaining
         lastApplied = applied.events
@@ -113,6 +115,12 @@ class DriftDetectionService(private val project: Project) {
         }
     }
 
+    private fun currentHeadSha(project: Project): String? {
+        val repo = git4idea.repo.GitRepositoryManager.getInstance(project)
+            .repositories.firstOrNull() ?: return null
+        return repo.currentRevision
+    }
+
     private fun buildInvoker(basePath: String): WikiAuthorInvoker {
         val settings = ClawDEASettings.getInstance()
         val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
@@ -134,6 +142,11 @@ class DriftDetectionService(private val project: Project) {
         private val LOG = Logger.getInstance(DriftDetectionService::class.java)
 
         data class ApplyResult(val events: List<DriftEvent>, val newState: DriftState)
+
+        internal fun bumpSyncedCommit(state: DriftState, headSha: String): DriftState {
+            if (headSha.isBlank()) return state
+            return state.copy(lastSyncedCommit = headSha)
+        }
 
         internal fun collectRaw(
             project: Project,
