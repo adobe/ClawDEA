@@ -1228,9 +1228,14 @@ class ChatPanel(
         commandRegistry.register("/wiki-gap", LocalHandler(
             CommandInfo("/wiki-gap", "Show clustered wiki probe misses", CommandCategory.LOCAL),
         ) { _, ctx ->
-            val misses = if (project.basePath != null) {
+            val basePath = project.basePath
+            val misses = if (basePath != null) {
                 val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
-                com.adobe.clawdea.knowledge.drift.DriftStateStore.read(wikiDir).probeMisses
+                val projectBase = java.nio.file.Paths.get(basePath)
+                com.adobe.clawdea.knowledge.drift.DriftStateStore.read(
+                    wikiDir = wikiDir,
+                    projectBase = projectBase,
+                ).probeMisses
             } else emptyList()
             val clusters = com.adobe.clawdea.commands.handlers.WikiGapHandler.cluster(misses)
             val output = com.adobe.clawdea.commands.handlers.WikiGapHandler.formatOutput(clusters)
@@ -1339,9 +1344,13 @@ class ChatPanel(
     }
 
     private fun refreshWikiStatus(): String {
-        if (project.basePath == null) return "Wiki drift status: project path unavailable."
+        val basePath = project.basePath ?: return "Wiki drift status: project path unavailable."
         val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
-        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(wikiDir)
+        val projectBase = java.nio.file.Paths.get(basePath)
+        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(
+            wikiDir = wikiDir,
+            projectBase = projectBase,
+        )
         val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
         return RefreshWikiStatusFormatter.format(
             RefreshWikiStatus(

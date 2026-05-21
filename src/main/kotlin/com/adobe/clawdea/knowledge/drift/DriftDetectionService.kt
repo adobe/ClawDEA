@@ -38,13 +38,14 @@ class DriftDetectionService(private val project: Project) {
             notifyListeners()
             return emptyList<DriftEvent>() to emptyList()
         }
+        val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
-        val state = DriftStateStore.read(wikiDir)
+        val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
         val settings = ClawDEASettings.getInstance().state
         val now = Instant.now()
         val raw = collectRaw(
             project = project,
-            projectRoot = Paths.get(basePath),
+            projectRoot = projectBase,
             wikiDir = wikiDir,
             beforeState = state,
             settingsState = settings,
@@ -59,7 +60,7 @@ class DriftDetectionService(private val project: Project) {
         val headSha = currentHeadSha(project) ?: ""
         val newStateWithSync = bumpSyncedCommit(newState, headSha)
         if (newStateWithSync != state) {
-            DriftStateStore.write(wikiDir, newStateWithSync)
+            DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = newStateWithSync)
         }
         lastEvents = remaining
         lastApplied = applied.events
@@ -71,29 +72,32 @@ class DriftDetectionService(private val project: Project) {
     fun lastAppliedEvents(): List<DriftEvent> = synchronized(mutex) { lastApplied }
 
     fun recordProbeMiss(query: String, pathTokens: List<String>, hits: Int, contextHash: String) {
-        if (project.basePath == null) return
+        val basePath = project.basePath ?: return
+        val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val miss = ProbeMiss(query, pathTokens, hits, contextHash, Instant.now().toString())
-        DriftStateStore.update(wikiDir) { state ->
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             val updated = state.probeMisses + miss
             state.copy(probeMisses = updated.takeLast(DriftState.MAX_PROBE_MISSES))
         }
     }
 
     fun recordUserCorrection(correctionSummary: String, contextHash: String) {
-        if (project.basePath == null) return
+        val basePath = project.basePath ?: return
+        val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val correction = UserCorrectionRecord(correctionSummary.take(500), contextHash, Instant.now().toString())
-        DriftStateStore.update(wikiDir) { state ->
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             val updated = state.userCorrections + correction
             state.copy(userCorrections = updated.takeLast(DriftState.MAX_USER_CORRECTIONS))
         }
     }
 
     fun dismiss(signature: String) {
-        if (project.basePath == null) return
+        val basePath = project.basePath ?: return
+        val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
-        DriftStateStore.update(wikiDir) { state ->
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             state.copy(
                 dismissed = state.dismissed + signature,
                 suggestions = state.suggestions.filterNot { it.signature == signature },

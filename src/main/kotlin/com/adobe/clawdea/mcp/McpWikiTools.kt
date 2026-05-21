@@ -91,7 +91,10 @@ class McpWikiTools(private val project: Project) {
             return McpToolRouter.ToolResult("No project basePath", isError = true)
         }
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(
+            wikiDir = wikiDir,
+            projectBase = project.basePath?.let { java.nio.file.Paths.get(it) },
+        )
         val kind = args["kind"] ?: return McpToolRouter.ToolResult("Missing 'kind' argument", isError = true)
         val title = args["title"] ?: return McpToolRouter.ToolResult("Missing 'title' argument", isError = true)
         val rationale = args["rationale"] ?: return McpToolRouter.ToolResult("Missing 'rationale' argument", isError = true)

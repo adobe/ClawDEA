@@ -178,4 +178,84 @@ class DriftStateStoreTest {
         assertEquals(suggestion.targetFiles, read.targetFiles)
         assertEquals(suggestion.signature, read.signature)
     }
+
+    @Test fun `team mode writes split files and reads them back`() {
+        val tmp = Files.createTempDirectory("drift-team")
+        try {
+            val wikiDir = tmp.resolve("docs/llm-wiki")
+            val projectBase = tmp
+            // Mark team mode by creating .clawdea/config.json so the store knows the mode.
+            val clawdeaDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(clawdeaDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val state = DriftState(
+                lastScanAt = "2026-05-21T10:00:00Z",
+                lastSyncedCommit = "abc1234",
+                dismissed = listOf("sig-a"),
+                suggestions = listOf(
+                    DriftEvent.WikiSuggestion(
+                        kind = SuggestionKind.missingConcept,
+                        title = "Add X",
+                        rationale = "r",
+                        targetFiles = listOf("a.md"),
+                        sourcePage = null,
+                        recordedAt = "2026-05-21T10:00:00Z",
+                    ),
+                ),
+            )
+            DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = state)
+
+            // Team file holds shared facts.
+            val teamFile = wikiDir.resolve(".wiki-state.json")
+            val teamJson = Files.readString(teamFile)
+            assert(teamJson.contains("abc1234")) { "team file should contain SHA: $teamJson" }
+            assert(!teamJson.contains("sig-a")) { "team file must not contain dismissed sigs: $teamJson" }
+
+            // Per-user file holds personal data.
+            val perUserFile = projectBase.resolve(".clawdea").resolve("wiki-state.local.json")
+            val perUserJson = Files.readString(perUserFile)
+            assert(perUserJson.contains("sig-a")) { "per-user file should contain dismissed: $perUserJson" }
+            assert(!perUserJson.contains("abc1234")) { "per-user file must not contain SHA: $perUserJson" }
+
+            // Round-trip read merges them.
+            val read = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
+            assertEquals("abc1234", read.lastSyncedCommit)
+            assertEquals("2026-05-21T10:00:00Z", read.lastScanAt)
+            assertEquals(listOf("sig-a"), read.dismissed)
+            assertEquals(1, read.suggestions.size)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `migration moves legacy drift-state into split files on first read`() {
+        val tmp = Files.createTempDirectory("drift-migrate")
+        try {
+            val projectBase = tmp
+            val newWikiDir = tmp.resolve("docs/llm-wiki")
+            Files.createDirectories(newWikiDir)
+            // Legacy default location with old data.
+            val legacyDir = Files.createDirectories(tmp.resolve(".claude").resolve("wiki"))
+            Files.writeString(
+                legacyDir.resolve(".drift-state.json"),
+                """{"lastScanAt":"2026-05-20T00:00:00Z","lastSyncedCommit":"deadbeef","dismissed":["sig-a"]}""",
+            )
+            // Mark team mode.
+            val clawdeaDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(clawdeaDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val read = DriftStateStore.read(wikiDir = newWikiDir, projectBase = projectBase)
+            assertEquals("deadbeef", read.lastSyncedCommit)
+            assertEquals(listOf("sig-a"), read.dismissed)
+
+            // After migration: legacy file gone, split files present.
+            assert(!Files.exists(legacyDir.resolve(".drift-state.json"))) { "legacy file should be deleted" }
+            assert(Files.exists(newWikiDir.resolve(".wiki-state.json"))) { "team file should exist after migration" }
+            assert(Files.exists(projectBase.resolve(".clawdea").resolve("wiki-state.local.json"))) {
+                "per-user file should exist after migration"
+            }
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }

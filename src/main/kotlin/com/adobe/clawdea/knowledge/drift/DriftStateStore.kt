@@ -11,36 +11,170 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.google.gson.Gson
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
+/**
+ * Reads/writes `DriftState`. Mode-aware:
+ *  - Default mode: single file `<wikiDir>/.drift-state.json` (back-compat).
+ *  - Team mode: team-shared `<wikiDir>/.wiki-state.json` (lastSyncedCommit, suggestions)
+ *    + per-user `<projectBase>/.clawdea/wiki-state.local.json` (everything else).
+ *
+ * Mode is detected by `<projectBase>/.clawdea/config.json` presence.
+ *
+ * On first read in team mode (when no team file exists yet), legacy
+ * `<projectBase>/<claudeDirName>/<wikiSubdir>/.drift-state.json` is split into the
+ * new files and deleted. Migration is idempotent (only runs when the team file is
+ * absent).
+ */
 object DriftStateStore {
 
     private val LOG = Logger.getInstance(DriftStateStore::class.java)
     private val GSON = Gson()
-    private const val FILE_NAME = ".drift-state.json"
+    private const val LEGACY_FILE = ".drift-state.json"
+    private const val TEAM_FILE = ".wiki-state.json"
+    private const val PER_USER_FILE = "wiki-state.local.json"
+    private const val CLAWDEA_DIR = ".clawdea"
+    private const val DEFAULT_CLAUDE_DIR = ".claude"
+    private const val DEFAULT_WIKI_SUBDIR = "wiki"
 
-    fun read(wikiDir: Path): DriftState {
-        val file = wikiDir.resolve(FILE_NAME)
+    /**
+     * Default-mode entry point retained for callers that have not yet been
+     * updated. Internally checks for team mode via `projectBase` discovery.
+     */
+    fun read(wikiDir: Path): DriftState = read(wikiDir = wikiDir, projectBase = null)
+
+    fun read(wikiDir: Path, projectBase: Path?): DriftState {
+        if (projectBase == null) return readDefault(wikiDir)
+        val configFile = projectBase.resolve(CLAWDEA_DIR).resolve("config.json")
+        return if (Files.isRegularFile(configFile)) readTeam(wikiDir, projectBase) else readDefault(wikiDir)
+    }
+
+    fun write(wikiDir: Path, state: DriftState) = write(wikiDir = wikiDir, projectBase = null, state = state)
+
+    fun write(wikiDir: Path, projectBase: Path?, state: DriftState) {
+        if (projectBase == null) { writeDefault(wikiDir, state); return }
+        val configFile = projectBase.resolve(CLAWDEA_DIR).resolve("config.json")
+        if (Files.isRegularFile(configFile)) writeTeam(wikiDir, projectBase, state) else writeDefault(wikiDir, state)
+    }
+
+    fun update(wikiDir: Path, projectBase: Path?, transform: (DriftState) -> DriftState) {
+        write(wikiDir, projectBase, transform(read(wikiDir, projectBase)))
+    }
+
+    /** Legacy single-arg update kept for unmodified callers. */
+    fun update(wikiDir: Path, transform: (DriftState) -> DriftState) {
+        update(wikiDir = wikiDir, projectBase = null, transform = transform)
+    }
+
+    // ---- Default mode (single file) ----
+
+    private fun readDefault(wikiDir: Path): DriftState {
+        val file = wikiDir.resolve(LEGACY_FILE)
         if (!Files.isRegularFile(file)) return DriftState()
         return try {
-            val text = Files.readString(file)
-            GSON.fromJson(text, DriftState::class.java) ?: DriftState()
+            GSON.fromJson(Files.readString(file), DriftState::class.java) ?: DriftState()
         } catch (e: Throwable) {
             LOG.warn("Failed to read drift state from $file: ${e.message}")
             DriftState()
         }
     }
 
-    fun write(wikiDir: Path, state: DriftState) {
+    private fun writeDefault(wikiDir: Path, state: DriftState) {
         Files.createDirectories(wikiDir)
-        val target = wikiDir.resolve(FILE_NAME)
-        val temp = Files.createTempFile(wikiDir, ".drift-state.json.tmp", "")
+        atomicWrite(wikiDir.resolve(LEGACY_FILE), GSON.toJson(state))
+    }
+
+    // ---- Team mode (split files + one-time migration) ----
+
+    private fun readTeam(wikiDir: Path, projectBase: Path): DriftState {
+        val teamFile = wikiDir.resolve(TEAM_FILE)
+        val perUserFile = projectBase.resolve(CLAWDEA_DIR).resolve(PER_USER_FILE)
+
+        // Migration: if the team file is absent, attempt to populate from legacy.
+        if (!Files.isRegularFile(teamFile)) {
+            migrateFromLegacy(projectBase, wikiDir)
+        }
+
+        val team = readTeamPart(teamFile)
+        val perUser = readPerUserPart(perUserFile)
+        return DriftState(
+            lastScanAt = perUser.lastScanAt,
+            lastSyncedCommit = team.lastSyncedCommit,
+            dismissed = perUser.dismissed,
+            probeMisses = perUser.probeMisses,
+            userCorrections = perUser.userCorrections,
+            suggestions = team.suggestions,
+        )
+    }
+
+    private fun writeTeam(wikiDir: Path, projectBase: Path, state: DriftState) {
+        Files.createDirectories(wikiDir)
+        Files.createDirectories(projectBase.resolve(CLAWDEA_DIR))
+        val team = TeamPart(state.lastSyncedCommit, state.suggestions)
+        val perUser = PerUserPart(state.lastScanAt, state.dismissed, state.probeMisses, state.userCorrections)
+        atomicWrite(wikiDir.resolve(TEAM_FILE), GSON.toJson(team))
+        atomicWrite(projectBase.resolve(CLAWDEA_DIR).resolve(PER_USER_FILE), GSON.toJson(perUser))
+    }
+
+    private fun migrateFromLegacy(projectBase: Path, newWikiDir: Path) {
+        // Fall back to the defaults declared on ClawDEASettings.State when no
+        // IntelliJ Application is registered (unit tests, early init). The vast
+        // majority of installs use these defaults anyway.
+        val (claudeDirName, wikiSubdir) = try {
+            val s = ClawDEASettings.getInstance().state
+            s.claudeDirName to s.wikiSubdir
+        } catch (_: Throwable) {
+            DEFAULT_CLAUDE_DIR to DEFAULT_WIKI_SUBDIR
+        }
+        val legacyWikiDir = projectBase.resolve(claudeDirName).resolve(wikiSubdir)
+        val legacyFile = legacyWikiDir.resolve(LEGACY_FILE)
+        if (!Files.isRegularFile(legacyFile)) return
+        val legacyState = try {
+            GSON.fromJson(Files.readString(legacyFile), DriftState::class.java) ?: DriftState()
+        } catch (e: Throwable) {
+            LOG.warn("Migration: failed to read legacy drift-state at $legacyFile: ${e.message}")
+            return
+        }
+        // Write split files first, then delete the legacy file. This is idempotent —
+        // if anything fails before the delete, the next read finds the legacy file
+        // again and retries.
+        writeTeam(newWikiDir, projectBase, legacyState)
+        try { Files.deleteIfExists(legacyFile) } catch (e: Throwable) {
+            LOG.warn("Migration: failed to delete legacy file $legacyFile: ${e.message}")
+        }
+    }
+
+    private fun readTeamPart(file: Path): TeamPart {
+        if (!Files.isRegularFile(file)) return TeamPart()
+        return try {
+            GSON.fromJson(Files.readString(file), TeamPart::class.java) ?: TeamPart()
+        } catch (e: Throwable) {
+            LOG.warn("Failed to read team drift state from $file: ${e.message}")
+            TeamPart()
+        }
+    }
+
+    private fun readPerUserPart(file: Path): PerUserPart {
+        if (!Files.isRegularFile(file)) return PerUserPart()
+        return try {
+            GSON.fromJson(Files.readString(file), PerUserPart::class.java) ?: PerUserPart()
+        } catch (e: Throwable) {
+            LOG.warn("Failed to read per-user drift state from $file: ${e.message}")
+            PerUserPart()
+        }
+    }
+
+    private fun atomicWrite(target: Path, content: String) {
+        val parent = target.parent
+        Files.createDirectories(parent)
+        val temp = Files.createTempFile(parent, target.fileName.toString() + ".tmp", "")
         try {
-            Files.writeString(temp, GSON.toJson(state))
+            Files.writeString(temp, content)
             try {
                 Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
@@ -53,9 +187,15 @@ object DriftStateStore {
         }
     }
 
-    fun update(wikiDir: Path, transform: (DriftState) -> DriftState) {
-        val current = read(wikiDir)
-        val next = transform(current)
-        write(wikiDir, next)
-    }
+    private data class TeamPart(
+        val lastSyncedCommit: String = "",
+        val suggestions: List<DriftEvent.WikiSuggestion> = emptyList(),
+    )
+
+    private data class PerUserPart(
+        val lastScanAt: String = "",
+        val dismissed: List<String> = emptyList(),
+        val probeMisses: List<ProbeMiss> = emptyList(),
+        val userCorrections: List<UserCorrectionRecord> = emptyList(),
+    )
 }

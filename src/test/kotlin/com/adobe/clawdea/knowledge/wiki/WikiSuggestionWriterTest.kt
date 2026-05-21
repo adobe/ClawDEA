@@ -15,6 +15,7 @@ import com.adobe.clawdea.knowledge.drift.DriftState
 import com.adobe.clawdea.knowledge.drift.DriftStateStore
 import com.adobe.clawdea.knowledge.drift.SuggestionKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -28,7 +29,7 @@ class WikiSuggestionWriterTest {
 
     @Test fun `records new suggestion and persists to drift-state`() {
         val wikiDir = newWikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         val result = writer.record(
             kind = "missingConcept",
             title = "Add FilesystemRefreshCoordinator page",
@@ -52,7 +53,7 @@ class WikiSuggestionWriterTest {
 
     @Test fun `re-recording same signature updates in place`() {
         val wikiDir = newWikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         writer.record("missingConcept", "Old title here", "Old rationale of the gap.",
             ".claude/wiki/concepts/x.md", null, Instant.parse("2026-05-16T10:00:00Z"))
         val second = writer.record("missingConcept", "New title here", "Updated rationale of the gap.",
@@ -71,7 +72,7 @@ class WikiSuggestionWriterTest {
         DriftStateStore.write(wikiDir, DriftState(
             dismissed = listOf("wiki-suggestion:staleConcept:.claude/wiki/concepts/y.md"),
         ))
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         val result = writer.record("staleConcept", "Concept Y is wrong",
             "Wiki says X but source has Y now.",
             ".claude/wiki/concepts/y.md", ".claude/wiki/concepts/y.md")
@@ -81,35 +82,35 @@ class WikiSuggestionWriterTest {
     }
 
     @Test fun `invalid kind is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("notARealKind", "Some title here",
             "Some rationale of the gap.", ".claude/wiki/concepts/a.md", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
     }
 
     @Test fun `title too short is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("missingConcept", "ab",
             "Some rationale of the gap.", ".claude/wiki/concepts/a.md", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
     }
 
     @Test fun `rationale too short is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("missingConcept", "Valid title here",
             "short", ".claude/wiki/concepts/a.md", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
     }
 
     @Test fun `target path outside wiki is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("missingConcept", "Valid title here",
             "Some rationale of the gap.", "src/main/kotlin/Foo.kt", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
     }
 
     @Test fun `target path with parent traversal is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("missingConcept", "Valid title here",
             "Some rationale of the gap.",
             ".claude/wiki/../../../etc/passwd.md", null)
@@ -117,7 +118,7 @@ class WikiSuggestionWriterTest {
     }
 
     @Test fun `non-md target path is rejected`() {
-        val writer = WikiSuggestionWriter(newWikiDir())
+        val writer = WikiSuggestionWriter(wikiDir = newWikiDir(), projectBase = null)
         val result = writer.record("missingConcept", "Valid title here",
             "Some rationale of the gap.", ".claude/wiki/concepts/foo.txt", null)
         assertTrue(result is WikiSuggestionWriter.Result.Invalid)
@@ -125,7 +126,7 @@ class WikiSuggestionWriterTest {
 
     @Test fun `bare slug is normalized to concepts path with md suffix`() {
         val wikiDir = newWikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         val result = writer.record("missingConcept", "Add cli-bridge concept",
             "Page is missing for the CLI bridge subsystem.", "cli-bridge", null)
         assertTrue(result is WikiSuggestionWriter.Result.Recorded)
@@ -135,7 +136,7 @@ class WikiSuggestionWriterTest {
 
     @Test fun `concepts-prefixed path is normalized with claude wiki prefix`() {
         val wikiDir = newWikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         val result = writer.record("missingConcept", "Add foo concept",
             "Page foo is missing from concepts.", "concepts/foo.md", null)
         assertTrue(result is WikiSuggestionWriter.Result.Recorded)
@@ -145,11 +146,48 @@ class WikiSuggestionWriterTest {
 
     @Test fun `index slug normalizes to wiki index`() {
         val wikiDir = newWikiDir()
-        val writer = WikiSuggestionWriter(wikiDir)
+        val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = null)
         val result = writer.record("incompleteConcept", "Index needs entry",
             "TOC missing the new concept page.", "index", null)
         assertTrue(result is WikiSuggestionWriter.Result.Recorded)
         val state = DriftStateStore.read(wikiDir)
         assertEquals(listOf(".claude/wiki/index.md"), state.suggestions[0].targetFiles)
+    }
+
+    @Test fun `team mode write splits suggestion across team and per-user files`() {
+        val tmp = Files.createTempDirectory("wiki-sugg-team")
+        try {
+            val projectBase = tmp
+            val wikiDir = tmp.resolve("docs/llm-wiki")
+            Files.createDirectories(wikiDir)
+            Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(tmp.resolve(".clawdea/config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = projectBase)
+            val result = writer.record(
+                kind = "missingConcept",
+                title = "Add FilesystemRefreshCoordinator page",
+                rationale = "Referenced from multiple subsystems with no coverage.",
+                targetFilesCsv = ".claude/wiki/concepts/fsrc.md",
+                sourcePage = null,
+                recordedAt = Instant.parse("2026-05-16T16:30:00Z"),
+            )
+            assertTrue(result is WikiSuggestionWriter.Result.Recorded)
+
+            assertTrue("team file should exist", Files.exists(wikiDir.resolve(".wiki-state.json")))
+            assertFalse(
+                "legacy file should not be written in team mode",
+                Files.exists(wikiDir.resolve(".drift-state.json")),
+            )
+
+            val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
+            assertEquals(1, state.suggestions.size)
+            assertEquals(
+                ".claude/wiki/concepts/fsrc.md",
+                state.suggestions[0].targetFiles.single(),
+            )
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
     }
 }
