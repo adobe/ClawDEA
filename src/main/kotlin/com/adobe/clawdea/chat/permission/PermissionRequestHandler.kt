@@ -32,6 +32,19 @@ import com.intellij.ui.jcef.JBCefJSQuery
  *       - `allow` / `deny` — regular permission card
  *       - `submit` with a JSON payload of answers — AskUserQuestion card
  *       - `cancel` — AskUserQuestion card
+ *
+ * **Late AskUserQuestion answers.** When a multi-choice prompt sits long
+ * enough for [PermissionDispatcher.submit] to time out (claude-code #50289
+ * caps every HTTP MCP call at ~60 s), the CLI has already finalised the
+ * tool call as denied and emitted a Result that ends Claude's turn
+ * ("I'm waiting for you to approve in the IDE"). The `pendingDecisions`
+ * cache parks the answer for a hypothetical retry of the same
+ * AskUserQuestion call, but in practice Claude does not retry on its own
+ * — and an `AskUserQuestion` answer is data only the user can produce,
+ * so a "continue" from the user just makes Claude re-ask. To unblock
+ * the conversation we feed the answer back as a synthetic user message
+ * via [onLateAnswer] when `dispatcher.resolve` reports the resolution
+ * was late. This kicks off a fresh turn carrying the user's selection.
  */
 class PermissionRequestHandler(
     private val dispatcher: PermissionDispatcher,
@@ -39,6 +52,7 @@ class PermissionRequestHandler(
     private val questionRenderer: AskUserQuestionRenderer,
     private val browserRenderer: ChatBrowserRenderer,
     private val settingsWriter: ClaudePermissionSettingsWriter? = null,
+    private val onLateAnswer: (String) -> Unit = {},
 ) {
 
     /**
@@ -99,10 +113,7 @@ class PermissionRequestHandler(
                 handleQuestionSubmit(requestId, data)
             }
             "cancel" -> {
-                browserRenderer.executeJavaScript(
-                    questionRenderer.buildResolvedScript(requestId, emptyMap(), skipped = true),
-                )
-                dispatcher.resolve(requestId, PermissionRequest.Decision.DENY)
+                handleQuestionCancel(requestId)
             }
         }
     }
@@ -134,7 +145,20 @@ class PermissionRequestHandler(
         browserRenderer.executeJavaScript(
             questionRenderer.buildResolvedScript(requestId, answers, skipped = false),
         )
-        dispatcher.resolve(requestId, PermissionRequest.Decision.ALLOW, updatedInput)
+        val late = dispatcher.resolve(requestId, PermissionRequest.Decision.ALLOW, updatedInput)
+        if (late && answers.isNotEmpty()) {
+            onLateAnswer(buildLateAnswerMessage(answers))
+        }
+    }
+
+    private fun handleQuestionCancel(requestId: String) {
+        browserRenderer.executeJavaScript(
+            questionRenderer.buildResolvedScript(requestId, emptyMap(), skipped = true),
+        )
+        val late = dispatcher.resolve(requestId, PermissionRequest.Decision.DENY)
+        if (late) {
+            onLateAnswer(LATE_SKIP_MESSAGE)
+        }
     }
 
     private fun handleAlwaysAllow(requestId: String, scope: String) {
@@ -191,6 +215,35 @@ class PermissionRequestHandler(
             }
         } catch (_: Exception) {
             emptyMap()
+        }
+    }
+
+    companion object {
+        /**
+         * Synthetic user message used when the user clicks Skip on an
+         * AskUserQuestion card after the prompt-tool round-trip already
+         * timed out. Tells Claude to proceed without an answer rather
+         * than re-asking.
+         */
+        internal const val LATE_SKIP_MESSAGE: String =
+            "I skipped the multiple-choice question you asked earlier (the prompt-tool round-trip timed out before I could respond). Please continue without that input."
+
+        /**
+         * Synthetic user message we feed back into the CLI when an
+         * AskUserQuestion is answered after [PermissionDispatcher.submit]
+         * has already given up. Phrased so Claude treats the body as the
+         * answer to the question it asked rather than as a fresh prompt,
+         * and explicitly notes the prompt-tool round-trip timed out so
+         * the model does not re-issue the same AskUserQuestion call.
+         */
+        internal fun buildLateAnswerMessage(answers: Map<String, String>): String = buildString {
+            append("My answer to the multiple-choice question you asked earlier")
+            append(" (the prompt-tool round-trip timed out before I could submit, so this arrives as a follow-up message instead of a tool result):\n")
+            for ((q, a) in answers) {
+                if (q.isBlank() || a.isBlank()) continue
+                append("- ").append(q).append(" → ").append(a).append('\n')
+            }
+            append("\nPlease continue from here using these answers.")
         }
     }
 }

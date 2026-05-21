@@ -113,15 +113,29 @@ open class PermissionDispatcher(
         return Result(PermissionRequest.Decision.DENY, timedOut = true)
     }
 
+    /**
+     * Returns `true` when this resolution arrived *after* [submit] already
+     * timed out and returned a synthetic deny to CC — i.e. the original tool
+     * call has already been finalised on the CLI side, so the only way the
+     * decision can reach Claude is for the caller to inject it as a separate
+     * user message on the next turn (see [PermissionRequestHandler]'s
+     * `onLateAnswer` path). The cache fallback under (toolName, inputJson)
+     * is still populated for the same decision so a coincident retry by the
+     * model is also a no-op for the user.
+     *
+     * Returns `false` for the normal in-time path (submit still on the latch),
+     * for an unknown / already-resolved request id, and for the duplicate
+     * resolve no-op.
+     */
     fun resolve(
         requestId: String,
         decision: PermissionRequest.Decision,
         updatedInput: String? = null,
-    ) {
+    ): Boolean {
         synchronized(lock) {
-            val request = inFlight[requestId] ?: return
+            val request = inFlight[requestId] ?: return false
             val first = request.resolve(decision, updatedInput)
-            if (!first) return
+            if (!first) return false
 
             val cacheKey = abandoned.remove(requestId)
             if (cacheKey != null) {
@@ -131,9 +145,11 @@ open class PermissionDispatcher(
                 pruneExpiredDecisions()
                 pendingDecisions[cacheKey] = PendingDecision(decision, updatedInput, clock())
                 inFlight.remove(requestId)
+                return true
             }
             // If cacheKey is null, submit() is still on the latch; it will
             // discover the decision when it wakes up and clean inFlight itself.
+            return false
         }
     }
 

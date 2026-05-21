@@ -171,6 +171,15 @@ class ChatPanel(
         questionRenderer = askUserQuestionRenderer,
         browserRenderer = browserRenderer,
         settingsWriter = project.basePath?.let { ClaudePermissionSettingsWriter(Path.of(it)) },
+        // AskUserQuestion answers that arrive after the dispatcher's
+        // 45 s submit-timeout cannot reach Claude through the original
+        // request_permission round-trip (CC has already finalised it as
+        // denied per #50289). Re-inject them as a synthetic user message
+        // on the next turn so the conversation continues with the
+        // selection rather than Claude re-asking after a "continue".
+        // Hidden from chat scrollback (renderInChat=false) since the
+        // resolved question card already shows the user's answers.
+        onLateAnswer = { msg -> dispatchSendToBridge(msg, renderInChat = false) },
     )
 
     // Input placeholder
