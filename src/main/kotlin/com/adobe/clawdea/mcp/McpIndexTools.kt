@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.mcp
 
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.openapi.project.DumbService
@@ -231,27 +232,11 @@ class McpIndexTools(private val project: Project) {
         val psiFile = PsiUtils.resolvePsiFile(project, file) ?: return fileNotFound(file)
 
         val results = runReadAction {
-            if (psiFile !is PsiJavaFile) return@runReadAction "Not a Java file — related types only supported for Java files."
-
-            val importList = psiFile.importList ?: return@runReadAction "No imports found."
+            val support = LanguageSupportRegistry.forPsiFile(psiFile)
+                ?: return@runReadAction "Related types not supported for language: ${psiFile.language.displayName}."
             val scope = GlobalSearchScope.projectScope(project)
-            val sb = StringBuilder()
-
-            for (importStmt in importList.importStatements.take(15)) {
-                val qualifiedName = importStmt.qualifiedName ?: continue
-                val resolved = JavaPsiFacade.getInstance(project).findClass(qualifiedName, scope) ?: continue
-
-                val kind = if (resolved.isInterface) "interface" else "class"
-                sb.appendLine("--- $kind ${resolved.name} ---")
-                for (m in resolved.methods.take(10)) {
-                    sb.appendLine("  ${PsiUtils.formatMethodSignature(m)}")
-                }
-                for (f in resolved.fields.take(5)) {
-                    sb.appendLine("  ${f.type.presentableText} ${f.name}")
-                }
-                sb.appendLine()
-            }
-            if (sb.isEmpty()) "No project-scope related types found in imports." else sb.toString()
+            support.findRelatedTypes(psiFile, project, scope)
+                ?: "Related types not supported for language: ${support.displayName}."
         }
 
         return McpToolRouter.ToolResult(results)

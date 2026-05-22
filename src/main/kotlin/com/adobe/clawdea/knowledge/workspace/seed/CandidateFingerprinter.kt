@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.workspace.seed
 
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -60,7 +61,7 @@ object CandidateFingerprinter {
             try {
                 Files.walk(base, 6).use { stream ->
                     stream.filter { Files.isRegularFile(it) }
-                        .filter { it.toString().endsWith(".java") || it.toString().endsWith(".kt") }
+                        .filter { isSourceFile(it) }
                         .forEach { f ->
                             scanSourceFile(f, packageRoots, javaImports)
                         }
@@ -68,6 +69,15 @@ object CandidateFingerprinter {
             } catch (_: Throwable) { /* skip bad subtree */ }
         }
         return SourceFingerprint(packageRoots, javaImports)
+    }
+
+    private fun isSourceFile(path: Path): Boolean {
+        val name = path.fileName?.toString() ?: return false
+        val ext = name.substringAfterLast('.', missingDelimiterValue = "")
+        if (ext.isEmpty()) return false
+        if (LanguageSupportRegistry.forFileExtension(ext) != null) return true
+        // Fallback for early-indexing scenarios where the registry hasn't been populated yet.
+        return ext == "java" || ext == "kt" || ext == "kts"
     }
 
     private fun scanSourceFile(file: Path, pkgOut: MutableSet<String>, importOut: MutableSet<String>) {

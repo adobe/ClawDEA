@@ -24,6 +24,7 @@ import com.adobe.clawdea.chat.permission.PermissionRequestHandler
 import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.gateway.ModelEntry
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.settings.ToolApprovalModeUi
@@ -1924,8 +1925,12 @@ class ChatPanel(
                 ?: path.takeIf { it.firstOrNull()?.isUpperCase() == true && !it.contains(".") }
             if (classNameForFile != null) {
                 val scope = GlobalSearchScope.projectScope(project)
+                val candidateExtensions = LanguageSupportRegistry.all()
+                    .flatMap { it.fileExtensions }
+                    .ifEmpty { listOf("kt", "java") }
                 val fallbackFile = runReadAction {
-                    sequenceOf("$classNameForFile.kt", "$classNameForFile.java")
+                    candidateExtensions.asSequence()
+                        .map { ext -> "$classNameForFile.$ext" }
                         .flatMap { name -> FilenameIndex.getVirtualFilesByName(name, scope).asSequence() }
                         .sortedBy { navPriority(it.path) }
                         .firstOrNull()

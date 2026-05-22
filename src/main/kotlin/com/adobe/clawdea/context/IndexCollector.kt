@@ -185,6 +185,9 @@ class IndexCollector {
         return runWithTimeout("related-types") {
             runReadAction {
                 val items = mutableListOf<ContextItem>()
+                // PSI-type-specific branch. Extending to Scala/etc. will require either
+                // adding a per-language collector hook to LanguageSupport (sub-project #3)
+                // or expanding this when-branch.
                 if (psiFile !is PsiJavaFile) return@runReadAction items
 
                 val importList = psiFile.importList ?: return@runReadAction items
