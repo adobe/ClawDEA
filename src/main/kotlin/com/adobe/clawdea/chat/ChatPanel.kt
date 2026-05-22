@@ -16,6 +16,7 @@ import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
 import com.adobe.clawdea.chat.editreview.EditReviewHandler
 import com.adobe.clawdea.chat.permission.AskUserQuestionRenderer
 import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsWriter
+import com.adobe.clawdea.chat.permission.HandlerQuestionService
 import com.adobe.clawdea.chat.permission.PermissionDispatcher
 import com.adobe.clawdea.chat.permission.PermissionRouter
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
@@ -187,6 +188,7 @@ class ChatPanel(
         // Hidden from chat scrollback (renderInChat=false) since the
         // resolved question card already shows the user's answers.
         onLateAnswer = { msg -> dispatchSendToBridge(msg, renderInChat = false) },
+        handlerQuestions = HandlerQuestionService.getInstance(project),
     )
 
     // Input placeholder
@@ -994,6 +996,11 @@ class ChatPanel(
         return CommandContext(
             appendHtml = { html -> appendHtml(html) },
             showNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.INFORMATION) },
+            askQuestion = { input, onResolve ->
+                val service = HandlerQuestionService.getInstance(project)
+                val requestId = service.register(onResolve)
+                appendHtml(askUserQuestionRenderer.renderCard(requestId, input))
+            },
         )
     }
 

@@ -53,7 +53,22 @@ class PermissionRequestHandler(
     private val browserRenderer: ChatBrowserRenderer,
     private val settingsWriter: ClaudePermissionSettingsWriter? = null,
     private val onLateAnswer: (String) -> Unit = {},
+    /**
+     * Optional sibling resolver for question cards that were initiated from
+     * inside the plugin (e.g. `/wiki-relocate`) rather than by the CLI's
+     * AskUserQuestion tool. The same JCEF bridge feeds both kinds of card;
+     * the resolver claims ownership by requestId prefix so this handler can
+     * keep its CLI-permission code path identical.
+     */
+    private val handlerQuestions: HandlerQuestionResolver? = null,
 ) {
+
+    /** Pluggable resolver for handler-initiated question cards. */
+    interface HandlerQuestionResolver {
+        fun owns(requestId: String): Boolean
+        fun submit(requestId: String, answers: Map<String, String>, freeforms: Map<String, String>)
+        fun cancel(requestId: String)
+    }
 
     /**
      * Called from the MCP dispatch thread when a new permission prompt is needed.
@@ -96,6 +111,26 @@ class PermissionRequestHandler(
     }
 
     private fun handleAction(requestId: String, action: String, data: String) {
+        if (handlerQuestions?.owns(requestId) == true) {
+            when (action) {
+                "submit" -> {
+                    val answers = parseAnswers(data)
+                    val freeforms = parseFreeforms(data)
+                    browserRenderer.executeJavaScript(
+                        questionRenderer.buildResolvedScript(requestId, answers, skipped = false),
+                    )
+                    handlerQuestions.submit(requestId, answers, freeforms)
+                }
+                "cancel" -> {
+                    browserRenderer.executeJavaScript(
+                        questionRenderer.buildResolvedScript(requestId, emptyMap(), skipped = true),
+                    )
+                    handlerQuestions.cancel(requestId)
+                }
+                // Any other action on a handler-question id is a UI error — ignore.
+            }
+            return
+        }
         when (action) {
             "allow" -> {
                 resolveStandardRequest(requestId, "Allowed", PermissionRequest.Decision.ALLOW)

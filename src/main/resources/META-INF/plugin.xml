@@ -229,6 +229,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <projectService
             serviceImplementation="com.adobe.clawdea.knowledge.wiki.WikiLocator"/>
 
+        <!-- Handler-initiated Question Service (parks resolvers for /wiki-relocate etc.) -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.chat.permission.HandlerQuestionService"/>
+
         <!-- Debug Bridge -->
         <projectService
             serviceImplementation="com.adobe.clawdea.debug.DebugBridge"/>

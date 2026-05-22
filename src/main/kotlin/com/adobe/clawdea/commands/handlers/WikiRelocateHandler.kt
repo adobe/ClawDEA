@@ -12,6 +12,7 @@
 package com.adobe.clawdea.commands.handlers
 
 import com.adobe.clawdea.chat.permission.AskUserQuestionInput
+import com.adobe.clawdea.chat.permission.HandlerQuestionAnswers
 import com.adobe.clawdea.commands.CommandCategory
 import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler
@@ -24,24 +25,13 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 
 /**
- * Asks the user a question via the existing AskUserQuestion card UI. Suspends
- * until the user submits or cancels. Implementation lives in ChatPanel; this
- * interface lets the handler be unit-tested with a fake.
- */
-fun interface QuestionAsker {
-    /**
-     * Returns the chosen label (e.g. "Move"), or null if the user cancelled / skipped.
-     */
-    suspend fun ask(input: AskUserQuestionInput): String?
-}
-
-/**
- * Handles `/wiki-relocate <path>` — moves the wiki to a new project-relative path
+ * Handles `/wiki-relocate [path]` — moves the wiki to a new project-relative path
  * and writes `.clawdea/config.json` so subsequent project opens enter team mode.
  *
  * The pure helpers ([validatePath], [writeConfig], [appendGitignore]) are
- * unit-testable; the Project-aware [execute] composes them and asks the user
- * via the existing AskUserQuestion infrastructure (wired in Task 9).
+ * unit-testable; the Project-aware [execute] composes them and prompts the
+ * user via the existing AskUserQuestion card (now extended with a freeform
+ * input for the path itself — see Task 19b).
  */
 class WikiRelocateHandler(private val project: Project) : CommandHandler {
 
@@ -60,29 +50,60 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             return
         }
         val projectBase = Path.of(basePath)
-        val newPath = args.trim()
+        val ask = context.askQuestion
+        if (ask == null) {
+            context.appendHtml(
+                """<div class="info-block">Cannot relocate wiki: no interactive UI available in this context.</div>""",
+            )
+            return
+        }
 
-        val err = validatePath(newPath)
-        if (err != null) {
-            context.appendHtml("""<div class="info-block">Cannot relocate wiki: ${escapeHtml(err)}</div>""")
+        val prefill = args.trim().ifBlank { DEFAULT_WIKI_PATH }
+        val input = buildQuestion(prefill)
+
+        ask(input) { resolved ->
+            if (resolved == null) {
+                context.appendHtml(
+                    """<div class="info-block">/wiki-relocate cancelled — no changes made.</div>""",
+                )
+                return@ask
+            }
+            completeRelocate(projectBase, resolved, context)
+        }
+    }
+
+    private fun completeRelocate(
+        projectBase: Path,
+        resolved: HandlerQuestionAnswers,
+        context: CommandContext,
+    ) {
+        val newPath = resolved.freeforms.values.firstOrNull()?.trim().orEmpty()
+        val actionLabel = resolved.answers.values.firstOrNull()
+        val action = parseAction(actionLabel)
+        if (action == null) {
+            context.appendHtml(
+                """<div class="info-block">Cannot relocate wiki: choose Move, Copy, or Nothing.</div>""",
+            )
+            return
+        }
+        val pathErr = validatePath(newPath)
+        if (pathErr != null) {
+            context.appendHtml(
+                """<div class="info-block">Cannot relocate wiki: ${escapeHtml(pathErr)}</div>""",
+            )
             return
         }
 
         val oldWikiDir = WikiLocator.getInstance(project).wikiDir()
         val newWikiDir = projectBase.resolve(newPath)
-        val oldHasContents = Files.isDirectory(oldWikiDir) &&
-            Files.list(oldWikiDir).use { it.findAny().isPresent }
-
-        // Simplified heuristic (controller-approved for Task 10): the full
-        // interactive question card from Task 9 stays as a documented seam
-        // until CommandContext gains async-question plumbing.
-        val action: Action = if (!oldHasContents) Action.NOTHING else Action.MOVE
         applyAction(
             oldDir = oldWikiDir,
             newDir = newWikiDir,
             action = action,
             gitMove = { src, dst -> tryGitMove(project, src, dst) },
         )
+        writeConfig(projectBase, newPath)
+        appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
         // Project View / VFS won't notice a bulk directory move on its own;
         // push an immediate broad refresh so the relocated tree is visible
         // before the drift rescan reads it back. Skip when nothing moved.
@@ -90,17 +111,15 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
                 ?.onMassFileChange()
         }
-        writeConfig(projectBase, newPath)
-        appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
         project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
 
         val actionMsg = when (action) {
-            Action.NOTHING -> "no existing wiki to move"
+            Action.NOTHING -> "left existing wiki contents in place"
             Action.MOVE -> "moved existing wiki contents to '$newPath'"
             Action.COPY -> "copied existing wiki contents to '$newPath'"
         }
         context.appendHtml(
-            """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' (${escapeHtml(actionMsg)}). Commit .clawdea/config.json to share with your team.</div>"""
+            """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' (${escapeHtml(actionMsg)}). Commit .clawdea/config.json to share with your team.</div>""",
         )
     }
 
@@ -225,14 +244,20 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             }
         }
 
+        /** Default freeform prefill when the user runs `/wiki-relocate` with no argument. */
+        const val DEFAULT_WIKI_PATH: String = "docs/llm-wiki"
+
         /**
          * Builds the AskUserQuestion payload for the move/copy/nothing prompt.
-         * Pure helper — testable without a [Project] or JCEF wiring. The actual
-         * card rendering and submit handling lives in [ChatPanel] (Tasks 10/11).
+         * Pure helper — testable without a [Project] or JCEF wiring. The card
+         * carries an editable freeform field prefilled with [prefillPath]
+         * (the user's argument, or [DEFAULT_WIKI_PATH] when omitted) alongside
+         * the radio options. The actual card rendering and submit handling
+         * lives in [com.adobe.clawdea.chat.ChatPanel].
          */
-        fun buildQuestion(newPath: String): AskUserQuestionInput {
+        fun buildQuestion(prefillPath: String): AskUserQuestionInput {
             val q = AskUserQuestionInput.Question(
-                question = "What about existing wiki contents (target: $newPath)?",
+                question = "Relocate wiki — choose path and what to do with existing contents",
                 header = "Wiki relocate",
                 options = listOf(
                     AskUserQuestionInput.Option(
@@ -245,10 +270,15 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                     ),
                     AskUserQuestionInput.Option(
                         label = "Nothing",
-                        description = "Just point ClawDEA at the new path. Leave existing contents alone — you'll manage them yourself.",
+                        description = "Just point ClawDEA at the new path. Leave existing contents alone.",
                     ),
                 ),
                 multiSelect = false,
+                freeformInput = AskUserQuestionInput.FreeformInput(
+                    prefill = prefillPath,
+                    label = "New wiki path:",
+                    placeholder = DEFAULT_WIKI_PATH,
+                ),
             )
             return AskUserQuestionInput(questions = listOf(q))
         }

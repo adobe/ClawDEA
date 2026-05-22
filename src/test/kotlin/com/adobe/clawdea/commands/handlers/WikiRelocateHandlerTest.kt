@@ -11,9 +11,15 @@
  */
 package com.adobe.clawdea.commands.handlers
 
+import com.adobe.clawdea.chat.permission.AskUserQuestionInput
+import com.adobe.clawdea.chat.permission.HandlerQuestionAnswers
+import com.adobe.clawdea.commands.CommandContext
+import com.intellij.openapi.project.Project
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 
@@ -85,13 +91,27 @@ class WikiRelocateHandlerTest {
     }
 
     @Test fun `buildQuestion produces three options labeled Move Copy Nothing`() {
-        val q = WikiRelocateHandler.buildQuestion(newPath = "docs/llm-wiki")
+        val q = WikiRelocateHandler.buildQuestion(prefillPath = "docs/llm-wiki")
         val first = q.questions.single()
         assertEquals(false, first.multiSelect)
         assertEquals(listOf("Move", "Copy", "Nothing"), first.options.map { it.label })
         // Each option carries a description.
         assert(first.options.all { it.description.isNotBlank() })
-        assert(first.question.contains("docs/llm-wiki"))
+    }
+
+    @Test fun `buildQuestion includes a freeform input prefilled with the provided path`() {
+        val q = WikiRelocateHandler.buildQuestion(prefillPath = "docs/llm-wiki")
+        val freeform = q.questions.single().freeformInput
+        assertNotNull("freeformInput must be present", freeform)
+        assertEquals("docs/llm-wiki", freeform?.prefill)
+        // Label/placeholder are present so the field renders with helpful chrome.
+        assertNotNull(freeform?.label)
+        assertNotNull(freeform?.placeholder)
+    }
+
+    @Test fun `buildQuestion preserves an arbitrary prefill path verbatim`() {
+        val q = WikiRelocateHandler.buildQuestion(prefillPath = "my/custom/wiki")
+        assertEquals("my/custom/wiki", q.questions.single().freeformInput?.prefill)
     }
 
     @Test fun `applyAction NOTHING leaves files where they are`() {
@@ -133,6 +153,169 @@ class WikiRelocateHandlerTest {
         } finally {
             tmp.toFile().deleteRecursively()
         }
+    }
+
+    // --- execute() path: tests that don't reach WikiLocator.getInstance ---
+    //
+    // The Submit happy path (action+path valid) needs `WikiLocator.getInstance(project)`
+    // which requires a registered IntelliJ application; that's covered by the integration
+    // tests run from the IDE runner. The bail-out paths below all exit before that line.
+
+    @Test fun `execute without basePath emits a project-base-path error`() {
+        val handler = WikiRelocateHandler(stubProject(basePath = null))
+        val htmlBuf = StringBuilder()
+        var asked = false
+        handler.execute("docs/llm-wiki", CommandContext(
+            appendHtml = { htmlBuf.append(it) },
+            showNotification = {},
+            askQuestion = { _, _ -> asked = true },
+        ))
+        assertTrue(htmlBuf.toString().contains("no project base path"))
+        assertFalse("must not prompt when there's no project base", asked)
+    }
+
+    @Test fun `execute without askQuestion in context emits a no-interactive-UI error`() {
+        val tmp = Files.createTempDirectory("wiki-no-ui").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            val htmlBuf = StringBuilder()
+            handler.execute("docs/llm-wiki", CommandContext(
+                appendHtml = { htmlBuf.append(it) },
+                showNotification = {},
+                askQuestion = null,
+            ))
+            assertTrue(htmlBuf.toString().contains("no interactive UI"))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `execute with empty args prompts with the default wiki-path prefill`() {
+        val tmp = Files.createTempDirectory("wiki-prefill-default").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            var captured: AskUserQuestionInput? = null
+            handler.execute("", CommandContext(
+                appendHtml = {},
+                showNotification = {},
+                askQuestion = { input, _ -> captured = input /* resolver never invoked */ },
+            ))
+            val ff = captured?.questions?.single()?.freeformInput
+            assertNotNull("askQuestion must have been invoked with an input", ff)
+            assertEquals(WikiRelocateHandler.DEFAULT_WIKI_PATH, ff?.prefill)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `execute with explicit args prefills the card with the given path`() {
+        val tmp = Files.createTempDirectory("wiki-prefill-arg").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            var captured: AskUserQuestionInput? = null
+            handler.execute("custom/wiki", CommandContext(
+                appendHtml = {},
+                showNotification = {},
+                askQuestion = { input, _ -> captured = input },
+            ))
+            assertEquals("custom/wiki", captured?.questions?.single()?.freeformInput?.prefill)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `execute on Skip writes no clawdea config and surfaces a cancelled message`() {
+        val tmp = Files.createTempDirectory("wiki-skip").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            val htmlBuf = StringBuilder()
+            handler.execute("docs/llm-wiki", CommandContext(
+                appendHtml = { htmlBuf.append(it) },
+                showNotification = {},
+                askQuestion = { _, onResolve -> onResolve(null) },
+            ))
+            assertTrue("expected cancellation message, got: $htmlBuf", htmlBuf.toString().contains("cancelled"))
+            assertFalse(
+                "Skip must not write .clawdea/config.json",
+                Files.exists(tmp.resolve(".clawdea").resolve("config.json")),
+            )
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `execute on Submit with unknown action label bails before touching WikiLocator`() {
+        val tmp = Files.createTempDirectory("wiki-bad-action").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            val htmlBuf = StringBuilder()
+            handler.execute("docs/llm-wiki", CommandContext(
+                appendHtml = { htmlBuf.append(it) },
+                showNotification = {},
+                askQuestion = { _, onResolve ->
+                    // The renderer should have inserted "Move"/"Copy"/"Nothing" but
+                    // a corrupted submit (e.g. nothing selected) yields a missing or
+                    // unknown label. The handler must refuse without writing config.
+                    onResolve(HandlerQuestionAnswers(
+                        answers = emptyMap(),
+                        freeforms = mapOf("q" to "docs/llm-wiki"),
+                    ))
+                },
+            ))
+            assertTrue(
+                "expected choose-action error, got: $htmlBuf",
+                htmlBuf.toString().contains("Move, Copy, or Nothing"),
+            )
+            assertFalse(Files.exists(tmp.resolve(".clawdea").resolve("config.json")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `execute on Submit with invalid freeform path bails before touching WikiLocator`() {
+        val tmp = Files.createTempDirectory("wiki-bad-path").toAbsolutePath()
+        try {
+            val handler = WikiRelocateHandler(stubProject(basePath = tmp.toString()))
+            val htmlBuf = StringBuilder()
+            handler.execute("docs/llm-wiki", CommandContext(
+                appendHtml = { htmlBuf.append(it) },
+                showNotification = {},
+                askQuestion = { _, onResolve ->
+                    onResolve(HandlerQuestionAnswers(
+                        answers = mapOf("q" to "Nothing"),
+                        freeforms = mapOf("q" to "/absolute/path"),
+                    ))
+                },
+            ))
+            assertTrue(
+                "expected validation error, got: $htmlBuf",
+                htmlBuf.toString().contains("project-relative"),
+            )
+            assertFalse(Files.exists(tmp.resolve(".clawdea").resolve("config.json")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * Stub [Project] for the execute() bail-out tests. The handler reads
+     * `project.basePath` once at the top of `execute`; all other Project
+     * methods are unused in the bail paths covered here. The full submit
+     * path needs `WikiLocator.getInstance(project)`, which goes through the
+     * IntelliJ application service registry and is exercised in the IDE
+     * integration tests rather than this headless suite.
+     */
+    private fun stubProject(basePath: String?): Project {
+        return java.lang.reflect.Proxy.newProxyInstance(
+            Project::class.java.classLoader,
+            arrayOf(Project::class.java),
+        ) { _, method, _ ->
+            when (method.name) {
+                "getBasePath" -> basePath
+                "getName" -> "stub-project"
+                else -> null
+            }
+        } as Project
     }
 
     @Test fun `applyAction MOVE delegates each file to gitMove and falls back to filesystem move`() {
