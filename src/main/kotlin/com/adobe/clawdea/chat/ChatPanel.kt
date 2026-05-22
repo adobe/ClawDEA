@@ -1140,6 +1140,16 @@ class ChatPanel(
             } else {
                 "5–10 concept areas worth documenting (main subsystems, key APIs, active\n               feature work, architectural decisions worth capturing)."
             }
+            // Resolve the project-relative wiki path so the bootstrapped CLAUDE.md links at the
+            // correct location in both default and team modes (.clawdea/config.json → wikiPath).
+            val wikiPathRel: String = run {
+                val basePath = project.basePath ?: return@run ".claude/wiki"
+                val base = java.nio.file.Paths.get(basePath)
+                val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+                runCatching {
+                    base.relativize(wikiDir).toString().replace(java.io.File.separatorChar, '/')
+                }.getOrNull()?.takeIf { it.isNotBlank() } ?: ".claude/wiki"
+            }
             """
             Bootstrap an initial wiki for this project at .claude/wiki/.
 
@@ -1149,13 +1159,77 @@ class ChatPanel(
             If a tool result reports "tool not allowed" or you see an "Unavailable" status, you used the
             wrong tool; retry with propose_write.
 
+            **Scope rule (avoid overlap with CLAUDE.md):** the wiki holds subsystem-specific knowledge —
+            concept pages with invariants, resolution pipelines, source pointers, and anti-patterns specific
+            to one part of the codebase. The root `CLAUDE.md` holds project-wide context: build/test
+            commands, the high-level architecture (3–4 paragraphs max), and repo-wide
+            conventions/invariants. Do NOT duplicate build commands, top-level architecture, or repo-wide
+            conventions in wiki pages — they belong in `CLAUDE.md` and would drift if duplicated. Do NOT
+            put detailed subsystem documentation in `CLAUDE.md` — it belongs in concept pages and would
+            bloat the primer if duplicated.
+
             Steps:
-            1. Read CLAUDE.md (if present), README.md, and the top-level build files (pom.xml,
-               package.json, build.gradle.kts) to understand the project shape.
-            2. Call the get_primer MCP tool to see the auto-generated REPO_STATE
+            1. **Bootstrap `CLAUDE.md` if missing.** Check whether `CLAUDE.md` exists at the project
+               root.
+
+               **If it does NOT exist**, create it via `propose_write` using the template below.
+               Discover real values for each section from `package.json` scripts, `pom.xml` profiles,
+               `build.gradle.kts` tasks, `Makefile` targets, and the project README; do not ship the
+               italicised placeholder text.
+
+               ```markdown
+               # CLAUDE.md
+
+               This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+               ## Build & Test
+
+               _(List the build/test/run commands the human dev typically uses. Discover them from
+               package.json scripts, pom.xml profiles, build.gradle.kts tasks, Makefile targets, or
+               README quick-start sections. Match the developer voice — concise, command-first.)_
+
+               ## Architecture
+
+               _(One short paragraph about the high-level shape of the project: the entry point, the
+               main subsystems, how data flows between them. **No more than 3–4 paragraphs.**
+               Detailed subsystem documentation belongs in the wiki, not here.)_
+
+               ## Key conventions
+
+               _(Bulleted list of repo-wide invariants — language/JVM target, dependency-management
+               quirks, anti-patterns to avoid, file-organisation rules, and anything else that
+               applies project-wide and would be costly to discover by reading sources. Do NOT
+               duplicate subsystem-specific knowledge here — that goes in the wiki.)_
+
+               ## Wiki
+
+               Detailed knowledge about individual subsystems lives in [`$wikiPathRel/index.md`]($wikiPathRel/index.md).
+               Concept pages cover entry points, invariants, and source pointers per subsystem. Read
+               the wiki page for a subsystem before grepping its source files.
+               ```
+
+               **If `CLAUDE.md` already exists**, do NOT overwrite it. Check whether it already
+               contains a markdown link whose target lives under the wiki root (i.e. a link to
+               `$wikiPathRel/index.md`, or any other path beginning with `$wikiPathRel/`). If such a
+               link is missing, append a new section at the end of the file via `propose_edit`:
+
+               ```markdown
+
+               ## Wiki
+
+               Detailed knowledge about individual subsystems lives in [`$wikiPathRel/index.md`]($wikiPathRel/index.md).
+               Concept pages cover entry points, invariants, and source pointers per subsystem. Read
+               the wiki page for a subsystem before grepping its source files.
+               ```
+
+               If a wiki link already exists, leave `CLAUDE.md` alone (idempotent).
+
+            2. Read CLAUDE.md (now guaranteed to exist after step 1), README.md, and the top-level
+               build files (pom.xml, package.json, build.gradle.kts) to understand the project shape.
+            3. Call the get_primer MCP tool to see the auto-generated REPO_STATE
                (current branch, recent commits, hot files), then identify
                $capWording
-            3. **Classify each concept independently** into one of:
+            4. **Classify each concept independently** into one of:
                - `pipeline` — multi-step resolution with cache boundaries or registration order
                  a reasoner could get wrong (content policy resolution, dispatcher invalidation,
                  servlet dispatching).
@@ -1174,7 +1248,7 @@ class ChatPanel(
             $navigationTemplate
             ----- END NAVIGATION TEMPLATE -----
 
-            4. Use propose_write (NOT Write) to create:
+            5. Use propose_write (NOT Write) to create:
                - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each
                  concept page, e.g. `[Title](concepts/<slug>.md)`.
                - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept, using the template
