@@ -65,6 +65,9 @@ class PsiCollector {
             }
 
             // Imports
+            // PSI-type-specific branch. Extending to Scala/etc. will require either
+            // adding a per-language collector hook to LanguageSupport (sub-project #3)
+            // or expanding this when-branch.
             if (psiFile is PsiJavaFile) {
                 val importList = psiFile.importList
                 if (importList != null && importList.allImportStatements.isNotEmpty()) {

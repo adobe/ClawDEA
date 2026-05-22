@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.mcp
 
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
@@ -158,8 +159,11 @@ class McpIdeTools(private val project: Project) {
 
     private fun getDiagnosticsViaGradle(filePath: String): McpToolRouter.ToolResult {
         val basePath = project.basePath ?: return McpToolRouter.ToolResult("No project base path", isError = true)
-        val isKotlin = filePath.endsWith(".kt") || filePath.endsWith(".kts")
-        val task = if (isKotlin) "compileKotlin" else "compileJava"
+        val extension = filePath.substringAfterLast('.', missingDelimiterValue = "")
+        val task = LanguageSupportRegistry.forFileExtension(extension)?.gradleCompileTaskName
+            ?: return McpToolRouter.ToolResult(
+                "No compile task known for file extension '.$extension'", isError = true,
+            )
 
         return try {
             val process = ProcessBuilder("./gradlew", task, "--quiet")

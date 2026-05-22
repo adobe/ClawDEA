@@ -11,6 +11,9 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.language.JavaLanguageSupport
+import com.adobe.clawdea.language.KotlinLanguageSupport
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.junit.Test
 
@@ -24,6 +27,21 @@ import org.junit.Test
 class IndexQueryHandlerTest : LightJavaCodeInsightFixtureTestCase() {
 
     override fun getTestDataPath(): String = "src/test/testData"
+
+    override fun setUp() {
+        super.setUp()
+        LanguageSupportRegistry.clearForTest()
+        LanguageSupportRegistry.register(JavaLanguageSupport)
+        LanguageSupportRegistry.register(KotlinLanguageSupport)
+    }
+
+    override fun tearDown() {
+        try {
+            LanguageSupportRegistry.clearForTest()
+        } finally {
+            super.tearDown()
+        }
+    }
 
     // --- Java callers (full pipeline through fixture) ---
 

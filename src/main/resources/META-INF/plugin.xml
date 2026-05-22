@@ -272,6 +272,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <postStartupActivity
             implementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriberStartupActivity"/>
 
+        <!-- Language Support Registry (Java + Kotlin built-in) -->
+        <postStartupActivity
+            implementation="com.adobe.clawdea.language.LanguageSupportInitializer"/>
+
         <!-- Claude Gateway -->
         <applicationService
             serviceImplementation="com.adobe.clawdea.gateway.ClaudeGateway"/>
