@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.buildtool
 
+import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
-import com.intellij.lang.Language
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -45,13 +45,14 @@ object GradleBuildTool : BuildTool {
     override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
 
     override fun compileCommandFor(
-        language: Language,
+        languageSupport: LanguageSupport,
         targetFile: String,
         project: Project,
     ): CompileCommand? {
-        val task = when (language.id) {
-            "JAVA" -> "compileJava"
+        val task = when (languageSupport.id) {
+            "java" -> "compileJava"
             "kotlin" -> "compileKotlin"
+            "scala" -> "compileScala"
             else -> return null
         }
         val basePath = project.basePath ?: return null

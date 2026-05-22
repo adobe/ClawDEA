@@ -17,5 +17,6 @@ class LanguageSupportInitializer : ProjectActivity {
     override suspend fun execute(project: Project) {
         LanguageSupportRegistry.register(JavaLanguageSupport)
         LanguageSupportRegistry.register(KotlinLanguageSupport)
+        LanguageSupportRegistry.register(ScalaLanguageSupport)
     }
 }

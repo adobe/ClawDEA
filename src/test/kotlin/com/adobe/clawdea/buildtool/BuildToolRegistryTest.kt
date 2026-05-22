@@ -4,7 +4,7 @@
  */
 package com.adobe.clawdea.buildtool
 
-import com.intellij.lang.Language
+import com.adobe.clawdea.language.LanguageSupport
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import org.junit.After
@@ -25,7 +25,7 @@ class BuildToolRegistryTest {
     ) : BuildTool {
         override fun isActive(project: Project) = activeFor(project)
         override fun buildConfigFiles(project: Project): List<VirtualFile> = emptyList()
-        override fun compileCommandFor(language: Language, targetFile: String, project: Project): CompileCommand? = null
+        override fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand? = null
         override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String = ""
     }
 

@@ -16,6 +16,10 @@ import org.junit.Test
  */
 class KotlinLanguageSupportTest {
 
+    @Test fun `id is kotlin`() {
+        assertEquals("kotlin", KotlinLanguageSupport.id)
+    }
+
     @Test fun `displayName is Kotlin`() {
         assertEquals("Kotlin", KotlinLanguageSupport.displayName)
     }

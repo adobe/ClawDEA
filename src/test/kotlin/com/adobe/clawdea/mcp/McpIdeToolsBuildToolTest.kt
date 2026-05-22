@@ -33,7 +33,8 @@ class McpIdeToolsBuildToolTest {
     }
 
     private object FakeJavaSupport : LanguageSupport {
-        override val language: Language = FakeJavaLang
+        override val id = "java"
+        override val language: Language? = FakeJavaLang
         override val displayName = "Java"
         override val fileExtensions = setOf("java")
     }
@@ -46,7 +47,7 @@ class McpIdeToolsBuildToolTest {
     ) : BuildTool {
         override fun isActive(project: Project) = activeFor(project)
         override fun buildConfigFiles(project: Project): List<VirtualFile> = emptyList()
-        override fun compileCommandFor(language: Language, targetFile: String, project: Project): CompileCommand? = command
+        override fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand? = command
         override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String = ""
     }
 
