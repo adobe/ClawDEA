@@ -132,4 +132,28 @@ class CommitWikiDriftDetectorTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    @Test fun `commitRangeArgs empty SHA returns null (first run)`() {
+        val args = CommitWikiDriftDetector.commitRangeArgs(
+            lastSyncedCommit = "",
+            isAncestor = { _ -> true },
+        )
+        assertEquals(null, args)
+    }
+
+    @Test fun `commitRangeArgs unreachable SHA returns null (first run)`() {
+        val args = CommitWikiDriftDetector.commitRangeArgs(
+            lastSyncedCommit = "abc1234",
+            isAncestor = { _ -> false }, // simulating non-ancestor
+        )
+        assertEquals(null, args)
+    }
+
+    @Test fun `commitRangeArgs reachable SHA returns range`() {
+        val args = CommitWikiDriftDetector.commitRangeArgs(
+            lastSyncedCommit = "abc1234",
+            isAncestor = { sha -> sha == "abc1234" },
+        )
+        assertEquals("abc1234..HEAD", args)
+    }
 }

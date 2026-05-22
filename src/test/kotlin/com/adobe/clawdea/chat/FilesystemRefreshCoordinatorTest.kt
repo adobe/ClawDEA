@@ -20,8 +20,10 @@ class FilesystemRefreshCoordinatorTest {
         private data class Pending(val delayMs: Long, val task: () -> Unit)
         private var pending: Pending? = null
         private var virtualClockMs: Long = 0
+        var scheduledCount: Int = 0
 
         override fun schedule(delayMs: Long, task: () -> Unit) {
+            scheduledCount++
             pending = Pending(virtualClockMs + delayMs, task)
         }
 
@@ -107,6 +109,21 @@ class FilesystemRefreshCoordinatorTest {
 
         assertEquals(listOf("/tmp/a.kt"), ops.fileCalls)
         assertEquals(0, ops.broadCount)
+    }
+
+    @Test
+    fun `onMassFileChange triggers immediate broad refresh without debounce`() {
+        val ops = FakeRefreshOperations()
+        val scheduler = FakeDebounceScheduler()
+        val coordinator = FilesystemRefreshCoordinator(ops, scheduler)
+
+        coordinator.onMassFileChange()
+
+        assertEquals(1, ops.broadCount)
+        assertEquals(0, scheduler.scheduledCount)
+
+        scheduler.advanceTimeBy(FilesystemRefreshCoordinator.BASH_DEBOUNCE_MS * 2)
+        assertEquals(1, ops.broadCount)
     }
 
     @Test

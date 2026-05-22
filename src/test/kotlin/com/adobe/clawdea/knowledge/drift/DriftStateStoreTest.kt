@@ -19,42 +19,46 @@ class DriftStateStoreTest {
 
     @Test fun `read returns empty state when file is missing`() {
         val tmp = Files.createTempDirectory("drift")
-        val state = DriftStateStore.read(claudeDir = tmp)
+        val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(emptyList<String>(), state.dismissed)
     }
 
     @Test fun `write then read round-trips dismissed list`() {
         val tmp = Files.createTempDirectory("drift")
-        DriftStateStore.write(claudeDir = tmp,
+        val wikiDir = tmp.resolve("wiki")
+        DriftStateStore.write(wikiDir = wikiDir,
             state = DriftState(lastScanAt = "2026-05-04T10:00:00Z", dismissed = listOf("a", "b")))
-        val state = DriftStateStore.read(claudeDir = tmp)
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(listOf("a", "b"), state.dismissed)
         assertEquals("2026-05-04T10:00:00Z", state.lastScanAt)
     }
 
     @Test fun `update modifies state atomically`() {
         val tmp = Files.createTempDirectory("drift")
-        DriftStateStore.write(claudeDir = tmp,
+        val wikiDir = tmp.resolve("wiki")
+        DriftStateStore.write(wikiDir = wikiDir,
             state = DriftState(lastScanAt = "x", dismissed = listOf("a")))
-        DriftStateStore.update(claudeDir = tmp) { s -> s.copy(dismissed = s.dismissed + "b") }
-        assertEquals(listOf("a", "b"), DriftStateStore.read(claudeDir = tmp).dismissed)
+        DriftStateStore.update(wikiDir = wikiDir) { s -> s.copy(dismissed = s.dismissed + "b") }
+        assertEquals(listOf("a", "b"), DriftStateStore.read(wikiDir = wikiDir).dismissed)
     }
 
     @Test fun `read tolerates malformed JSON by returning empty state`() {
         val tmp = Files.createTempDirectory("drift")
         val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
         Files.writeString(wikiDir.resolve(".drift-state.json"), "{not json}")
-        assertEquals(emptyList<String>(), DriftStateStore.read(claudeDir = tmp).dismissed)
+        assertEquals(emptyList<String>(), DriftStateStore.read(wikiDir = wikiDir).dismissed)
     }
 
     @Test fun `probeMisses round-trips through JSON`() {
         val tmp = Files.createTempDirectory("drift")
+        val wikiDir = tmp.resolve("wiki")
         val misses = listOf(
             ProbeMiss("policy resolution", listOf("policies", "clientlibs"), 0, "abc123", "2026-05-12T10:00:00Z"),
             ProbeMiss("template mapping", listOf("page", "v2", "v3"), 1, "def456", "2026-05-12T11:00:00Z"),
         )
-        DriftStateStore.write(claudeDir = tmp, state = DriftState(probeMisses = misses))
-        val state = DriftStateStore.read(claudeDir = tmp)
+        DriftStateStore.write(wikiDir = wikiDir, state = DriftState(probeMisses = misses))
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(2, state.probeMisses.size)
         assertEquals("policy resolution", state.probeMisses[0].query)
         assertEquals(listOf("policies", "clientlibs"), state.probeMisses[0].pathTokens)
@@ -65,12 +69,13 @@ class DriftStateStoreTest {
 
     @Test fun `probeMisses cap enforced at 200`() {
         val tmp = Files.createTempDirectory("drift")
+        val wikiDir = tmp.resolve("wiki")
         val misses = (1..250).map {
             ProbeMiss("query$it", listOf("token"), 0, "hash", "2026-05-12T10:00:00Z")
         }
         val capped = misses.takeLast(DriftState.MAX_PROBE_MISSES)
-        DriftStateStore.write(claudeDir = tmp, state = DriftState(probeMisses = capped))
-        val state = DriftStateStore.read(claudeDir = tmp)
+        DriftStateStore.write(wikiDir = wikiDir, state = DriftState(probeMisses = capped))
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(200, state.probeMisses.size)
         assertEquals("query51", state.probeMisses[0].query)
     }
@@ -91,7 +96,7 @@ class DriftStateStoreTest {
             """.trimIndent()
             Files.writeString(wikiDir.resolve(".drift-state.json"), legacyJson)
 
-            val state = DriftStateStore.read(tmp)
+            val state = DriftStateStore.read(wikiDir = wikiDir)
             assertEquals("2026-05-10T00:00:00Z", state.lastScanAt)
             assertEquals(listOf("x"), state.dismissed)
             // No assertion on dream fields — they're gone.
@@ -102,7 +107,8 @@ class DriftStateStoreTest {
 
     @Test fun `read returns empty suggestions when file is missing`() {
         val tmp = Files.createTempDirectory("drift")
-        val state = DriftStateStore.read(claudeDir = tmp)
+        val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(emptyList<DriftEvent.WikiSuggestion>(), state.suggestions)
     }
 
@@ -113,13 +119,42 @@ class DriftStateStoreTest {
             wikiDir.resolve(".drift-state.json"),
             """{"lastScanAt":"2026-05-01T00:00:00Z","dismissed":["sig-a"]}""",
         )
-        val state = DriftStateStore.read(claudeDir = tmp)
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(listOf("sig-a"), state.dismissed)
         assertEquals(emptyList<DriftEvent.WikiSuggestion>(), state.suggestions)
     }
 
+    @Test fun `read tolerates legacy file without lastSyncedCommit`() {
+        val tmp = Files.createTempDirectory("drift-legacy")
+        try {
+            val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
+            Files.writeString(
+                wikiDir.resolve(".drift-state.json"),
+                """{"lastScanAt":"2026-05-21T00:00:00Z","dismissed":["x"]}""",
+            )
+            val state = DriftStateStore.read(wikiDir = wikiDir)
+            assertEquals("2026-05-21T00:00:00Z", state.lastScanAt)
+            assertEquals("", state.lastSyncedCommit)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `lastSyncedCommit round-trips through JSON`() {
+        val tmp = Files.createTempDirectory("drift-sha")
+        try {
+            val wikiDir = tmp.resolve("wiki")
+            DriftStateStore.write(wikiDir, DriftState(lastSyncedCommit = "abc1234deadbeef"))
+            val state = DriftStateStore.read(wikiDir)
+            assertEquals("abc1234deadbeef", state.lastSyncedCommit)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun `write then read round-trips suggestions list`() {
         val tmp = Files.createTempDirectory("drift")
+        val wikiDir = tmp.resolve("wiki")
         val suggestion = DriftEvent.WikiSuggestion(
             kind = SuggestionKind.missingConcept,
             title = "Add concept for FilesystemRefreshCoordinator",
@@ -132,15 +167,95 @@ class DriftStateStoreTest {
             recordedAt = "2026-05-16T16:30:00Z",
         )
         DriftStateStore.write(
-            claudeDir = tmp,
+            wikiDir = wikiDir,
             state = DriftState(suggestions = listOf(suggestion)),
         )
-        val state = DriftStateStore.read(claudeDir = tmp)
+        val state = DriftStateStore.read(wikiDir = wikiDir)
         assertEquals(1, state.suggestions.size)
         val read = state.suggestions[0]
         assertEquals(SuggestionKind.missingConcept, read.kind)
         assertEquals(suggestion.title, read.title)
         assertEquals(suggestion.targetFiles, read.targetFiles)
         assertEquals(suggestion.signature, read.signature)
+    }
+
+    @Test fun `team mode writes split files and reads them back`() {
+        val tmp = Files.createTempDirectory("drift-team")
+        try {
+            val wikiDir = tmp.resolve("docs/llm-wiki")
+            val projectBase = tmp
+            // Mark team mode by creating .clawdea/config.json so the store knows the mode.
+            val clawdeaDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(clawdeaDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val state = DriftState(
+                lastScanAt = "2026-05-21T10:00:00Z",
+                lastSyncedCommit = "abc1234",
+                dismissed = listOf("sig-a"),
+                suggestions = listOf(
+                    DriftEvent.WikiSuggestion(
+                        kind = SuggestionKind.missingConcept,
+                        title = "Add X",
+                        rationale = "r",
+                        targetFiles = listOf("a.md"),
+                        sourcePage = null,
+                        recordedAt = "2026-05-21T10:00:00Z",
+                    ),
+                ),
+            )
+            DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = state)
+
+            // Team file holds shared facts.
+            val teamFile = wikiDir.resolve(".wiki-state.json")
+            val teamJson = Files.readString(teamFile)
+            assert(teamJson.contains("abc1234")) { "team file should contain SHA: $teamJson" }
+            assert(!teamJson.contains("sig-a")) { "team file must not contain dismissed sigs: $teamJson" }
+
+            // Per-user file holds personal data.
+            val perUserFile = projectBase.resolve(".clawdea").resolve("wiki-state.local.json")
+            val perUserJson = Files.readString(perUserFile)
+            assert(perUserJson.contains("sig-a")) { "per-user file should contain dismissed: $perUserJson" }
+            assert(!perUserJson.contains("abc1234")) { "per-user file must not contain SHA: $perUserJson" }
+
+            // Round-trip read merges them.
+            val read = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
+            assertEquals("abc1234", read.lastSyncedCommit)
+            assertEquals("2026-05-21T10:00:00Z", read.lastScanAt)
+            assertEquals(listOf("sig-a"), read.dismissed)
+            assertEquals(1, read.suggestions.size)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `migration moves legacy drift-state into split files on first read`() {
+        val tmp = Files.createTempDirectory("drift-migrate")
+        try {
+            val projectBase = tmp
+            val newWikiDir = tmp.resolve("docs/llm-wiki")
+            Files.createDirectories(newWikiDir)
+            // Legacy default location with old data.
+            val legacyDir = Files.createDirectories(tmp.resolve(".claude").resolve("wiki"))
+            Files.writeString(
+                legacyDir.resolve(".drift-state.json"),
+                """{"lastScanAt":"2026-05-20T00:00:00Z","lastSyncedCommit":"deadbeef","dismissed":["sig-a"]}""",
+            )
+            // Mark team mode.
+            val clawdeaDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(clawdeaDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val read = DriftStateStore.read(wikiDir = newWikiDir, projectBase = projectBase)
+            assertEquals("deadbeef", read.lastSyncedCommit)
+            assertEquals(listOf("sig-a"), read.dismissed)
+
+            // After migration: legacy file gone, split files present.
+            assert(!Files.exists(legacyDir.resolve(".drift-state.json"))) { "legacy file should be deleted" }
+            assert(Files.exists(newWikiDir.resolve(".wiki-state.json"))) { "team file should exist after migration" }
+            assert(Files.exists(projectBase.resolve(".clawdea").resolve("wiki-state.local.json"))) {
+                "per-user file should exist after migration"
+            }
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
     }
 }

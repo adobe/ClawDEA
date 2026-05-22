@@ -12,6 +12,7 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.knowledge.drift.DriftEvent
+import com.adobe.clawdea.knowledge.drift.DriftEventIcon
 import com.intellij.openapi.diagnostic.Logger
 
 /**
@@ -42,11 +43,16 @@ class DriftBanner(
      * Build one human-readable line per auto-applied fix. Caller is responsible
      * for rendering each line as its own info-block / chat message so newlines
      * survive HTML escaping. Empty when [applied] is empty.
+     *
+     * Each line is prefixed with the per-kind drift icon ([DriftEventIcon])
+     * so the user can immediately tell at a glance which auto-applied fix
+     * came from which detector.
      */
     fun autoApplyNotificationLines(applied: List<DriftEvent>): List<String> {
         if (applied.isEmpty()) return emptyList()
         return applied.map { event ->
-            when (event) {
+            val icon = DriftEventIcon.iconFor(event)
+            val body = when (event) {
                 is DriftEvent.CodeRename -> {
                     val replacement = event.suggestedReplacement ?: "(removed)"
                     "✓ updated wiki ref: ${event.wikiPage.fileName} · ${event.brokenLink} → $replacement"
@@ -66,6 +72,7 @@ class DriftBanner(
                     "✓ wiki suggestion: ${event.title}"
                 }
             }
+            "$icon $body"
         }
     }
 
@@ -83,16 +90,11 @@ class DriftBanner(
             updateHtml("<div id=\"drift-banner\" style=\"display:none;\"></div>")
             return
         }
-        val n = current.size
-        val label = if (current.any { it.isMaintenanceSuggestion() }) {
-            if (n == 1) "maintenance suggestion" else "maintenance suggestions"
-        } else {
-            if (n == 1) "stale ref" else "stale refs"
-        }
+        val parts = renderKindCounts(current)
         val html = """
             <div id="drift-banner" class="drift-banner">
                 <span class="drift-banner-icon">⚠</span>
-                <span class="drift-banner-text">wiki has $n $label</span>
+                <span class="drift-banner-text">wiki: $parts</span>
                 <span class="drift-banner-action" data-action="drift-action" data-drift-action="refresh">/refresh-wiki to review</span>
                 <span class="drift-banner-sep">·</span>
                 <span class="drift-banner-action" data-action="drift-action" data-drift-action="dismiss">dismiss</span>
@@ -101,17 +103,34 @@ class DriftBanner(
         updateHtml(html)
     }
 
-    private fun DriftEvent.isMaintenanceSuggestion(): Boolean =
-        when (this) {
-            is DriftEvent.CommitDrift,
-            is DriftEvent.WikiSuggestion,
-            -> true
-            is DriftEvent.CodeRename,
-            is DriftEvent.ManifestStale,
-            -> false
-        }
-
     companion object {
         private val LOG = Logger.getInstance(DriftBanner::class.java)
     }
+}
+
+/**
+ * Render per-kind drift counts as a "·"-joined string for the [DriftBanner]
+ * header, e.g. `🔗 2 stale links · ↻ 3 code changes · ✍ 1 suggested update`.
+ *
+ * Kinds with zero count are naturally omitted because we group by sealed
+ * subclass. Encounter order in [events] is preserved across kinds so the
+ * banner ordering is deterministic and stable for a given input.
+ */
+internal fun renderKindCounts(events: List<DriftEvent>): String {
+    val groups = events.groupBy { it::class }
+    return groups.entries.joinToString(" · ") { (_, list) ->
+        val rep = list.first()
+        val n = list.size
+        val label = DriftEventIcon.labelFor(rep)
+        val display = if (n == 1) label else pluralize(label)
+        "${DriftEventIcon.iconFor(rep)} $n $display"
+    }
+}
+
+private fun pluralize(label: String): String = when (label) {
+    "stale link" -> "stale links"
+    "stale manifest" -> "stale manifests"
+    "code changed" -> "code changes"
+    "suggested update" -> "suggested updates"
+    else -> label + "s"
 }

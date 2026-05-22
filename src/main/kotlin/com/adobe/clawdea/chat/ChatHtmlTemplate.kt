@@ -28,6 +28,7 @@ class ChatHtmlTemplate {
         navigateJs: String,
         permissionDecisionJs: String,
         driftActionJs: String,
+        runSlashCommandJs: String,
     ): String = """
         window.bridgeStopTool = function() { $abortJs };
         window.bridgeTurnControl = function(action) { $turnControlJs };
@@ -38,10 +39,13 @@ class ChatHtmlTemplate {
         window.bridgeNavigate = function(ref) { $navigateJs };
         window.bridgePermissionDecision = function(arg) { $permissionDecisionJs };
         window.bridgeDriftAction = function(action) { $driftActionJs };
+        window.bridgeRunSlashCommand = function(slash) { $runSlashCommandJs };
         window.collectQuestionAnswers = function(card) {
             // Walk every radio/checkbox in the card; group multi-select labels
-            // under their question text. Returns { "<question>": "<label>" |
-            // "<l1>, <l2>" }.
+            // under their question text. Also collect any freeform text inputs
+            // (class="question-freeform-input") into a sibling freeforms map.
+            // Returns { answers: { "<question>": "<label>" | "<l1>, <l2>" },
+            //           freeforms: { "<question>": "<text>" } }.
             var answers = {};
             var inputs = card.querySelectorAll('input[type="radio"], input[type="checkbox"]');
             for (var i = 0; i < inputs.length; i++) {
@@ -56,7 +60,15 @@ class ChatHtmlTemplate {
                     answers[q] = l;
                 }
             }
-            return answers;
+            var freeforms = {};
+            var textInputs = card.querySelectorAll('input.question-freeform-input[type="text"]');
+            for (var j = 0; j < textInputs.length; j++) {
+                var t = textInputs[j];
+                var qq = t.getAttribute('data-question') || '';
+                if (!qq) continue;
+                freeforms[qq] = t.value || '';
+            }
+            return { answers: answers, freeforms: freeforms };
         };
         document.addEventListener('click', function(e) {
             var el = e.target.closest('[data-action]');
@@ -86,6 +98,14 @@ class ChatHtmlTemplate {
                 }
                 case 'question-cancel': bridgePermissionDecision(permissionId + ':cancel'); break;
                 case 'drift-action': bridgeDriftAction(el.getAttribute('data-drift-action') || ''); break;
+                case 'run-slash-command': {
+                    // Anchor links default to navigating; suppress that so the
+                    // page doesn't try to follow href="#".
+                    if (e.preventDefault) e.preventDefault();
+                    var slash = el.getAttribute('data-slash') || '';
+                    if (slash) bridgeRunSlashCommand(slash);
+                    break;
+                }
             }
         });
     """.trimIndent()

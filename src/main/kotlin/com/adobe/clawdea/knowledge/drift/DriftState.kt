@@ -26,13 +26,22 @@ data class UserCorrectionRecord(
 )
 
 /**
- * Persisted drift state. Loaded from `.claude/wiki/.drift-state.json` per project.
+ * Persisted drift state. Loaded from `<wikiDir>/.drift-state.json` (default mode)
+ * or split between `<wikiDir>/.wiki-state.json` (team-shared) and
+ * `<projectBase>/.clawdea/wiki-state.local.json` (per-user) in team mode — see
+ * the wiki-team-support spec for the field-split mapping.
+ *
+ * `lastScanAt` is when the last scan ran (per-user observation). `lastSyncedCommit`
+ * is the git SHA the wiki currently describes (team-shared fact). They coexist
+ * because they answer different questions.
+ *
  * Empty state is the default when the file is missing or malformed. Older files
  * that contain the now-removed `dream*` fields read cleanly: Gson ignores extra
  * JSON fields when no matching property exists.
  */
 data class DriftState(
     val lastScanAt: String = "",
+    val lastSyncedCommit: String = "",
     val dismissed: List<String> = emptyList(),
     val probeMisses: List<ProbeMiss> = emptyList(),
     val userCorrections: List<UserCorrectionRecord> = emptyList(),

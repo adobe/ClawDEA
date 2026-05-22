@@ -26,7 +26,11 @@ sealed class ToolMode {
  * Generates HTML fragments for appending into the JCEF chat view.
  * All output is designed for full Chromium CSS rendering.
  */
-class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectBasePath: String? = null) {
+class MessageRenderer(
+    var autoAcceptEdits: Boolean = false,
+    private val projectBasePath: String? = null,
+    private val wikiDirResolver: (() -> java.nio.file.Path?)? = null,
+) {
 
     fun renderUserMessage(text: String): String {
         val html = markdownToHtml(text)
@@ -156,6 +160,9 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
     ): String {
         val parsed = parseToolInput(toolName, input)
         val icon = when {
+            isWikiReadTool(toolName) -> "📚"
+            isWikiWriteTool(toolName) -> "📝"
+            isEditOrWriteUnderWikiDir(toolName, input) -> "📝"
             toolName.contains("Bash", ignoreCase = true) -> "▶"
             toolName.contains("Read", ignoreCase = true) -> "📄"
             toolName.contains("Edit", ignoreCase = true) || toolName.contains("Write", ignoreCase = true) -> "✏"
@@ -246,8 +253,11 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
         val tooltip = escapeHtml(tooltipPath(filePath))
         val absPath = escapeHtml(filePath)
         val safeId = escapeHtml(toolUseId)
-        val icon = when (label) {
-            "Edit", "Write" -> "&#x270F;"
+        val underWiki = isPathUnderWikiDir(filePath)
+        val icon = when {
+            underWiki && (label == "Edit" || label == "Write") -> "&#x1F4DD;"
+            underWiki -> "&#x1F4DA;"
+            label == "Edit" || label == "Write" -> "&#x270F;"
             else -> "&#x1F4C4;"
         }
         val safeLabel = escapeHtml(label)
@@ -263,6 +273,59 @@ class MessageRenderer(var autoAcceptEdits: Boolean = false, private val projectB
     private fun extractFileName(path: String): String {
         val lastSlash = maxOf(path.lastIndexOf('/'), path.lastIndexOf('\\'))
         return if (lastSlash >= 0) path.substring(lastSlash + 1) else path
+    }
+
+    private fun isWikiReadTool(toolName: String): Boolean {
+        val lower = toolName.lowercase()
+        // Match suffix to handle MCP-namespaced forms like
+        // "mcp__clawdea-intellij__read_wiki_page".
+        val readNames = listOf("read_wiki_page", "search_wiki", "read_sibling_wiki")
+        return readNames.any { lower.endsWith(it) }
+    }
+
+    private fun isWikiWriteTool(toolName: String): Boolean {
+        val lower = toolName.lowercase()
+        val writeNames = listOf("record_wiki_suggestion")
+        return writeNames.any { lower.endsWith(it) }
+    }
+
+    private fun isEditOrWriteUnderWikiDir(toolName: String, input: String): Boolean {
+        val lower = toolName.lowercase()
+        val isEditOrWriteName =
+            lower == "edit" ||
+            lower == "write" ||
+            lower == "propose_edit" ||
+            lower == "propose_write" ||
+            lower.endsWith("__edit") ||
+            lower.endsWith("__write") ||
+            lower.endsWith("__propose_edit") ||
+            lower.endsWith("__propose_write")
+        if (!isEditOrWriteName) return false
+        val filePath = extractJsonString(input, "file_path") ?: return false
+        return isPathUnderWikiDir(filePath)
+    }
+
+    private fun isPathUnderWikiDir(filePath: String): Boolean {
+        val resolver = wikiDirResolver ?: return false
+        val wikiDir = resolver() ?: return false
+        val wikiDirNormalized = wikiDir.toAbsolutePath().normalize()
+
+        val resolved = try {
+            val raw = java.nio.file.Path.of(filePath)
+            if (raw.isAbsolute) {
+                raw.normalize()
+            } else {
+                val base = projectBasePath?.let { java.nio.file.Path.of(it) }
+                    ?: return false
+                base.resolve(raw).toAbsolutePath().normalize()
+            }
+        } catch (_: java.nio.file.InvalidPathException) {
+            return false
+        } catch (_: SecurityException) {
+            return false
+        }
+
+        return resolved.startsWith(wikiDirNormalized)
     }
 
     private data class ToolDisplay(val title: String, val body: String, val rawHtml: String = "")

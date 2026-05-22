@@ -80,6 +80,22 @@ $questionsHtml
             """.trimIndent()
         }
 
+        val freeformHtml = q.freeformInput?.let { ff ->
+            val ffId = "$groupName-freeform"
+            val safePrefill = messageRenderer.escapeHtml(ff.prefill)
+            val safePlaceholder = messageRenderer.escapeHtml(ff.placeholder ?: ff.prefill)
+            val labelHtml = ff.label?.takeIf { it.isNotBlank() }?.let { lbl ->
+                """<label class="question-freeform-label" for="$ffId">${messageRenderer.escapeHtml(lbl)}</label>"""
+            } ?: ""
+            """
+                <div class="question-freeform">
+                    $labelHtml
+                    <input type="text" id="$ffId" class="question-freeform-input"
+                           data-question="$safeQuestionAttr" value="$safePrefill" placeholder="$safePlaceholder" />
+                </div>
+            """.trimIndent()
+        } ?: ""
+
         return """
                 <div class="question-block" data-question="$safeQuestionAttr">
                     <div class="question-block-header">
@@ -90,6 +106,7 @@ $questionsHtml
                     <div class="question-options">
 $optionsHtml
                     </div>
+                    $freeformHtml
                 </div>
         """.trimIndent()
     }

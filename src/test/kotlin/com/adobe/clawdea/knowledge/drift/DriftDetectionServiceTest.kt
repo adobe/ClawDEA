@@ -11,9 +11,30 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DriftDetectionServiceTest {
+
+    @Test fun `rescan bumps lastSyncedCommit to current HEAD when scan succeeds`() {
+        // This test exercises the pure helper. The Git4Idea side is exercised by
+        // the manual smoke test (./gradlew runIde + commit something).
+        val before = DriftState(lastSyncedCommit = "")
+        val after = DriftDetectionService.bumpSyncedCommit(before, headSha = "abc1234")
+        assertEquals("abc1234", after.lastSyncedCommit)
+    }
+
+    @Test fun `bumpSyncedCommit no-ops when HEAD is blank`() {
+        val before = DriftState(lastSyncedCommit = "old")
+        val after = DriftDetectionService.bumpSyncedCommit(before, headSha = "")
+        assertEquals("old", after.lastSyncedCommit)
+    }
+
+    @Test fun `bumpSyncedCommit overwrites previous SHA`() {
+        val before = DriftState(lastSyncedCommit = "old")
+        val after = DriftDetectionService.bumpSyncedCommit(before, headSha = "new1234")
+        assertEquals("new1234", after.lastSyncedCommit)
+    }
 
     @Test
     fun `applyAndDismiss with autoUpdate calls wiki-author for non-deterministic events`() = kotlinx.coroutines.runBlocking {

@@ -47,11 +47,34 @@ data class AskUserQuestionInput(
         val header: String,
         val options: List<Option>,
         val multiSelect: Boolean,
+        /**
+         * Optional editable text field rendered alongside the radio/checkbox
+         * options. The CLI never sends this — it exists for in-plugin question
+         * cards that need both a chosen action AND a freeform value (e.g.
+         * `/wiki-relocate`'s "Move/Copy/Nothing" action plus the target wiki
+         * path). Defaults to `null` so the standard CLI-driven flow is
+         * unaffected.
+         */
+        val freeformInput: FreeformInput? = null,
     )
 
     data class Option(
         val label: String,
         val description: String,
+    )
+
+    /**
+     * Optional editable text field rendered alongside the radio/checkbox
+     * options for a question.
+     *
+     * @property prefill the initial value of the input
+     * @property label optional `<label>` text shown above the input
+     * @property placeholder HTML `placeholder`; falls back to [prefill]
+     */
+    data class FreeformInput(
+        val prefill: String,
+        val label: String? = null,
+        val placeholder: String? = null,
     )
 
     companion object {
@@ -84,7 +107,8 @@ data class AskUserQuestionInput(
                             val description = o.getString("description") ?: ""
                             Option(label, description)
                         } ?: emptyList()
-                    Question(text, header, opts, multi)
+                    val freeform = parseFreeformInput(q.get("freeformInput"))
+                    Question(text, header, opts, multi, freeform)
                 }
                 if (questions.isEmpty()) null else AskUserQuestionInput(questions)
             } catch (_: Exception) {
@@ -120,6 +144,19 @@ data class AskUserQuestionInput(
         private fun JsonObject.getString(key: String): String? {
             val el = this.get(key) ?: return null
             return if (el.isJsonPrimitive && el.asJsonPrimitive.isString) el.asString else null
+        }
+
+        private fun parseFreeformInput(el: com.google.gson.JsonElement?): FreeformInput? {
+            if (el == null || !el.isJsonObject) return null
+            return try {
+                val obj = el.asJsonObject
+                val prefill = obj.getString("prefill") ?: return null
+                val label = obj.getString("label")
+                val placeholder = obj.getString("placeholder")
+                FreeformInput(prefill, label, placeholder)
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 }

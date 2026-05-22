@@ -617,4 +617,130 @@ class MessageRendererTest {
         )
         assertEquals("", html)
     }
+
+    // ---- Wiki MCP tool / wiki-dir edit icons ----
+
+    private fun rendererWithWiki(): MessageRenderer = MessageRenderer(
+        projectBasePath = "/home/user/project",
+        wikiDirResolver = { java.nio.file.Path.of("/home/user/project/.claude/wiki") },
+    )
+
+    @Test
+    fun `renderToolUse uses wiki book icon for read_wiki_page`() {
+        val html = rendererWithWiki().renderToolUse("read_wiki_page", "{}", "toolu_W1")
+        assertTrue("Should use 📚 icon for wiki read tool", html.contains("📚"))
+        assertFalse("Should not fall through to default ⚙ icon", html.contains("⚙"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki book icon for search_wiki`() {
+        val html = rendererWithWiki().renderToolUse("search_wiki", "{}", "toolu_W2")
+        assertTrue(html.contains("📚"))
+        assertFalse(html.contains("⚙"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki book icon for read_sibling_wiki`() {
+        val html = rendererWithWiki().renderToolUse("read_sibling_wiki", "{}", "toolu_W3")
+        assertTrue(html.contains("📚"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki book icon for MCP-namespaced read_wiki_page`() {
+        val html = rendererWithWiki().renderToolUse(
+            "mcp__clawdea-intellij__read_wiki_page",
+            "{}",
+            "toolu_W4",
+        )
+        assertTrue("MCP-namespaced wiki read tool should still get 📚 icon", html.contains("📚"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki write icon for record_wiki_suggestion`() {
+        val html = rendererWithWiki().renderToolUse("record_wiki_suggestion", "{}", "toolu_W5")
+        assertTrue("Should use 📝 icon for wiki write tool", html.contains("📝"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki write icon for Edit when file_path is under wiki dir`() {
+        val html = rendererWithWiki().renderToolUse(
+            "Edit",
+            """{"file_path": "/home/user/project/.claude/wiki/concepts/foo.md"}""",
+            "toolu_W6",
+        )
+        assertTrue("Edit under wiki dir should use 📝 icon", html.contains("📝"))
+        assertFalse("Should not also use the generic pencil ✏ icon", html.contains("✏"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki write icon for Write when file_path is under wiki dir`() {
+        val html = rendererWithWiki().renderToolUse(
+            "Write",
+            """{"file_path": "/home/user/project/.claude/wiki/concepts/bar.md"}""",
+            "toolu_W7",
+        )
+        assertTrue(html.contains("📝"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki write icon for propose_edit when file_path is under wiki dir`() {
+        val html = rendererWithWiki().renderToolUse(
+            "propose_edit",
+            """{"file_path": "/home/user/project/.claude/wiki/concepts/baz.md"}""",
+            "toolu_W8",
+        )
+        assertTrue(html.contains("📝"))
+    }
+
+    @Test
+    fun `renderToolUse uses wiki write icon for propose_write when file_path is under wiki dir`() {
+        val html = rendererWithWiki().renderToolUse(
+            "propose_write",
+            """{"file_path": "/home/user/project/.claude/wiki/concepts/qux.md"}""",
+            "toolu_W9",
+        )
+        assertTrue(html.contains("📝"))
+    }
+
+    @Test
+    fun `renderToolUse keeps pencil icon for Edit when file_path is outside wiki dir`() {
+        val html = rendererWithWiki().renderToolUse(
+            "Edit",
+            """{"file_path": "/home/user/project/src/main/Foo.kt"}""",
+            "toolu_W10",
+        )
+        assertTrue("Non-wiki edits should keep the ✏ icon", html.contains("✏"))
+        assertFalse("Should not use the wiki 📝 icon for non-wiki edits", html.contains("📝"))
+    }
+
+    @Test
+    fun `renderFileLink uses wiki book icon for Read of file under wiki dir`() {
+        val html = rendererWithWiki().renderFileLink(
+            "/home/user/project/.claude/wiki/concepts/foo.md",
+            "toolu_W11",
+        )
+        assertTrue("Read of wiki file should use 📚 (HTML-entity form)", html.contains("&#x1F4DA;"))
+        assertFalse("Should not also use the default page icon", html.contains("&#x1F4C4;"))
+    }
+
+    @Test
+    fun `renderFileLink keeps default page icon for Read of file outside wiki dir`() {
+        val html = rendererWithWiki().renderFileLink(
+            "/home/user/project/src/main/Foo.kt",
+            "toolu_W12",
+        )
+        assertTrue("Non-wiki read should keep the default page icon", html.contains("&#x1F4C4;"))
+        assertFalse(html.contains("&#x1F4DA;"))
+    }
+
+    @Test
+    fun `renderFileLink uses wiki write icon for Edit of file under wiki dir`() {
+        val html = rendererWithWiki().renderFileLink(
+            "/home/user/project/.claude/wiki/concepts/foo.md",
+            "toolu_W13",
+            label = "Edit",
+        )
+        assertTrue("Edit of wiki file should use 📝 (HTML-entity form)", html.contains("&#x1F4DD;"))
+        assertFalse("Should not also use the default pencil icon", html.contains("&#x270F;"))
+    }
 }

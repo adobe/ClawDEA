@@ -23,7 +23,8 @@ import kotlinx.coroutines.*
 
 /**
  * Manages session lifecycle: resume, reload-and-replay, wake recovery,
- * interactive terminal handoff, and CLAUDE.md init suggestion.
+ * interactive terminal handoff, and the /seed-wiki suggestion when
+ * CLAUDE.md or the project wiki are missing.
  *
  * Extracted from ChatPanel to keep session orchestration separate from
  * UI wiring and event handling.
@@ -42,13 +43,18 @@ class SessionManager(
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(SessionManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    fun suggestInitIfMissingClaudeMd() {
+    fun suggestSeedWikiIfMissing() {
         val basePath = project.basePath ?: return
-        val claudeMd = java.io.File(basePath, "CLAUDE.md")
-        if (claudeMd.exists()) return
-        browserRenderer.appendHtml(renderer.renderInfoMessage(
-            "No CLAUDE.md found in this project. Type /init to generate one with project context for Claude.",
-        ))
+        val claudeMdMissing = !java.io.File(basePath, "CLAUDE.md").exists()
+        val wikiIndexMissing = try {
+            val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+            !java.nio.file.Files.exists(wikiDir.resolve("index.md"))
+        } catch (_: Throwable) {
+            // WikiLocator threw — treat as missing so we still nudge.
+            true
+        }
+        val html = seedWikiSuggestionHtml(claudeMdMissing, wikiIndexMissing) ?: return
+        browserRenderer.appendHtml(html)
     }
 
     /**
@@ -261,5 +267,37 @@ class SessionManager(
         browserRenderer.appendHtml(renderer.renderInfoMessage(msg))
         // Restart bridge to pick up any config/auth changes from the interactive command
         onRestartAfterTerminal(currentSessionId)
+    }
+
+    companion object {
+        /**
+         * Pure helper for the /seed-wiki suggestion — returns the full HTML
+         * info-block to append, or null when both CLAUDE.md and the wiki
+         * index are present. Renders `/seed-wiki` as a clickable link
+         * (`data-action="run-slash-command"`) so the user can launch the
+         * command with one click instead of typing it. Extracted so the
+         * three-branch decision is unit-testable without standing up the
+         * full SessionManager.
+         */
+        internal fun seedWikiSuggestionHtml(
+            claudeMdMissing: Boolean,
+            wikiIndexMissing: Boolean,
+        ): String? {
+            if (!claudeMdMissing && !wikiIndexMissing) return null
+            val link = SEED_WIKI_LINK
+            val body = when {
+                claudeMdMissing && wikiIndexMissing ->
+                    "No CLAUDE.md or wiki found in this project. Type $link to bootstrap both."
+                claudeMdMissing ->
+                    "No CLAUDE.md found in this project. Type $link to bootstrap CLAUDE.md and refresh the wiki."
+                else ->
+                    "No wiki found in this project. Type $link to bootstrap the wiki for Claude."
+            }
+            return """<div class="info-block">$body</div>"""
+        }
+
+        /** Stable HTML for the inline `/seed-wiki` slash-command link. */
+        internal const val SEED_WIKI_LINK =
+            """<a href="#" class="slash-command-link" data-action="run-slash-command" data-slash="/seed-wiki">/seed-wiki</a>"""
     }
 }

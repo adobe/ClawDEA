@@ -54,6 +54,18 @@ class FilesystemRefreshCoordinator internal constructor(
         scheduler.schedule(BASH_DEBOUNCE_MS) { ops.refreshBroad() }
     }
 
+    /**
+     * Trigger an immediate broad VFS refresh — used when many files changed
+     * in a single user-initiated operation that doesn't fit the bash-debounce
+     * model (e.g. `/wiki-relocate` moving a directory tree). Unlike
+     * [onBashCompleted] this does not debounce; the caller has already
+     * coalesced the change into a single user-visible action and wants the
+     * Project View to reflect the new layout right away.
+     */
+    fun onMassFileChange() {
+        ops.refreshBroad()
+    }
+
     companion object {
         const val BASH_DEBOUNCE_MS: Long = 1000L
     }

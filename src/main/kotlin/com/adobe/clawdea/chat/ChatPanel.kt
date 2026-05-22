@@ -16,6 +16,7 @@ import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
 import com.adobe.clawdea.chat.editreview.EditReviewHandler
 import com.adobe.clawdea.chat.permission.AskUserQuestionRenderer
 import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsWriter
+import com.adobe.clawdea.chat.permission.HandlerQuestionService
 import com.adobe.clawdea.chat.permission.PermissionDispatcher
 import com.adobe.clawdea.chat.permission.PermissionRouter
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
@@ -68,6 +69,13 @@ class ChatPanel(
             autoAcceptEdits || ToolApprovalModeUi.isAllowAll(toolApprovalMode)
         },
         projectBasePath = project.basePath,
+        wikiDirResolver = {
+            try {
+                com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+            } catch (_: Throwable) {
+                null
+            }
+        },
     )
     private val indexQueryHandler = IndexQueryHandler(project)
     private val commandRegistry = CommandRegistry()
@@ -123,12 +131,16 @@ class ChatPanel(
     private val permissionDecisionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for drift banner action clicks (refresh / dismiss)
     private val driftActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    // JS→Kotlin bridge for clickable slash-command links inside chat messages.
+    // Used by SessionManager's /seed-wiki suggestion and could power any future
+    // "click here to run /foo" affordance.
+    private val runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     private val htmlTemplate = ChatHtmlTemplate()
     private val browserRenderer = ChatBrowserRenderer(
         browser, htmlTemplate, abortQuery, turnControlQuery, openDiffQuery,
         editActionQuery, healthQuery, openFileQuery, navigateQuery,
-        permissionDecisionQuery, driftActionQuery,
+        permissionDecisionQuery, driftActionQuery, runSlashCommandQuery,
     )
 
     // Unregister handle for the DriftDetectionService listener; populated in init, called from dispose().
@@ -180,6 +192,7 @@ class ChatPanel(
         // Hidden from chat scrollback (renderInChat=false) since the
         // resolved question card already shows the user's answers.
         onLateAnswer = { msg -> dispatchSendToBridge(msg, renderInChat = false) },
+        handlerQuestions = HandlerQuestionService.getInstance(project),
     )
 
     // Input placeholder
@@ -418,6 +431,17 @@ class ChatPanel(
         driftActionQuery.addHandler { action ->
             ApplicationManager.getApplication().invokeLater {
                 driftBanner.handleAction(action)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Slash-command link bridge: lets in-message links run a slash command
+        // verbatim through the standard send pipeline (queueing, expansion,
+        // dispatch). The JS side reads `data-slash` from the clicked element
+        // and passes its value here unchanged.
+        runSlashCommandQuery.addHandler { slash ->
+            if (!slash.isNullOrBlank() && slash.startsWith("/")) {
+                ApplicationManager.getApplication().invokeLater { submitCommand(slash) }
             }
             JBCefJSQuery.Response("ok")
         }
@@ -987,6 +1011,12 @@ class ChatPanel(
         return CommandContext(
             appendHtml = { html -> appendHtml(html) },
             showNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.INFORMATION) },
+            askQuestion = { input, onResolve ->
+                val service = HandlerQuestionService.getInstance(project)
+                val requestId = service.register(onResolve)
+                appendHtml(askUserQuestionRenderer.renderCard(requestId, input))
+            },
+            dispatchToBridge = { text -> dispatchSendToBridge(text, renderInChat = false) },
         )
     }
 
@@ -1123,9 +1153,7 @@ class ChatPanel(
             """.trimIndent()
         })
 
-        commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
-            CommandInfo("/seed-wiki", "Bootstrap initial wiki pages from project state", CommandCategory.BRIDGE),
-        ) { _ ->
+        commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.SeedWikiHandler(project) { wikiPathRel ->
             val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
             val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
             val capWording = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
@@ -1134,7 +1162,7 @@ class ChatPanel(
                 "5–10 concept areas worth documenting (main subsystems, key APIs, active\n               feature work, architectural decisions worth capturing)."
             }
             """
-            Bootstrap an initial wiki for this project at .claude/wiki/.
+            Bootstrap an initial wiki for this project at $wikiPathRel/.
 
             **CRITICAL — TOOL CHOICE:** Use the **propose_write** MCP tool (registered as
             `mcp__clawdea-intellij__propose_write`) for every file you create. The built-in `Write` tool is
@@ -1142,13 +1170,77 @@ class ChatPanel(
             If a tool result reports "tool not allowed" or you see an "Unavailable" status, you used the
             wrong tool; retry with propose_write.
 
+            **Scope rule (avoid overlap with CLAUDE.md):** the wiki holds subsystem-specific knowledge —
+            concept pages with invariants, resolution pipelines, source pointers, and anti-patterns specific
+            to one part of the codebase. The root `CLAUDE.md` holds project-wide context: build/test
+            commands, the high-level architecture (3–4 paragraphs max), and repo-wide
+            conventions/invariants. Do NOT duplicate build commands, top-level architecture, or repo-wide
+            conventions in wiki pages — they belong in `CLAUDE.md` and would drift if duplicated. Do NOT
+            put detailed subsystem documentation in `CLAUDE.md` — it belongs in concept pages and would
+            bloat the primer if duplicated.
+
             Steps:
-            1. Read CLAUDE.md (if present), README.md, and the top-level build files (pom.xml,
-               package.json, build.gradle.kts) to understand the project shape.
-            2. Call the get_primer MCP tool to see the auto-generated REPO_STATE
+            1. **Bootstrap `CLAUDE.md` if missing.** Check whether `CLAUDE.md` exists at the project
+               root.
+
+               **If it does NOT exist**, create it via `propose_write` using the template below.
+               Discover real values for each section from `package.json` scripts, `pom.xml` profiles,
+               `build.gradle.kts` tasks, `Makefile` targets, and the project README; do not ship the
+               italicised placeholder text.
+
+               ```markdown
+               # CLAUDE.md
+
+               This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+               ## Build & Test
+
+               _(List the build/test/run commands the human dev typically uses. Discover them from
+               package.json scripts, pom.xml profiles, build.gradle.kts tasks, Makefile targets, or
+               README quick-start sections. Match the developer voice — concise, command-first.)_
+
+               ## Architecture
+
+               _(One short paragraph about the high-level shape of the project: the entry point, the
+               main subsystems, how data flows between them. **No more than 3–4 paragraphs.**
+               Detailed subsystem documentation belongs in the wiki, not here.)_
+
+               ## Key conventions
+
+               _(Bulleted list of repo-wide invariants — language/JVM target, dependency-management
+               quirks, anti-patterns to avoid, file-organisation rules, and anything else that
+               applies project-wide and would be costly to discover by reading sources. Do NOT
+               duplicate subsystem-specific knowledge here — that goes in the wiki.)_
+
+               ## Wiki
+
+               Detailed knowledge about individual subsystems lives in [`$wikiPathRel/index.md`]($wikiPathRel/index.md).
+               Concept pages cover entry points, invariants, and source pointers per subsystem. Read
+               the wiki page for a subsystem before grepping its source files.
+               ```
+
+               **If `CLAUDE.md` already exists**, do NOT overwrite it. Check whether it already
+               contains a markdown link whose target lives under the wiki root (i.e. a link to
+               `$wikiPathRel/index.md`, or any other path beginning with `$wikiPathRel/`). If such a
+               link is missing, append a new section at the end of the file via `propose_edit`:
+
+               ```markdown
+
+               ## Wiki
+
+               Detailed knowledge about individual subsystems lives in [`$wikiPathRel/index.md`]($wikiPathRel/index.md).
+               Concept pages cover entry points, invariants, and source pointers per subsystem. Read
+               the wiki page for a subsystem before grepping its source files.
+               ```
+
+               If a wiki link already exists, leave `CLAUDE.md` alone (idempotent).
+
+            2. Read CLAUDE.md (now guaranteed to exist after step 1), README.md, and the top-level
+               build files (pom.xml, package.json, build.gradle.kts) to understand the project shape.
+            3. Call the get_primer MCP tool to see the auto-generated REPO_STATE
                (current branch, recent commits, hot files), then identify
                $capWording
-            3. **Classify each concept independently** into one of:
+            4. **Classify each concept independently** into one of:
                - `pipeline` — multi-step resolution with cache boundaries or registration order
                  a reasoner could get wrong (content policy resolution, dispatcher invalidation,
                  servlet dispatching).
@@ -1167,14 +1259,14 @@ class ChatPanel(
             $navigationTemplate
             ----- END NAVIGATION TEMPLATE -----
 
-            4. Use propose_write (NOT Write) to create:
-               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each
+            5. Use propose_write (NOT Write) to create:
+               - $wikiPathRel/index.md — a TOC with a short intro plus standard Markdown links to each
                  concept page, e.g. `[Title](concepts/<slug>.md)`.
-               - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept, using the template
+               - $wikiPathRel/concepts/<kebab-case-name>.md — one file per concept, using the template
                  that matches the classification. For `pipeline` or `runtime-behavior` pages, produce
                  3–7 invariants, each citing the file that makes it true.
 
-            After I accept the diffs, wiki/index.md will join every chat's primer automatically.
+            After I accept the diffs, $wikiPathRel/index.md will join every chat's primer automatically.
             """.trimIndent()
         })
 
@@ -1230,7 +1322,12 @@ class ChatPanel(
         ) { _, ctx ->
             val basePath = project.basePath
             val misses = if (basePath != null) {
-                com.adobe.clawdea.knowledge.drift.DriftStateStore.read(java.nio.file.Paths.get(basePath).resolve(".claude")).probeMisses
+                val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+                val projectBase = java.nio.file.Paths.get(basePath)
+                com.adobe.clawdea.knowledge.drift.DriftStateStore.read(
+                    wikiDir = wikiDir,
+                    projectBase = projectBase,
+                ).probeMisses
             } else emptyList()
             val clusters = com.adobe.clawdea.commands.handlers.WikiGapHandler.cluster(misses)
             val output = com.adobe.clawdea.commands.handlers.WikiGapHandler.formatOutput(clusters)
@@ -1261,6 +1358,7 @@ class ChatPanel(
             }
         })
         commandRegistry.register("/wiki-audit", com.adobe.clawdea.commands.handlers.WikiAuditCommandHandler(project))
+        commandRegistry.register("/wiki-relocate", com.adobe.clawdea.commands.handlers.WikiRelocateHandler(project))
     }
 
     private sealed class RefreshWikiResult {
@@ -1340,8 +1438,12 @@ class ChatPanel(
 
     private fun refreshWikiStatus(): String {
         val basePath = project.basePath ?: return "Wiki drift status: project path unavailable."
-        val claudeDir = java.nio.file.Paths.get(basePath).resolve(".claude")
-        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(claudeDir)
+        val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+        val projectBase = java.nio.file.Paths.get(basePath)
+        val state = com.adobe.clawdea.knowledge.drift.DriftStateStore.read(
+            wikiDir = wikiDir,
+            projectBase = projectBase,
+        )
         val service = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
         return RefreshWikiStatusFormatter.format(
             RefreshWikiStatus(
@@ -1354,7 +1456,8 @@ class ChatPanel(
     private fun formatAppliedWikiDrift(events: List<com.adobe.clawdea.knowledge.drift.DriftEvent>): String {
         if (events.isEmpty()) return "No low-risk wiki drift fixes were applied."
         val summary = events.joinToString(", ") { event ->
-            "${refreshWikiEventName(event)} ${refreshWikiEventTarget(event)}"
+            val icon = com.adobe.clawdea.knowledge.drift.DriftEventIcon.iconFor(event)
+            "$icon ${refreshWikiEventName(event)} ${refreshWikiEventTarget(event)}"
         }
         return "Applied ${events.size} low-risk wiki drift fix(es): $summary."
     }
@@ -1380,9 +1483,10 @@ class ChatPanel(
         sb.appendLine("The following drift events were detected. Review each and apply fixes via `propose_edit` or `propose_write`:")
         sb.appendLine()
         for (event in events) {
+            val icon = com.adobe.clawdea.knowledge.drift.DriftEventIcon.iconFor(event)
             when (event) {
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> {
-                    sb.appendLine("- **CodeRename** in `${event.wikiPage.fileName}`")
+                    sb.appendLine("- $icon **CodeRename** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - broken link: `${event.brokenLink}`")
                     if (event.suggestedReplacement != null) {
                         sb.appendLine("  - suggested replacement: `${event.suggestedReplacement}`")
@@ -1392,19 +1496,19 @@ class ChatPanel(
                     }
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> {
-                    sb.appendLine("- **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
+                    sb.appendLine("- $icon **ManifestStale** in `${event.manifestPath.fileName}` (group `${event.groupName}`)")
                     sb.appendLine("  - missing repo key: `${event.repoKey}` (line ${event.lineHint})")
                     sb.appendLine("  - action: check whether the repo moved (update path) or was deleted (`propose_edit` the manifest to comment out or remove the bullet).")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.CommitDrift -> {
                     // Should not appear when enableWikiLibrarian=false (the detector is gated),
                     // but render minimally for safety.
-                    sb.appendLine("- **CommitDrift** in `${event.wikiPage.fileName}`")
+                    sb.appendLine("- $icon **CommitDrift** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - commits: ${event.commitShas.joinToString(", ")}")
                     sb.appendLine("  - touched paths: ${event.touchedPaths.joinToString(", ")}")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> {
-                    sb.appendLine("- **WikiSuggestion (${event.kind.name})**: ${event.title}")
+                    sb.appendLine("- $icon **WikiSuggestion (${event.kind.name})**: ${event.title}")
                     sb.appendLine("  - rationale: ${event.rationale}")
                     sb.appendLine("  - target files: ${event.targetFiles.joinToString(", ")}")
                     if (event.sourcePage != null) {
@@ -1419,7 +1523,7 @@ class ChatPanel(
         return sb.toString()
     }
 
-    fun suggestInitIfMissingClaudeMd() = sessionManager.suggestInitIfMissingClaudeMd()
+    fun suggestSeedWikiIfMissing() = sessionManager.suggestSeedWikiIfMissing()
 
     private fun registerSkillCommands(): ScanStats {
         // Unregister stale skill aliases from a previous scan
@@ -1562,6 +1666,7 @@ class ChatPanel(
             }
             if (handler is BridgeForwardHandler ||
                 handler is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler ||
+                handler is com.adobe.clawdea.commands.handlers.SeedWikiHandler ||
                 handler is SkillHandler
             ) {
                 queueCurrentComposerText()
@@ -1914,6 +2019,7 @@ class ChatPanel(
         navigateQuery.dispose()
         permissionDecisionQuery.dispose()
         driftActionQuery.dispose()
+        runSlashCommandQuery.dispose()
         browser.dispose()
     }
 

@@ -35,11 +35,26 @@ User ←→ ChatPanel (JCEF) ←→ CliBridge ←→ CliProcess (claude --output
 2. **CliBridge** owns the `CliProcess` lifecycle and exposes a `SharedFlow<CliEvent>`.
 3. **CliProcess** spawns `claude` in `--output-format stream-json` mode with `--print-turn-events`. It writes a temp MCP config file pointing the CLI at the local McpServer.
 4. **CliEventParser** parses NDJSON lines into a sealed `CliEvent` hierarchy (SystemInit, TextDelta, AssistantMessage, ToolUse, ToolResult, Result, AuthFailure, TaskEvent).
-5. **McpServer** is a project-level service (HttpServer on `127.0.0.1:0`) that routes JSON-RPC requests through **McpToolRouter** to the tool groups: `McpIndexTools` (find files/symbols/usages/callers), `McpSearchTextTool` (literal/regex content search), `McpIdeTools` (diagnostics, resolve symbol), `McpContextTool` (project context), `McpPrimerTool` (project primer), `McpWikiTools` (`.claude/wiki/` search + read), `McpWorkspaceTools` (sibling-repo navigation), `McpEditReviewTools` (propose_edit/propose_write/propose_multi_edit), `McpDebugTools` (21 debugger tools), `McpPermissionPromptTool` (tool-call approval gate).
+5. **McpServer** is a project-level service (HttpServer on `127.0.0.1:0`) that routes JSON-RPC requests through **McpToolRouter** to the tool groups: `McpIndexTools` (find files/symbols/usages/callers), `McpSearchTextTool` (literal/regex content search), `McpIdeTools` (diagnostics, resolve symbol), `McpContextTool` (project context), `McpPrimerTool` (project primer), `McpWikiTools` (`docs/llm-wiki/` search + read), `McpWorkspaceTools` (sibling-repo navigation), `McpEditReviewTools` (propose_edit/propose_write/propose_multi_edit), `McpDebugTools` (21 debugger tools), `McpPermissionPromptTool` (tool-call approval gate).
 
 ### Knowledge layer
 
-`PrimerService` assembles the primer shipped with every turn: `CLAUDE.md`, the auto-generated `.claude/REPO_STATE.md`, and the `.claude/wiki/index.md` table of contents. Concept pages under `.claude/wiki/concepts/` are pulled on demand via `read_wiki_page`/`search_wiki`. `WorkspaceManifest` (loaded from `.clawdea-workspace.md`) powers cross-repo siblings navigation. The personal notes layer writes `.claude/notes/CURRENT.md` via the `/note` command and promotes entries to the wiki via `/promote-to-wiki`. `DriftDetector` opportunistically flags stale wiki source-file links and missing workspace-manifest repo paths.
+`PrimerService` assembles the primer shipped with every turn: `CLAUDE.md`, the auto-generated `.claude/REPO_STATE.md`, and the `docs/llm-wiki/index.md` table of contents. Concept pages under `docs/llm-wiki/concepts/` are pulled on demand via `read_wiki_page`/`search_wiki`. `WorkspaceManifest` (loaded from `.clawdea-workspace.md`) powers cross-repo siblings navigation. The personal notes layer writes `.claude/notes/CURRENT.md` via the `/note` command and promotes entries to the wiki via `/promote-to-wiki`. `DriftDetector` opportunistically flags stale wiki source-file links and missing workspace-manifest repo paths.
+
+`WikiLocator` is the single source of truth for the wiki path. In default mode (no `.clawdea/config.json`) it returns `<projectBase>/docs/llm-wiki/` (or whatever `ClawDEASettings.claudeDirName`/`wikiSubdir` resolve to). In team mode, when `<projectBase>/.clawdea/config.json` is present with a non-blank `wikiPath`, it returns `<projectBase>/<wikiPath>`. All wiki-aware code (`McpWikiTools`, `DriftDetectionService`, `DriftStateStore`, `WikiSuggestionWriter`, `ChatPanel`, primer sources) routes through `WikiLocator.getInstance(project).wikiDir()`.
+
+### Wiki team mode
+
+When `.clawdea/config.json` exists at the project root, ClawDEA enters "team mode": the wiki path is read from the file (committed to git so teammates auto-discover it on clone), and `DriftStateStore` splits its persistence into two files:
+
+- `<wikiDir>/.wiki-state.json` — team-shared (`lastSyncedCommit`, `suggestions`), git-tracked.
+- `<projectBase>/.clawdea/wiki-state.local.json` — per-user (`lastScanAt`, `dismissed`, `probeMisses`, `userCorrections`), gitignored automatically by `/wiki-relocate`.
+
+`lastSyncedCommit` is the git SHA the wiki currently describes. `CommitWikiDriftDetector` uses `lastSyncedCommit..HEAD` as the range (replacing the legacy `--since lastScanAt` filter), and `DriftDetectionService.bumpSyncedCommit` advances it to HEAD after every successful drift cycle. An empty or unreachable SHA (rebased away) falls back to a one-time first-run baseline. Branch switching is automatic because the team file is git-tracked.
+
+Default-mode users (no `.clawdea/config.json`) keep the single legacy `.drift-state.json` file with no behavior change. The first read in team mode performs an idempotent migration from the legacy file into the split layout.
+
+Opt-in via the `/wiki-relocate <repo-relative-path>` slash command (handled by `WikiRelocateHandler`); cloning a repo where someone already opted in is auto-detection — no manual setup.
 
 ### Edit review (two layers)
 
@@ -62,7 +77,7 @@ Both `CliProcess` and `SubscriptionAuth` resolve the `claude` binary through `re
 
 ### Slash commands & skills
 
-`CommandRegistry` maps slash commands to handlers: `LocalHandler` (in-process), `BridgeForwardHandler` (forwarded to CLI), `BridgeExpandingHandler` (expands an in-plugin prompt template and forwards to the CLI — used by `/learn`, `/seed-wiki`, `/seed-workspace`, `/refresh-wiki`), `SkillHandler` (scanned from `~/.claude/` skill directories), and knowledge-layer handlers (`NoteAppendHandler`, `PromoteToWikiHandler`, `WikiAuditCommandHandler`). `SkillScanner` discovers skills from plugin cache and user directories, deduplicating by qualified name.
+`CommandRegistry` maps slash commands to handlers: `LocalHandler` (in-process — also covers `/wiki-relocate` via `WikiRelocateHandler`), `BridgeForwardHandler` (forwarded to CLI), `BridgeExpandingHandler` (expands an in-plugin prompt template and forwards to the CLI — used by `/learn`, `/seed-wiki`, `/seed-workspace`, `/refresh-wiki`), `SkillHandler` (scanned from `~/.claude/` skill directories), and knowledge-layer handlers (`NoteAppendHandler`, `PromoteToWikiHandler`, `WikiAuditCommandHandler`). `SkillScanner` discovers skills from plugin cache and user directories, deduplicating by qualified name.
 
 ## Key conventions
 

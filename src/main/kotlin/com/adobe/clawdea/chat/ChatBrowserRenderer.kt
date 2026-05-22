@@ -30,6 +30,7 @@ class ChatBrowserRenderer(
     private val navigateQuery: JBCefJSQuery,
     private val permissionDecisionQuery: JBCefJSQuery,
     private val driftActionQuery: JBCefJSQuery,
+    private val runSlashCommandQuery: JBCefJSQuery,
 ) {
     var browserReady = false
         private set
@@ -50,6 +51,7 @@ class ChatBrowserRenderer(
                     navigateJs = navigateQuery.inject("ref"),
                     permissionDecisionJs = permissionDecisionQuery.inject("arg"),
                     driftActionJs = driftActionQuery.inject("action"),
+                    runSlashCommandJs = runSlashCommandQuery.inject("slash"),
                 )
                 cefBrowser?.executeJavaScript(bridgeScripts, cefBrowser.url, 0)
                 ApplicationManager.getApplication().invokeLater {

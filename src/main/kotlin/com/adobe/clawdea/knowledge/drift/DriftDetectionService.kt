@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import com.adobe.clawdea.knowledge.wiki.WikiLocator
 import com.adobe.clawdea.knowledge.workspace.WorkspaceDiscovery
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
@@ -37,14 +38,15 @@ class DriftDetectionService(private val project: Project) {
             notifyListeners()
             return emptyList<DriftEvent>() to emptyList()
         }
-        val claudeDir = Paths.get(basePath).resolve(".claude")
-        val state = DriftStateStore.read(claudeDir)
+        val projectBase = Paths.get(basePath)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
+        val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
         val settings = ClawDEASettings.getInstance().state
         val now = Instant.now()
         val raw = collectRaw(
             project = project,
-            projectRoot = Paths.get(basePath),
-            claudeDir = claudeDir,
+            projectRoot = projectBase,
+            wikiDir = wikiDir,
             beforeState = state,
             settingsState = settings,
             now = now,
@@ -55,8 +57,10 @@ class DriftDetectionService(private val project: Project) {
             applyAndDismiss(filtered, settings.autoUpdateWiki, state, DriftAutoApplier.todayIso(), invoker)
         }
         val newState = applied.newState.copy(lastScanAt = now.toString())
-        if (newState != state) {
-            DriftStateStore.write(claudeDir, newState)
+        val headSha = currentHeadSha(project) ?: ""
+        val newStateWithSync = bumpSyncedCommit(newState, headSha)
+        if (newStateWithSync != state) {
+            DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = newStateWithSync)
         }
         lastEvents = remaining
         lastApplied = applied.events
@@ -69,9 +73,10 @@ class DriftDetectionService(private val project: Project) {
 
     fun recordProbeMiss(query: String, pathTokens: List<String>, hits: Int, contextHash: String) {
         val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
+        val projectBase = Paths.get(basePath)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val miss = ProbeMiss(query, pathTokens, hits, contextHash, Instant.now().toString())
-        DriftStateStore.update(claudeDir) { state ->
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             val updated = state.probeMisses + miss
             state.copy(probeMisses = updated.takeLast(DriftState.MAX_PROBE_MISSES))
         }
@@ -79,9 +84,10 @@ class DriftDetectionService(private val project: Project) {
 
     fun recordUserCorrection(correctionSummary: String, contextHash: String) {
         val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
+        val projectBase = Paths.get(basePath)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val correction = UserCorrectionRecord(correctionSummary.take(500), contextHash, Instant.now().toString())
-        DriftStateStore.update(claudeDir) { state ->
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             val updated = state.userCorrections + correction
             state.copy(userCorrections = updated.takeLast(DriftState.MAX_USER_CORRECTIONS))
         }
@@ -89,8 +95,9 @@ class DriftDetectionService(private val project: Project) {
 
     fun dismiss(signature: String) {
         val basePath = project.basePath ?: return
-        val claudeDir = Paths.get(basePath).resolve(".claude")
-        DriftStateStore.update(claudeDir) { state ->
+        val projectBase = Paths.get(basePath)
+        val wikiDir = WikiLocator.getInstance(project).wikiDir()
+        DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
             state.copy(
                 dismissed = state.dismissed + signature,
                 suggestions = state.suggestions.filterNot { it.signature == signature },
@@ -110,6 +117,12 @@ class DriftDetectionService(private val project: Project) {
         for (l in listeners.toList()) {
             try { l(events, applied) } catch (e: Throwable) { LOG.warn("listener threw: ${e.message}") }
         }
+    }
+
+    private fun currentHeadSha(project: Project): String? {
+        val repo = git4idea.repo.GitRepositoryManager.getInstance(project)
+            .repositories.firstOrNull() ?: return null
+        return repo.currentRevision
     }
 
     private fun buildInvoker(basePath: String): WikiAuthorInvoker {
@@ -134,16 +147,20 @@ class DriftDetectionService(private val project: Project) {
 
         data class ApplyResult(val events: List<DriftEvent>, val newState: DriftState)
 
+        internal fun bumpSyncedCommit(state: DriftState, headSha: String): DriftState {
+            if (headSha.isBlank()) return state
+            return state.copy(lastSyncedCommit = headSha)
+        }
+
         internal fun collectRaw(
             project: Project,
             projectRoot: Path,
-            claudeDir: Path,
+            wikiDir: Path,
             beforeState: DriftState,
             settingsState: ClawDEASettings.State,
             now: Instant,
         ): List<DriftEvent> {
             val out = mutableListOf<DriftEvent>()
-            val wikiDir = claudeDir.resolve("wiki")
             out += CodeRenameDetector.detect(
                 wikiDir = wikiDir,
                 sourceRoots = listOf(
@@ -159,7 +176,7 @@ class DriftDetectionService(private val project: Project) {
                 out += CommitWikiDriftDetector.detect(
                     project = project,
                     wikiDir = wikiDir,
-                    lastScanAt = parseInstantOrNull(beforeState.lastScanAt),
+                    lastSyncedCommit = beforeState.lastSyncedCommit,
                     now = now,
                 )
             }
@@ -213,9 +230,5 @@ class DriftDetectionService(private val project: Project) {
             )
             return remaining to ApplyResult(applied, newState)
         }
-
-        private fun parseInstantOrNull(text: String): Instant? = try {
-            if (text.isBlank()) null else Instant.parse(text)
-        } catch (_: Exception) { null }
     }
 }

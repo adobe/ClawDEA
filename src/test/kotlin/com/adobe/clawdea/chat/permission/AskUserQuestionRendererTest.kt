@@ -142,4 +142,81 @@ class AskUserQuestionRendererTest {
         assertTrue(js.contains("Skipped"))
         assertFalse(js.contains("question-answers"))
     }
+
+    @Test
+    fun `renders editable text field when freeformInput is set`() {
+        val input = AskUserQuestionInput(
+            questions = listOf(
+                AskUserQuestionInput.Question(
+                    question = "Where to?",
+                    header = "Path",
+                    multiSelect = false,
+                    options = listOf(AskUserQuestionInput.Option("Move", "")),
+                    freeformInput = AskUserQuestionInput.FreeformInput(
+                        prefill = "docs/llm-wiki",
+                        label = null,
+                        placeholder = "docs/llm-wiki",
+                    ),
+                ),
+            ),
+        )
+        val html = renderer.renderCard("perm-1", input)
+        assertTrue("expected text input, got: $html", html.contains("<input type=\"text\""))
+        assertTrue(html.contains("class=\"question-freeform-input\""))
+        assertTrue(html.contains("data-question=\"Where to?\""))
+        assertTrue(html.contains("value=\"docs/llm-wiki\""))
+        assertTrue(html.contains("placeholder=\"docs/llm-wiki\""))
+    }
+
+    @Test
+    fun `renders freeform label when provided`() {
+        val input = AskUserQuestionInput(
+            questions = listOf(
+                AskUserQuestionInput.Question(
+                    question = "Where to?",
+                    header = "Path",
+                    multiSelect = false,
+                    options = listOf(AskUserQuestionInput.Option("Move", "")),
+                    freeformInput = AskUserQuestionInput.FreeformInput(
+                        prefill = "docs/llm-wiki",
+                        label = "Path:",
+                    ),
+                ),
+            ),
+        )
+        val html = renderer.renderCard("perm-1", input)
+        assertTrue("expected freeform label, got: $html", html.contains("class=\"question-freeform-label\""))
+        assertTrue(html.contains(">Path:</label>"))
+    }
+
+    @Test
+    fun `omits freeform block when freeformInput is null`() {
+        val html = renderer.renderCard("perm-1", sample())
+        assertFalse("did not expect freeform input, got: $html", html.contains("question-freeform-input"))
+        assertFalse(html.contains("question-freeform-label"))
+    }
+
+    @Test
+    fun `freeform prefill and label are HTML-escaped`() {
+        val input = AskUserQuestionInput(
+            questions = listOf(
+                AskUserQuestionInput.Question(
+                    question = "q",
+                    header = "h",
+                    multiSelect = false,
+                    options = listOf(AskUserQuestionInput.Option("a", "")),
+                    freeformInput = AskUserQuestionInput.FreeformInput(
+                        prefill = "<script>alert(1)</script>",
+                        label = "<b>Path</b>",
+                        placeholder = "<i>hint</i>",
+                    ),
+                ),
+            ),
+        )
+        val html = renderer.renderCard("perm-1", input)
+        assertFalse("raw <script> must not appear: $html", html.contains("<script>alert(1)</script>"))
+        assertTrue(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"))
+        assertTrue(html.contains("&lt;b&gt;Path&lt;/b&gt;"))
+        assertTrue(html.contains("&lt;i&gt;hint&lt;/i&gt;"))
+    }
 }
