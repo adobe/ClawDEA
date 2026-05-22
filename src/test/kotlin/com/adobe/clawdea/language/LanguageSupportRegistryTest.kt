@@ -19,13 +19,15 @@ class LanguageSupportRegistryTest {
     private object FakeKotlinLang : Language("FAKE_KOTLIN")
 
     private object FakeJava : LanguageSupport {
-        override val language: Language = FakeJavaLang
+        override val id = "java"
+        override val language: Language? = FakeJavaLang
         override val displayName = "Java"
         override val fileExtensions = setOf("java")
     }
 
     private object FakeKotlin : LanguageSupport {
-        override val language: Language = FakeKotlinLang
+        override val id = "kotlin"
+        override val language: Language? = FakeKotlinLang
         override val displayName = "Kotlin"
         override val fileExtensions = setOf("kt", "kts")
     }
@@ -35,14 +37,14 @@ class LanguageSupportRegistryTest {
 
     @Test fun `register then forLanguage returns same instance`() {
         LanguageSupportRegistry.register(FakeJava)
-        assertSame(FakeJava, LanguageSupportRegistry.forLanguage(FakeJava.language))
+        assertSame(FakeJava, LanguageSupportRegistry.forLanguage(FakeJava.language!!))
     }
 
-    @Test fun `register for same language id replaces prior entry`() {
+    @Test fun `register for same id replaces prior entry`() {
         LanguageSupportRegistry.register(FakeJava)
         val replacement = object : LanguageSupport by FakeJava {}
         LanguageSupportRegistry.register(replacement)
-        assertSame(replacement, LanguageSupportRegistry.forLanguage(FakeJava.language))
+        assertSame(replacement, LanguageSupportRegistry.forLanguage(FakeJava.language!!))
     }
 
     @Test fun `forFileExtension kt returns kotlin support`() {
@@ -75,6 +77,6 @@ class LanguageSupportRegistryTest {
     }
 
     @Test fun `forLanguage returns null when not registered`() {
-        assertNull(LanguageSupportRegistry.forLanguage(FakeJava.language))
+        assertNull(LanguageSupportRegistry.forLanguage(FakeJava.language!!))
     }
 }

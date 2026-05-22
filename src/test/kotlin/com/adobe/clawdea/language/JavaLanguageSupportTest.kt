@@ -17,6 +17,10 @@ import org.junit.Test
  */
 class JavaLanguageSupportTest {
 
+    @Test fun `id is java`() {
+        assertEquals("java", JavaLanguageSupport.id)
+    }
+
     @Test fun `displayName is Java`() {
         assertEquals("Java", JavaLanguageSupport.displayName)
     }

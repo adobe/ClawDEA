@@ -13,11 +13,12 @@ import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.search.GlobalSearchScope
 
 object JavaLanguageSupport : LanguageSupport {
+    override val id = "java"
+
     // Lazy so headless unit tests can read other fields without triggering the
     // Language registry lookup (Java plugin isn't on the headless test classpath).
-    override val language: Language by lazy {
+    override val language: Language? by lazy {
         Language.findLanguageByID("JAVA")
-            ?: error("Java language not registered — Java plugin missing?")
     }
     override val displayName = "Java"
     override val fileExtensions = setOf("java")

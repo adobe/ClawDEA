@@ -33,7 +33,8 @@ class McpIdeToolsBuildToolTest {
     }
 
     private object FakeJavaSupport : LanguageSupport {
-        override val language: Language = FakeJavaLang
+        override val id = "java"
+        override val language: Language? = FakeJavaLang
         override val displayName = "Java"
         override val fileExtensions = setOf("java")
     }

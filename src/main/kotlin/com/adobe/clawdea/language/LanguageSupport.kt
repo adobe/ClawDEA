@@ -24,12 +24,23 @@ import com.intellij.psi.search.GlobalSearchScope
  * in the codebase today, just routed through this seam.
  */
 interface LanguageSupport {
-    val language: Language
+    /** Stable identifier in ClawDEA's namespace (lowercase). e.g. "java", "kotlin", "scala". */
+    val id: String
+
+    /**
+     * IntelliJ Language object when the relevant platform plugin is installed. Null when
+     * the language is supported by ClawDEA but the corresponding IntelliJ plugin is missing
+     * (e.g. Scala when `org.intellij.scala` isn't installed).
+     */
+    val language: Language?
+
     val displayName: String
     val fileExtensions: Set<String>
 
-    fun isFileInLanguage(psiFile: PsiFile): Boolean =
-        psiFile.language.id == language.id
+    fun isFileInLanguage(psiFile: PsiFile): Boolean {
+        val lang = language ?: return false
+        return psiFile.language.id == lang.id
+    }
 
     fun findRelatedTypes(
         psiFile: PsiFile,

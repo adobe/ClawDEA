@@ -10,10 +10,11 @@ import org.jetbrains.annotations.TestOnly
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Process-wide registry of [LanguageSupport] implementations, keyed by IntelliJ Language ID.
+ * Process-wide registry of [LanguageSupport] implementations, keyed by [LanguageSupport.id]
+ * (ClawDEA's stable namespace — e.g. `"java"`, `"kotlin"`, `"scala"`).
  *
  * Populated once at plugin initialization (see [LanguageSupportInitializer]).
- * Re-registration for the same language ID is idempotent (replaces prior entry).
+ * Re-registration for the same id is idempotent (replaces prior entry).
  *
  * Read paths are thread-safe. Writes happen at startup and from tests.
  *
@@ -22,18 +23,23 @@ import java.util.concurrent.ConcurrentHashMap
  * eagerly at field init time, to avoid an empty snapshot.
  */
 object LanguageSupportRegistry {
-    private val byLanguageId = ConcurrentHashMap<String, LanguageSupport>()
+    private val byId = ConcurrentHashMap<String, LanguageSupport>()
 
     fun register(support: LanguageSupport) {
-        byLanguageId[support.language.id] = support
+        byId[support.id] = support
     }
 
-    fun forLanguage(language: Language): LanguageSupport? = byLanguageId[language.id]
-    fun forPsiFile(psiFile: PsiFile): LanguageSupport? = byLanguageId[psiFile.language.id]
+    /** Look up by IntelliJ Language. Returns null if no registered support reports a matching language. */
+    fun forLanguage(language: Language): LanguageSupport? =
+        byId.values.firstOrNull { it.language?.id == language.id }
+
+    fun forPsiFile(psiFile: PsiFile): LanguageSupport? = forLanguage(psiFile.language)
+
     fun forFileExtension(extension: String): LanguageSupport? =
-        byLanguageId.values.firstOrNull { extension in it.fileExtensions }
-    fun all(): Collection<LanguageSupport> = byLanguageId.values.toList()
+        byId.values.firstOrNull { extension in it.fileExtensions }
+
+    fun all(): Collection<LanguageSupport> = byId.values.toList()
 
     @TestOnly
-    internal fun clearForTest() = byLanguageId.clear()
+    internal fun clearForTest() = byId.clear()
 }
