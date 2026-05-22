@@ -83,6 +83,13 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             action = action,
             gitMove = { src, dst -> tryGitMove(project, src, dst) },
         )
+        // Project View / VFS won't notice a bulk directory move on its own;
+        // push an immediate broad refresh so the relocated tree is visible
+        // before the drift rescan reads it back. Skip when nothing moved.
+        if (action != Action.NOTHING) {
+            project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
+                ?.onMassFileChange()
+        }
         writeConfig(projectBase, newPath)
         appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
         project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
