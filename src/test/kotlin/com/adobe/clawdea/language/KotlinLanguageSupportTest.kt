@@ -23,8 +23,4 @@ class KotlinLanguageSupportTest {
     @Test fun `fileExtensions includes kt and kts`() {
         assertEquals(setOf("kt", "kts"), KotlinLanguageSupport.fileExtensions)
     }
-
-    @Test fun `gradleCompileTaskName is compileKotlin`() {
-        assertEquals("compileKotlin", KotlinLanguageSupport.gradleCompileTaskName)
-    }
 }

@@ -27,7 +27,6 @@ interface LanguageSupport {
     val language: Language
     val displayName: String
     val fileExtensions: Set<String>
-    val gradleCompileTaskName: String?
 
     fun isFileInLanguage(psiFile: PsiFile): Boolean =
         psiFile.language.id == language.id

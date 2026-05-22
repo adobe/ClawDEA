@@ -11,6 +11,9 @@
  */
 package com.adobe.clawdea.mcp
 
+import com.adobe.clawdea.buildtool.BuildTool
+import com.adobe.clawdea.buildtool.BuildToolRegistry
+import com.adobe.clawdea.buildtool.CompileCommand
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
@@ -110,9 +113,9 @@ class McpIdeTools(private val project: Project) {
             return McpToolRouter.ToolResult(inspectionResult)
         }
 
-        // Inspection API failed or found nothing — fall back to Gradle compile.
-        log.info("get_diagnostics: inspections inconclusive for $filePath, falling back to Gradle")
-        return getDiagnosticsViaGradle(filePath)
+        // Inspection API failed or found nothing — fall back to the build tool.
+        log.info("get_diagnostics: inspections inconclusive for $filePath, falling back to build tool")
+        return getDiagnosticsViaBuildTool(filePath)
     }
 
     private fun tryLocalInspections(psiFile: com.intellij.psi.PsiFile, filePath: String): String? {
@@ -157,32 +160,32 @@ class McpIdeTools(private val project: Project) {
         }
     }
 
-    private fun getDiagnosticsViaGradle(filePath: String): McpToolRouter.ToolResult {
-        val basePath = project.basePath ?: return McpToolRouter.ToolResult("No project base path", isError = true)
-        val extension = filePath.substringAfterLast('.', missingDelimiterValue = "")
-        val task = LanguageSupportRegistry.forFileExtension(extension)?.gradleCompileTaskName
-            ?: return McpToolRouter.ToolResult(
-                "No compile task known for file extension '.$extension'", isError = true,
-            )
+    private fun getDiagnosticsViaBuildTool(filePath: String): McpToolRouter.ToolResult {
+        val basePath = project.basePath
+            ?: return McpToolRouter.ToolResult("No project base path", isError = true)
+
+        val resolution = resolveCompileCommand(filePath, project)
+        if (resolution.result != null) return resolution.result
+        val buildTool = resolution.buildTool!!
+        val cmd = resolution.command!!
 
         return try {
-            val process = ProcessBuilder("./gradlew", task, "--quiet")
-                .directory(java.io.File(basePath))
+            val process = ProcessBuilder(cmd.argv)
+                .directory(cmd.workingDir)
                 .redirectErrorStream(true)
                 .start()
-            val exited = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+            val exited = process.waitFor(cmd.timeout.inWholeSeconds, java.util.concurrent.TimeUnit.SECONDS)
             if (!exited) {
                 process.destroyForcibly()
-                return McpToolRouter.ToolResult("Gradle compile timed out after 30s", isError = true)
+                return McpToolRouter.ToolResult(
+                    "${buildTool.displayName} compile timed out after ${cmd.timeout}", isError = true,
+                )
             }
             val output = process.inputStream.bufferedReader().readText()
             if (process.exitValue() == 0) {
                 McpToolRouter.ToolResult("No diagnostics found.")
             } else {
-                val relPath = PsiUtils.toRelativePath(filePath, basePath)
-                val relevant = output.lines()
-                    .filter { it.contains(relPath) || it.contains(filePath) }
-                    .joinToString("\n")
+                val relevant = buildTool.filterDiagnostics(output, filePath, basePath)
                 if (relevant.isBlank()) {
                     McpToolRouter.ToolResult(output.take(2000))
                 } else {
@@ -190,7 +193,53 @@ class McpIdeTools(private val project: Project) {
                 }
             }
         } catch (e: Exception) {
-            McpToolRouter.ToolResult("Gradle compile failed: ${e.message}", isError = true)
+            McpToolRouter.ToolResult("${buildTool.displayName} compile failed: ${e.message}", isError = true)
+        }
+    }
+
+    companion object {
+        internal const val NO_BUILD_TOOL_MSG =
+            "No build tool detected for this project; diagnostics fell back to in-IDE inspections only."
+
+        internal fun unknownExtensionMsg(extension: String): String =
+            "No language support known for file extension '.$extension'"
+
+        internal fun unsupportedLanguageMsg(toolDisplayName: String, languageDisplayName: String): String =
+            "$toolDisplayName does not support compiling $languageDisplayName in this project."
+
+        internal data class Resolution(
+            val buildTool: BuildTool?,
+            val command: CompileCommand?,
+            val result: McpToolRouter.ToolResult?,
+        )
+
+        /**
+         * Pure decision: given a target file and project, either return an early
+         * [McpToolRouter.ToolResult] (informational or error) or a (buildTool, command)
+         * pair to execute. Extracted from [getDiagnosticsViaBuildTool] so the failure
+         * branches can be unit-tested without spawning subprocesses or constructing
+         * a real [McpIdeTools] instance.
+         */
+        internal fun resolveCompileCommand(filePath: String, project: Project): Resolution {
+            val buildTool = BuildToolRegistry.detectPrimary(project)
+                ?: return Resolution(null, null, McpToolRouter.ToolResult(NO_BUILD_TOOL_MSG))
+
+            val extension = filePath.substringAfterLast('.', missingDelimiterValue = "")
+            val language = LanguageSupportRegistry.forFileExtension(extension)?.language
+                ?: return Resolution(
+                    buildTool, null,
+                    McpToolRouter.ToolResult(unknownExtensionMsg(extension), isError = true),
+                )
+
+            val cmd = buildTool.compileCommandFor(language, filePath, project)
+                ?: return Resolution(
+                    buildTool, null,
+                    McpToolRouter.ToolResult(
+                        unsupportedLanguageMsg(buildTool.displayName, language.displayName),
+                    ),
+                )
+
+            return Resolution(buildTool, cmd, null)
         }
     }
 

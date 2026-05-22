@@ -21,7 +21,6 @@ object JavaLanguageSupport : LanguageSupport {
     }
     override val displayName = "Java"
     override val fileExtensions = setOf("java")
-    override val gradleCompileTaskName = "compileJava"
 
     /**
      * Moved verbatim from McpIndexTools.findRelatedTypes. Caller is responsible
