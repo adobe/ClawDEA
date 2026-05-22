@@ -276,6 +276,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <postStartupActivity
             implementation="com.adobe.clawdea.language.LanguageSupportInitializer"/>
 
+        <!-- Build Tool Registry (Gradle + Maven built-in) -->
+        <postStartupActivity
+            implementation="com.adobe.clawdea.buildtool.BuildToolInitializer"/>
+
         <!-- Claude Gateway -->
         <applicationService
             serviceImplementation="com.adobe.clawdea.gateway.ClaudeGateway"/>
