@@ -349,4 +349,187 @@ class WikiRelocateHandlerTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    @Test fun `applyAction MOVE removes the now-empty old wiki directory`() {
+        val tmp = Files.createTempDirectory("relocate-move-cleanup")
+        try {
+            val oldDir = Files.createDirectories(tmp.resolve(".claude").resolve("wiki"))
+            val newDir = tmp.resolve("docs").resolve("llm-wiki")
+            Files.writeString(oldDir.resolve("index.md"), "x")
+            Files.createDirectories(oldDir.resolve("concepts"))
+            Files.writeString(oldDir.resolve("concepts").resolve("a.md"), "a")
+            WikiRelocateHandler.applyAction(
+                oldDir = oldDir,
+                newDir = newDir,
+                action = WikiRelocateHandler.Action.MOVE,
+                gitMove = { _, _ -> false },
+            )
+            assertFalse("oldDir must be removed when empty after Move", Files.exists(oldDir))
+            // The parent (.claude/) is left alone — only the wiki subtree is the
+            // handler's responsibility.
+            assertTrue(Files.exists(tmp.resolve(".claude")))
+            assertEquals("x", Files.readString(newDir.resolve("index.md")))
+            assertEquals("a", Files.readString(newDir.resolve("concepts").resolve("a.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `applyAction MOVE leaves oldDir alone when foreign files remain`() {
+        // Defensive: if something we didn't move ends up in oldDir (e.g. a
+        // sibling tool drops a file mid-relocate), the handler must not nuke
+        // the directory. The cleanup walk keys on emptiness, so the presence
+        // of any leftover file blocks deletion.
+        val tmp = Files.createTempDirectory("relocate-move-foreign")
+        try {
+            val oldDir = Files.createDirectories(tmp.resolve("old"))
+            val newDir = tmp.resolve("new")
+            Files.writeString(oldDir.resolve("foo.md"), "x")
+            // Simulate a "foreign" file that isn't a regular wiki page — applyAction
+            // currently moves every regular file under oldDir, so to exercise the
+            // "oldDir non-empty" branch we use a gitMove callback that drops a
+            // marker file partway through the move.
+            val marker = oldDir.resolve(".keep")
+            WikiRelocateHandler.applyAction(
+                oldDir = oldDir,
+                newDir = newDir,
+                action = WikiRelocateHandler.Action.MOVE,
+                gitMove = { _, _ ->
+                    Files.writeString(marker, "leftover")
+                    false
+                },
+            )
+            assertTrue("foreign file blocks oldDir cleanup", Files.exists(marker))
+            assertTrue("oldDir must remain when not empty", Files.exists(oldDir))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    // --- updateClaudeMdWikiLink ---
+
+    @Test fun `updateClaudeMdWikiLink rewrites both the link text and the URL`() {
+        val tmp = Files.createTempDirectory("claude-link-rewrite")
+        try {
+            val claudeMd = tmp.resolve("CLAUDE.md")
+            Files.writeString(
+                claudeMd,
+                """
+                |# CLAUDE.md
+                |
+                |## Wiki
+                |
+                |Detailed knowledge about individual subsystems lives in [`.claude/wiki/index.md`](.claude/wiki/index.md).
+                |Concept pages cover entry points.
+                |""".trimMargin(),
+            )
+            val updated = WikiRelocateHandler.updateClaudeMdWikiLink(
+                projectBase = tmp,
+                oldWikiRel = ".claude/wiki",
+                newWikiRel = "docs/llm-wiki",
+            )
+            assertTrue("rewrite must report a change", updated)
+            val content = Files.readString(claudeMd)
+            assertTrue(
+                "expected the link text to be rewritten, got: $content",
+                content.contains("[`docs/llm-wiki/index.md`]"),
+            )
+            assertTrue(
+                "expected the URL to be rewritten, got: $content",
+                content.contains("](docs/llm-wiki/index.md)"),
+            )
+            assertFalse("old path must be gone, got: $content", content.contains(".claude/wiki/"))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `updateClaudeMdWikiLink is a no-op when CLAUDE_md is missing`() {
+        val tmp = Files.createTempDirectory("claude-link-missing")
+        try {
+            val updated = WikiRelocateHandler.updateClaudeMdWikiLink(
+                projectBase = tmp,
+                oldWikiRel = ".claude/wiki",
+                newWikiRel = "docs/llm-wiki",
+            )
+            assertFalse(updated)
+            assertFalse(Files.exists(tmp.resolve("CLAUDE.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `updateClaudeMdWikiLink is a no-op when CLAUDE_md does not mention the old path`() {
+        val tmp = Files.createTempDirectory("claude-link-absent")
+        try {
+            val original = "# CLAUDE.md\n\n(no wiki link here yet)\n"
+            Files.writeString(tmp.resolve("CLAUDE.md"), original)
+            val updated = WikiRelocateHandler.updateClaudeMdWikiLink(
+                projectBase = tmp,
+                oldWikiRel = ".claude/wiki",
+                newWikiRel = "docs/llm-wiki",
+            )
+            assertFalse(updated)
+            assertEquals("file must be byte-identical", original, Files.readString(tmp.resolve("CLAUDE.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `updateClaudeMdWikiLink does not touch sibling paths sharing a prefix`() {
+        // Regression guard for naive replace: ".claude/wiki" without the trailing
+        // slash boundary would also match ".claude/wiki-archive/...".
+        val tmp = Files.createTempDirectory("claude-link-prefix")
+        try {
+            val claudeMd = tmp.resolve("CLAUDE.md")
+            Files.writeString(
+                claudeMd,
+                """
+                |# CLAUDE.md
+                |
+                |Active wiki: [`.claude/wiki/index.md`](.claude/wiki/index.md)
+                |Old archive (do not touch): [`.claude/wiki-archive/index.md`](.claude/wiki-archive/index.md)
+                |""".trimMargin(),
+            )
+            WikiRelocateHandler.updateClaudeMdWikiLink(
+                projectBase = tmp,
+                oldWikiRel = ".claude/wiki",
+                newWikiRel = "docs/llm-wiki",
+            )
+            val content = Files.readString(claudeMd)
+            assertTrue(content.contains(".claude/wiki-archive/"))
+            assertTrue(content.contains("docs/llm-wiki/index.md"))
+            assertFalse("active wiki link's old path must be gone", content.contains(".claude/wiki/index.md"))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `updateClaudeMdWikiLink is idempotent when paths are equal`() {
+        val tmp = Files.createTempDirectory("claude-link-equal")
+        try {
+            val original = "[`.claude/wiki/index.md`](.claude/wiki/index.md)\n"
+            Files.writeString(tmp.resolve("CLAUDE.md"), original)
+            val updated = WikiRelocateHandler.updateClaudeMdWikiLink(
+                projectBase = tmp,
+                oldWikiRel = ".claude/wiki",
+                newWikiRel = ".claude/wiki",
+            )
+            assertFalse("equal paths must not report a change", updated)
+            assertEquals(original, Files.readString(tmp.resolve("CLAUDE.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `updateClaudeMdWikiLink rejects blank inputs`() {
+        val tmp = Files.createTempDirectory("claude-link-blank")
+        try {
+            Files.writeString(tmp.resolve("CLAUDE.md"), "[`.claude/wiki/index.md`](.claude/wiki/index.md)\n")
+            assertFalse(WikiRelocateHandler.updateClaudeMdWikiLink(tmp, "", "docs/llm-wiki"))
+            assertFalse(WikiRelocateHandler.updateClaudeMdWikiLink(tmp, ".claude/wiki", ""))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }

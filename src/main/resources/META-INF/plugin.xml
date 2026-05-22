@@ -111,6 +111,27 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.5.0</h3>
+<h4>Wiki team mode</h4>
+<ul>
+  <li><b>Choose where the wiki lives.</b> The new <code>/wiki-relocate &lt;repo-relative-path&gt;</code> slash command moves the wiki out of <code>.claude/wiki/</code> into a path your team agrees on (e.g. <code>docs/llm-wiki/</code>) and writes <code>.clawdea/config.json</code>. Anyone who clones the repo automatically picks up the configured location &mdash; no setup needed. The relocate command shows an editable AskUserQuestion card with move/copy/none options so you can confirm before files are touched.</li>
+  <li><b>Per-user vs team-shared drift state.</b> In team mode the wiki's drift bookkeeping splits into <code>&lt;wikiDir&gt;/.wiki-state.json</code> (committed: <code>lastSyncedCommit</code>, persistent suggestions) and <code>.clawdea/wiki-state.local.json</code> (gitignored: per-user dismissals, last scan, probe misses). Branch switching now correctly re-anchors drift detection without forgetting your personal dismissals.</li>
+  <li><b>Commit-anchored drift detection.</b> <code>CommitWikiDriftDetector</code> now uses <code>lastSyncedCommit..HEAD</code> instead of a wall-clock window, so wiki drift survives rebases, force-pushes, and laptop downtime accurately.</li>
+  <li><b>Single source of truth for the wiki path.</b> New <code>WikiLocator</code> project service routes every wiki-aware code path (MCP tools, drift, primer, suggestion writer, ChatPanel) through one resolver, with idempotent migration from the legacy <code>.drift-state.json</code> on first read in team mode.</li>
+</ul>
+<h4>/seed-wiki bootstraps both layers</h4>
+<ul>
+  <li><b>One command to start.</b> <code>/seed-wiki</code> now also creates <code>CLAUDE.md</code> from a scoped template if missing, and appends a "## Wiki" section linking to the wiki index when CLAUDE.md is present but the link is not. Bootstrap of CLAUDE.md and the wiki concept pages happens in a single turn.</li>
+  <li><b>Smart suggestions.</b> When CLAUDE.md or the wiki index are missing, the chat surfaces an info block with a clickable <code>/seed-wiki</code> link instead of the generic <code>/init</code> nudge. The link runs the command for you with one click.</li>
+</ul>
+<h4>UX polish</h4>
+<ul>
+  <li><b>Editable AskUserQuestion cards.</b> Multi-choice prompts can now include an optional freeform text input, so commands like <code>/wiki-relocate</code> can offer "use this default path or type your own" without two round trips.</li>
+  <li><b>Per-kind drift icons.</b> The drift banner, digest, and refresh prompts now show distinct icons per drift kind (code-rename, manifest-stale, wiki-suggestion, commit-drift) via the new <code>DriftEventIcon</code> helper.</li>
+  <li><b>Per-tool icons for wiki MCP tools.</b> <code>read_wiki_page</code>, <code>search_wiki</code>, and edits inside the wiki directory now render with wiki-specific icons in the chat tool header.</li>
+  <li><b>Project tree refreshes after <code>/wiki-relocate</code></b> so moved/copied files show up immediately in the IDE.</li>
+</ul>
+
 <h3>1.4.3</h3>
 <p><b>Multiple-choice questions no longer get stuck after a long delay.</b> When a multi-choice prompt sat open longer than the CLI's ~60 s permission round-trip cap (claude-code #50289), Claude finalised its turn as denied and would re-ask the same question on a follow-up "continue" instead of using your answer. Late answers are now re-injected as a synthetic user message so the conversation moves on with your selection; Skip likewise tells the model to proceed without an answer.</p>
 

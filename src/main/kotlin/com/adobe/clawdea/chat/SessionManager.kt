@@ -53,8 +53,8 @@ class SessionManager(
             // WikiLocator threw — treat as missing so we still nudge.
             true
         }
-        val msg = seedWikiSuggestionMessage(claudeMdMissing, wikiIndexMissing) ?: return
-        browserRenderer.appendHtml(renderer.renderInfoMessage(msg))
+        val html = seedWikiSuggestionHtml(claudeMdMissing, wikiIndexMissing) ?: return
+        browserRenderer.appendHtml(html)
     }
 
     /**
@@ -271,25 +271,33 @@ class SessionManager(
 
     companion object {
         /**
-         * Pure helper for the /seed-wiki suggestion logic — returns the message
-         * to display, or null when both CLAUDE.md and the wiki index are
-         * present. Extracted so the three-branch decision is unit-testable
-         * without standing up the full SessionManager (which needs project,
-         * bridge, renderers, etc.).
+         * Pure helper for the /seed-wiki suggestion — returns the full HTML
+         * info-block to append, or null when both CLAUDE.md and the wiki
+         * index are present. Renders `/seed-wiki` as a clickable link
+         * (`data-action="run-slash-command"`) so the user can launch the
+         * command with one click instead of typing it. Extracted so the
+         * three-branch decision is unit-testable without standing up the
+         * full SessionManager.
          */
-        internal fun seedWikiSuggestionMessage(
+        internal fun seedWikiSuggestionHtml(
             claudeMdMissing: Boolean,
             wikiIndexMissing: Boolean,
         ): String? {
             if (!claudeMdMissing && !wikiIndexMissing) return null
-            return when {
+            val link = SEED_WIKI_LINK
+            val body = when {
                 claudeMdMissing && wikiIndexMissing ->
-                    "No CLAUDE.md or wiki found in this project. Type /seed-wiki to bootstrap both."
+                    "No CLAUDE.md or wiki found in this project. Type $link to bootstrap both."
                 claudeMdMissing ->
-                    "No CLAUDE.md found in this project. Type /seed-wiki to bootstrap CLAUDE.md and refresh the wiki."
+                    "No CLAUDE.md found in this project. Type $link to bootstrap CLAUDE.md and refresh the wiki."
                 else ->
-                    "No wiki found in this project. Type /seed-wiki to bootstrap the wiki for Claude."
+                    "No wiki found in this project. Type $link to bootstrap the wiki for Claude."
             }
+            return """<div class="info-block">$body</div>"""
         }
+
+        /** Stable HTML for the inline `/seed-wiki` slash-command link. */
+        internal const val SEED_WIKI_LINK =
+            """<a href="#" class="slash-command-link" data-action="run-slash-command" data-slash="/seed-wiki">/seed-wiki</a>"""
     }
 }

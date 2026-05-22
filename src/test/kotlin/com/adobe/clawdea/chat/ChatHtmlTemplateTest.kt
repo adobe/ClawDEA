@@ -58,6 +58,7 @@ class ChatHtmlTemplateTest {
             navigateJs = "NAVIGATE_JS",
             permissionDecisionJs = "PERMISSION_JS",
             driftActionJs = "DRIFT_JS",
+            runSlashCommandJs = "RUN_SLASH_JS",
         )
         assertContains(js, "ABORT_JS")
         assertContains(js, "TURN_CONTROL_JS")
@@ -68,6 +69,7 @@ class ChatHtmlTemplateTest {
         assertContains(js, "NAVIGATE_JS")
         assertContains(js, "PERMISSION_JS")
         assertContains(js, "DRIFT_JS")
+        assertContains(js, "RUN_SLASH_JS")
         assertContains(js, "window.bridgeStopTool")
         assertContains(js, "window.bridgeTurnControl")
         assertContains(js, "window.bridgeOpenDiff")
@@ -77,10 +79,12 @@ class ChatHtmlTemplateTest {
         assertContains(js, "window.bridgeNavigate")
         assertContains(js, "window.bridgePermissionDecision")
         assertContains(js, "window.bridgeDriftAction")
+        assertContains(js, "window.bridgeRunSlashCommand")
         assertContains(js, "permission-allow")
         assertContains(js, "permission-deny")
         assertContains(js, "turn-pause")
         assertContains(js, "turn-stop")
         assertContains(js, "drift-action")
+        assertContains(js, "run-slash-command")
     }
 }

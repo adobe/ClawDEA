@@ -28,6 +28,7 @@ class ChatHtmlTemplate {
         navigateJs: String,
         permissionDecisionJs: String,
         driftActionJs: String,
+        runSlashCommandJs: String,
     ): String = """
         window.bridgeStopTool = function() { $abortJs };
         window.bridgeTurnControl = function(action) { $turnControlJs };
@@ -38,6 +39,7 @@ class ChatHtmlTemplate {
         window.bridgeNavigate = function(ref) { $navigateJs };
         window.bridgePermissionDecision = function(arg) { $permissionDecisionJs };
         window.bridgeDriftAction = function(action) { $driftActionJs };
+        window.bridgeRunSlashCommand = function(slash) { $runSlashCommandJs };
         window.collectQuestionAnswers = function(card) {
             // Walk every radio/checkbox in the card; group multi-select labels
             // under their question text. Also collect any freeform text inputs
@@ -96,6 +98,14 @@ class ChatHtmlTemplate {
                 }
                 case 'question-cancel': bridgePermissionDecision(permissionId + ':cancel'); break;
                 case 'drift-action': bridgeDriftAction(el.getAttribute('data-drift-action') || ''); break;
+                case 'run-slash-command': {
+                    // Anchor links default to navigating; suppress that so the
+                    // page doesn't try to follow href="#".
+                    if (e.preventDefault) e.preventDefault();
+                    var slash = el.getAttribute('data-slash') || '';
+                    if (slash) bridgeRunSlashCommand(slash);
+                    break;
+                }
             }
         });
     """.trimIndent()

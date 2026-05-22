@@ -44,11 +44,27 @@ class HandlerQuestionServiceTest {
     }
 
     @Test
-    fun `owns rejects ids without the handler-question prefix`() {
+    fun `owns rejects ids that were never registered`() {
         val service = HandlerQuestionService()
         assertFalse(service.owns(""))
         assertFalse(service.owns("perm-12345"))
         assertFalse(service.owns("foo:bar"))
+        // A string that merely starts with the prefix but was never registered
+        // must not be claimed — this prevents misrouting CLI permission requests
+        // whose ids happen to share the prefix.
+        assertFalse(service.owns(HandlerQuestionService.HANDLER_QUESTION_PREFIX + "never-minted"))
+    }
+
+    @Test
+    fun `prefix is colon-free so it cannot break the JCEF protocol payload split`() {
+        // Regression: the JCEF bridge dispatches "<requestId>:<action>:<data>"
+        // and parses with split(":", limit=3). A colon in the prefix would push
+        // the action out to parts[2] and the action.lowercase() check would fall
+        // through, making Submit a silent no-op. Keep this test as a guard.
+        assertFalse(
+            "HANDLER_QUESTION_PREFIX must not contain ':' (would corrupt the JCEF dispatch split)",
+            HandlerQuestionService.HANDLER_QUESTION_PREFIX.contains(":"),
+        )
     }
 
     @Test
@@ -85,7 +101,7 @@ class HandlerQuestionServiceTest {
     fun `submit on an unknown id is a silent no-op`() {
         val service = HandlerQuestionService()
         // Should not throw.
-        service.submit("hq:does-not-exist", mapOf("q" to "a"), emptyMap())
+        service.submit("hq-does-not-exist", mapOf("q" to "a"), emptyMap())
     }
 
     @Test
@@ -108,7 +124,7 @@ class HandlerQuestionServiceTest {
     @Test
     fun `cancel on an unknown id is a silent no-op`() {
         val service = HandlerQuestionService()
-        service.cancel("hq:nope")
+        service.cancel("hq-nope")
     }
 
     @Test

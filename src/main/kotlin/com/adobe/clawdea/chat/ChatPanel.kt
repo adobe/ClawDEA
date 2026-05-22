@@ -131,12 +131,16 @@ class ChatPanel(
     private val permissionDecisionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for drift banner action clicks (refresh / dismiss)
     private val driftActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    // JS→Kotlin bridge for clickable slash-command links inside chat messages.
+    // Used by SessionManager's /seed-wiki suggestion and could power any future
+    // "click here to run /foo" affordance.
+    private val runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     private val htmlTemplate = ChatHtmlTemplate()
     private val browserRenderer = ChatBrowserRenderer(
         browser, htmlTemplate, abortQuery, turnControlQuery, openDiffQuery,
         editActionQuery, healthQuery, openFileQuery, navigateQuery,
-        permissionDecisionQuery, driftActionQuery,
+        permissionDecisionQuery, driftActionQuery, runSlashCommandQuery,
     )
 
     // Unregister handle for the DriftDetectionService listener; populated in init, called from dispose().
@@ -427,6 +431,17 @@ class ChatPanel(
         driftActionQuery.addHandler { action ->
             ApplicationManager.getApplication().invokeLater {
                 driftBanner.handleAction(action)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Slash-command link bridge: lets in-message links run a slash command
+        // verbatim through the standard send pipeline (queueing, expansion,
+        // dispatch). The JS side reads `data-slash` from the clicked element
+        // and passes its value here unchanged.
+        runSlashCommandQuery.addHandler { slash ->
+            if (!slash.isNullOrBlank() && slash.startsWith("/")) {
+                ApplicationManager.getApplication().invokeLater { submitCommand(slash) }
             }
             JBCefJSQuery.Response("ok")
         }
@@ -1001,6 +1016,7 @@ class ChatPanel(
                 val requestId = service.register(onResolve)
                 appendHtml(askUserQuestionRenderer.renderCard(requestId, input))
             },
+            dispatchToBridge = { text -> dispatchSendToBridge(text, renderInChat = false) },
         )
     }
 
@@ -1137,9 +1153,7 @@ class ChatPanel(
             """.trimIndent()
         })
 
-        commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.BridgeExpandingHandler(
-            CommandInfo("/seed-wiki", "Bootstrap initial wiki pages from project state", CommandCategory.BRIDGE),
-        ) { _ ->
+        commandRegistry.register("/seed-wiki", com.adobe.clawdea.commands.handlers.SeedWikiHandler(project) { wikiPathRel ->
             val invariantTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-invariant")
             val navigationTemplate = com.adobe.clawdea.knowledge.prompts.PromptResource.load("wiki-page-navigation")
             val capWording = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
@@ -1147,18 +1161,8 @@ class ChatPanel(
             } else {
                 "5–10 concept areas worth documenting (main subsystems, key APIs, active\n               feature work, architectural decisions worth capturing)."
             }
-            // Resolve the project-relative wiki path so the bootstrapped CLAUDE.md links at the
-            // correct location in both default and team modes (.clawdea/config.json → wikiPath).
-            val wikiPathRel: String = run {
-                val basePath = project.basePath ?: return@run ".claude/wiki"
-                val base = java.nio.file.Paths.get(basePath)
-                val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
-                runCatching {
-                    base.relativize(wikiDir).toString().replace(java.io.File.separatorChar, '/')
-                }.getOrNull()?.takeIf { it.isNotBlank() } ?: ".claude/wiki"
-            }
             """
-            Bootstrap an initial wiki for this project at .claude/wiki/.
+            Bootstrap an initial wiki for this project at $wikiPathRel/.
 
             **CRITICAL — TOOL CHOICE:** Use the **propose_write** MCP tool (registered as
             `mcp__clawdea-intellij__propose_write`) for every file you create. The built-in `Write` tool is
@@ -1256,13 +1260,13 @@ class ChatPanel(
             ----- END NAVIGATION TEMPLATE -----
 
             5. Use propose_write (NOT Write) to create:
-               - .claude/wiki/index.md — a TOC with a short intro plus standard Markdown links to each
+               - $wikiPathRel/index.md — a TOC with a short intro plus standard Markdown links to each
                  concept page, e.g. `[Title](concepts/<slug>.md)`.
-               - .claude/wiki/concepts/<kebab-case-name>.md — one file per concept, using the template
+               - $wikiPathRel/concepts/<kebab-case-name>.md — one file per concept, using the template
                  that matches the classification. For `pipeline` or `runtime-behavior` pages, produce
                  3–7 invariants, each citing the file that makes it true.
 
-            After I accept the diffs, wiki/index.md will join every chat's primer automatically.
+            After I accept the diffs, $wikiPathRel/index.md will join every chat's primer automatically.
             """.trimIndent()
         })
 
@@ -1662,6 +1666,7 @@ class ChatPanel(
             }
             if (handler is BridgeForwardHandler ||
                 handler is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler ||
+                handler is com.adobe.clawdea.commands.handlers.SeedWikiHandler ||
                 handler is SkillHandler
             ) {
                 queueCurrentComposerText()
@@ -2014,6 +2019,7 @@ class ChatPanel(
         navigateQuery.dispose()
         permissionDecisionQuery.dispose()
         driftActionQuery.dispose()
+        runSlashCommandQuery.dispose()
         browser.dispose()
     }
 

@@ -96,31 +96,85 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
 
         val oldWikiDir = WikiLocator.getInstance(project).wikiDir()
         val newWikiDir = projectBase.resolve(newPath)
-        applyAction(
-            oldDir = oldWikiDir,
-            newDir = newWikiDir,
-            action = action,
-            gitMove = { src, dst -> tryGitMove(project, src, dst) },
-        )
-        writeConfig(projectBase, newPath)
-        appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
-        // Project View / VFS won't notice a bulk directory move on its own;
-        // push an immediate broad refresh so the relocated tree is visible
-        // before the drift rescan reads it back. Skip when nothing moved.
-        if (action != Action.NOTHING) {
-            project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
-                ?.onMassFileChange()
-        }
-        project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
+        val oldWikiRel = relativeWikiPath(projectBase, oldWikiDir)
 
-        val actionMsg = when (action) {
-            Action.NOTHING -> "left existing wiki contents in place"
-            Action.MOVE -> "moved existing wiki contents to '$newPath'"
-            Action.COPY -> "copied existing wiki contents to '$newPath'"
+        // The heavy path runs `git mv` and bulk file ops, which mustn't sit on
+        // the EDT (the Git plugin asserts both on `OSProcessHandler.waitFor`
+        // and on `BuiltInServerManager.waitForStart`). Validation above stayed
+        // on EDT so existing bail-path tests keep working; everything below
+        // goes to a pool thread, with UI rejoinder posted back via invokeLater.
+        val app = com.intellij.openapi.application.ApplicationManager.getApplication()
+        val heavy = Runnable { runHeavyRelocate(projectBase, oldWikiDir, newWikiDir, oldWikiRel, newPath, action, context) }
+        if (app != null) app.executeOnPooledThread(heavy) else heavy.run()
+    }
+
+    /**
+     * Off-EDT phase of [completeRelocate]: file ops, config write, gitignore,
+     * CLAUDE.md link rewrite, VFS refresh, drift rescan, and final UI message.
+     * Any failure surfaces as an HTML info-block on the chat.
+     */
+    private fun runHeavyRelocate(
+        projectBase: Path,
+        oldWikiDir: Path,
+        newWikiDir: Path,
+        oldWikiRel: String,
+        newPath: String,
+        action: Action,
+        context: CommandContext,
+    ) {
+        try {
+            applyAction(
+                oldDir = oldWikiDir,
+                newDir = newWikiDir,
+                action = action,
+                gitMove = { src, dst -> tryGitMove(project, src, dst) },
+            )
+            writeConfig(projectBase, newPath)
+            appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
+            // Repoint the `## Wiki` link in CLAUDE.md (added by /seed-wiki) at
+            // the new location so collaborators don't follow a stale path.
+            val claudeMdUpdated = updateClaudeMdWikiLink(projectBase, oldWikiRel, newPath)
+
+            // Project View / VFS won't notice a bulk directory move on its own;
+            // push an immediate broad refresh so the relocated tree is visible
+            // before the drift rescan reads it back. Skip when nothing moved.
+            if (action != Action.NOTHING) {
+                project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
+                    ?.onMassFileChange()
+            }
+            project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
+
+            val actionMsg = when (action) {
+                Action.NOTHING -> "left existing wiki contents in place"
+                Action.MOVE -> "moved existing wiki contents to '$newPath'"
+                Action.COPY -> "copied existing wiki contents to '$newPath'"
+            }
+            val claudeMdNote = if (claudeMdUpdated) " Updated CLAUDE.md wiki link." else ""
+            postUi(context) {
+                context.appendHtml(
+                    """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' (${escapeHtml(actionMsg)}).${escapeHtml(claudeMdNote)} Commit .clawdea/config.json to share with your team.</div>""",
+                )
+            }
+        } catch (e: Throwable) {
+            LOG.warn("Wiki relocate failed: ${e.message}", e)
+            postUi(context) {
+                context.appendHtml(
+                    """<div class="info-block">Wiki relocate failed: ${escapeHtml(e.message ?: e.toString())}</div>""",
+                )
+            }
         }
-        context.appendHtml(
-            """<div class="info-block">Wiki path set to '${escapeHtml(newPath)}' (${escapeHtml(actionMsg)}). Commit .clawdea/config.json to share with your team.</div>""",
-        )
+    }
+
+    /** Project-relative POSIX form of [wikiDir], or "" if it cannot be relativized. */
+    private fun relativeWikiPath(projectBase: Path, wikiDir: Path): String =
+        runCatching {
+            projectBase.relativize(wikiDir).toString().replace(java.io.File.separatorChar, '/')
+        }.getOrNull()?.takeIf { it.isNotBlank() }.orEmpty()
+
+    /** Posts [block] on the EDT when an Application is available; runs synchronously otherwise (unit tests). */
+    private fun postUi(@Suppress("UNUSED_PARAMETER") context: CommandContext, block: () -> Unit) {
+        val app = com.intellij.openapi.application.ApplicationManager.getApplication()
+        if (app != null) app.invokeLater(block) else block()
     }
 
     private fun tryGitMove(project: Project, src: Path, dst: Path): Boolean {
@@ -197,12 +251,15 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                             Files.move(src, dst, StandardCopyOption.REPLACE_EXISTING)
                         }
                     }
-                    // Clean up empty directories under oldDir, bottom-up.
+                    // Clean up empty directories under oldDir, bottom-up. We
+                    // also remove oldDir itself when empty so the legacy wiki
+                    // root (e.g. `.claude/wiki/`) doesn't linger after a Move
+                    // — leaving it behind would confuse collaborators about
+                    // which path is canonical.
                     val dirs = Files.walk(oldDir).use { stream ->
                         stream.filter { p -> Files.isDirectory(p) }.toList()
                     }
                     for (dir in dirs.sortedByDescending { it.nameCount }) {
-                        if (dir == oldDir) continue
                         try {
                             val isEmpty = Files.list(dir).use { stream -> !stream.findAny().isPresent }
                             if (isEmpty) Files.deleteIfExists(dir)
@@ -270,7 +327,7 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                     ),
                     AskUserQuestionInput.Option(
                         label = "Nothing",
-                        description = "Just point ClawDEA at the new path. Leave existing contents alone.",
+                        description = "Just point at the new path. Old wiki untouched. You'll have to run /seed-wiki to create the wiki at the new path.",
                     ),
                 ),
                 multiSelect = false,
@@ -281,6 +338,34 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                 ),
             )
             return AskUserQuestionInput(questions = listOf(q))
+        }
+
+        /**
+         * Repoints the wiki link in `<projectBase>/CLAUDE.md` from
+         * [oldWikiRel] to [newWikiRel] (both project-relative POSIX paths).
+         * Returns true when the file was modified.
+         *
+         * `/seed-wiki` writes a `## Wiki` section that mentions the wiki path
+         * twice in a row — once as link text inside backticks and once as the
+         * Markdown URL. We rewrite occurrences of `<oldWikiRel>/` (with the
+         * trailing `/` boundary) so sibling paths sharing a prefix
+         * (e.g. `.claude/wiki-archive`) aren't accidentally touched.
+         *
+         * No-ops gracefully when:
+         *  - either path is blank or both are equal (nothing to do),
+         *  - CLAUDE.md is missing (project never bootstrapped one),
+         *  - or no occurrence of [oldWikiRel] is found (link points elsewhere).
+         */
+        fun updateClaudeMdWikiLink(projectBase: Path, oldWikiRel: String, newWikiRel: String): Boolean {
+            if (oldWikiRel.isBlank() || newWikiRel.isBlank() || oldWikiRel == newWikiRel) return false
+            val claudeMd = projectBase.resolve("CLAUDE.md")
+            if (!Files.isRegularFile(claudeMd)) return false
+            val content = Files.readString(claudeMd)
+            val needle = "$oldWikiRel/"
+            if (!content.contains(needle)) return false
+            val updated = content.replace(needle, "$newWikiRel/")
+            Files.writeString(claudeMd, updated)
+            return true
         }
 
         /**

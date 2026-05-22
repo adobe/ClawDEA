@@ -41,6 +41,16 @@ data class CommandContext(
         input: com.adobe.clawdea.chat.permission.AskUserQuestionInput,
         onResolve: (com.adobe.clawdea.chat.permission.HandlerQuestionAnswers?) -> Unit,
     ) -> Unit)? = null,
+    /**
+     * Optional bridge dispatch — sends [text] to the CLI as a regular user
+     * message without rendering it in the chat. Non-null when invoked from
+     * the chat panel; null in headless/test contexts.
+     *
+     * Used by handlers that need to delay or modify the prompt sent to the
+     * model (e.g. /seed-wiki gathers a placement choice from the user before
+     * dispatching a path-aware expanded prompt).
+     */
+    val dispatchToBridge: ((text: String) -> Unit)? = null,
 )
 
 interface CommandHandler {

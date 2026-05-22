@@ -50,3 +50,4 @@ scripts/drift/node_modules/
 docs/superpowers/
 *.log
 !gradle/wrapper/*.log
+.clawdea/wiki-state.local.json

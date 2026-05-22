@@ -20,14 +20,14 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Holds resolution callbacks for handler-initiated AskUserQuestion cards.
  * The card is reused from the CLI permission flow; routing is done by
- * requestId prefix ([HANDLER_QUESTION_PREFIX]) so a single
+ * looking up the requestId in the pending map (see [owns]) so a single
  * [com.intellij.ui.jcef.JBCefJSQuery] bridge can serve both kinds of card
  * without parsing payload contents to disambiguate.
  *
  * Lifecycle:
  *  - [register] generates a requestId and parks the resolver. Caller passes
  *    that id to [AskUserQuestionRenderer.renderCard] to produce the HTML.
- *  - On JCEF submit, [PermissionRequestHandler] sees the prefix matches and
+ *  - On JCEF submit, [PermissionRequestHandler] sees [owns] return true and
  *    forwards to [submit] (or [cancel] for Skip). The resolver fires once
  *    and is removed.
  *  - If the user navigates away or the panel disposes before submitting,
@@ -48,8 +48,16 @@ class HandlerQuestionService(@Suppress("unused") private val project: Project? =
         return id
     }
 
-    /** Returns true if [requestId] was issued by this service. */
-    override fun owns(requestId: String): Boolean = requestId.startsWith(HANDLER_QUESTION_PREFIX)
+    /**
+     * Returns true if [requestId] is currently registered with this service.
+     *
+     * We consult the pending map directly rather than just checking the
+     * cosmetic [HANDLER_QUESTION_PREFIX] — that way a CLI permission request
+     * whose id happens to start with the prefix can never be misrouted, and
+     * we avoid double-routing the same submit (the id is removed from the
+     * map on the first [submit]/[cancel]).
+     */
+    override fun owns(requestId: String): Boolean = pending.containsKey(requestId)
 
     override fun submit(requestId: String, answers: Map<String, String>, freeforms: Map<String, String>) {
         val resolver = pending.remove(requestId) ?: run {
@@ -73,7 +81,19 @@ class HandlerQuestionService(@Suppress("unused") private val project: Project? =
     }
 
     companion object {
-        const val HANDLER_QUESTION_PREFIX = "hq:"
+        /**
+         * Cosmetic id prefix — purely for log readability and to make
+         * handler-question ids visually distinguishable from CLI permission
+         * ids. Routing is keyed on the pending map (see [owns]); the prefix
+         * does NOT participate in dispatch.
+         *
+         * Must NOT contain a colon: the JCEF bridge dispatches
+         * `"<requestId>:<action>:<data>"` and parses with `split(":", limit=3)`.
+         * A colon in the prefix would make the JS-side requestId split across
+         * `parts[0]` and `parts[1]`, dropping the action entirely (regression
+         * fixed in this module's history — clicking Submit silently no-oped).
+         */
+        const val HANDLER_QUESTION_PREFIX = "hq-"
         private val LOG = Logger.getInstance(HandlerQuestionService::class.java)
         fun getInstance(project: Project): HandlerQuestionService =
             project.getService(HandlerQuestionService::class.java)
