@@ -151,4 +151,77 @@ class AskUserQuestionInputTest {
         val obj = JsonParser.parseString(updated).asJsonObject
         assertEquals("new", obj.getAsJsonObject("answers").get("q").asString)
     }
+
+    @Test
+    fun `parse reads freeformInput when present`() {
+        val json = """
+            {"questions":[{
+              "question":"Where to?",
+              "header":"Path",
+              "multiSelect":false,
+              "options":[{"label":"Move","description":""}],
+              "freeformInput":{"prefill":"docs/llm-wiki","label":"Path:","placeholder":"docs/llm-wiki"}
+            }]}
+        """.trimIndent()
+        val input = AskUserQuestionInput.parse(json)
+        assertNotNull(input)
+        val ff = input!!.questions[0].freeformInput
+        assertNotNull(ff)
+        assertEquals("docs/llm-wiki", ff!!.prefill)
+        assertEquals("Path:", ff.label)
+        assertEquals("docs/llm-wiki", ff.placeholder)
+    }
+
+    @Test
+    fun `parse leaves freeformInput null when absent`() {
+        val input = AskUserQuestionInput.parse(sampleJson)
+        assertNotNull(input)
+        assertNull(input!!.questions[0].freeformInput)
+        assertNull(input.questions[1].freeformInput)
+    }
+
+    @Test
+    fun `parse tolerates malformed freeformInput object`() {
+        // freeformInput is not an object (just a string) — should be ignored
+        val notAnObject = """
+            {"questions":[{
+              "question":"q","header":"h","multiSelect":false,
+              "options":[{"label":"a","description":""}],
+              "freeformInput":"oops"
+            }]}
+        """.trimIndent()
+        val input1 = AskUserQuestionInput.parse(notAnObject)
+        assertNotNull(input1)
+        assertNull(input1!!.questions[0].freeformInput)
+
+        // freeformInput is an object but missing the required "prefill"
+        val missingPrefill = """
+            {"questions":[{
+              "question":"q","header":"h","multiSelect":false,
+              "options":[{"label":"a","description":""}],
+              "freeformInput":{"label":"only label"}
+            }]}
+        """.trimIndent()
+        val input2 = AskUserQuestionInput.parse(missingPrefill)
+        assertNotNull(input2)
+        assertNull(input2!!.questions[0].freeformInput)
+    }
+
+    @Test
+    fun `parse defaults freeformInput label and placeholder to null when omitted`() {
+        val json = """
+            {"questions":[{
+              "question":"q","header":"h","multiSelect":false,
+              "options":[{"label":"a","description":""}],
+              "freeformInput":{"prefill":"value-only"}
+            }]}
+        """.trimIndent()
+        val input = AskUserQuestionInput.parse(json)
+        assertNotNull(input)
+        val ff = input!!.questions[0].freeformInput
+        assertNotNull(ff)
+        assertEquals("value-only", ff!!.prefill)
+        assertNull(ff.label)
+        assertNull(ff.placeholder)
+    }
 }

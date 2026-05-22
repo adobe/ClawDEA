@@ -200,25 +200,66 @@ class PermissionRequestHandler(
         return if (firstToken.isBlank()) input else "$firstToken *"
     }
 
-    private fun parseAnswers(data: String): Map<String, String> {
-        if (data.isBlank()) return emptyMap()
-        return try {
-            val root = JsonParser.parseString(data)
-            if (!root.isJsonObject) return emptyMap()
-            val obj: JsonObject = root.asJsonObject
-            buildMap {
-                for ((key, value) in obj.entrySet()) {
-                    if (value.isJsonPrimitive && value.asJsonPrimitive.isString) {
-                        put(key, value.asString)
-                    }
+    companion object {
+        /**
+         * Parse the `answers` map from a question-submit payload.
+         *
+         * Tolerates two wire shapes:
+         *  1. The new shape `{ "answers": { ... }, "freeforms": { ... } }`
+         *     produced by `window.collectQuestionAnswers` once the freeform
+         *     work in Task 19a lands.
+         *  2. The legacy flat shape `{ "<question>": "<label>", ... }`
+         *     previously posted directly by the JS bridge — kept for
+         *     backwards compatibility with the existing CLI path and any
+         *     test fixtures.
+         *
+         * `internal` rather than `private` so the parser tests can exercise
+         * both shapes without going through JCEF / the Application thread.
+         * Task 19b will broaden the visibility (or wrap it) when a real
+         * consumer wires up.
+         */
+        internal fun parseAnswers(data: String): Map<String, String> {
+            if (data.isBlank()) return emptyMap()
+            return try {
+                val root = JsonParser.parseString(data)
+                if (!root.isJsonObject) return emptyMap()
+                val obj: JsonObject = root.asJsonObject
+                val source = obj.get("answers")?.takeIf { it.isJsonObject }?.asJsonObject ?: obj
+                stringMapOf(source)
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+
+        /**
+         * Parse the `freeforms` map from a question-submit payload. Returns
+         * an empty map for the legacy flat shape (no `freeforms` field).
+         *
+         * `internal` for testing; Task 19b will introduce the first real
+         * consumer (sibling code path to `handleQuestionSubmit`).
+         */
+        internal fun parseFreeforms(data: String): Map<String, String> {
+            if (data.isBlank()) return emptyMap()
+            return try {
+                val root = JsonParser.parseString(data)
+                if (!root.isJsonObject) return emptyMap()
+                val obj: JsonObject = root.asJsonObject
+                val source = obj.get("freeforms")?.takeIf { it.isJsonObject }?.asJsonObject
+                    ?: return emptyMap()
+                stringMapOf(source)
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+
+        private fun stringMapOf(obj: JsonObject): Map<String, String> = buildMap {
+            for ((key, value) in obj.entrySet()) {
+                if (value.isJsonPrimitive && value.asJsonPrimitive.isString) {
+                    put(key, value.asString)
                 }
             }
-        } catch (_: Exception) {
-            emptyMap()
         }
-    }
 
-    companion object {
         /**
          * Synthetic user message used when the user clicks Skip on an
          * AskUserQuestion card after the prompt-tool round-trip already

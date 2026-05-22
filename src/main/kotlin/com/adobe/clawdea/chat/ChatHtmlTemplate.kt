@@ -40,8 +40,10 @@ class ChatHtmlTemplate {
         window.bridgeDriftAction = function(action) { $driftActionJs };
         window.collectQuestionAnswers = function(card) {
             // Walk every radio/checkbox in the card; group multi-select labels
-            // under their question text. Returns { "<question>": "<label>" |
-            // "<l1>, <l2>" }.
+            // under their question text. Also collect any freeform text inputs
+            // (class="question-freeform-input") into a sibling freeforms map.
+            // Returns { answers: { "<question>": "<label>" | "<l1>, <l2>" },
+            //           freeforms: { "<question>": "<text>" } }.
             var answers = {};
             var inputs = card.querySelectorAll('input[type="radio"], input[type="checkbox"]');
             for (var i = 0; i < inputs.length; i++) {
@@ -56,7 +58,15 @@ class ChatHtmlTemplate {
                     answers[q] = l;
                 }
             }
-            return answers;
+            var freeforms = {};
+            var textInputs = card.querySelectorAll('input.question-freeform-input[type="text"]');
+            for (var j = 0; j < textInputs.length; j++) {
+                var t = textInputs[j];
+                var qq = t.getAttribute('data-question') || '';
+                if (!qq) continue;
+                freeforms[qq] = t.value || '';
+            }
+            return { answers: answers, freeforms: freeforms };
         };
         document.addEventListener('click', function(e) {
             var el = e.target.closest('[data-action]');
