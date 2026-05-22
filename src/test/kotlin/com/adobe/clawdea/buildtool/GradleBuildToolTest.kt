@@ -63,6 +63,14 @@ class GradleBuildToolTest {
         assertEquals(listOf("./gradlew", "compileKotlin", "--quiet"), cmd!!.argv)
     }
 
+    @Test fun `compileCommandFor Scala returns gradlew compileScala quiet`() {
+        val cmd = GradleBuildTool.compileCommandFor(
+            fakeSupport("scala", "Scala"), "/proj/Foo.scala", stubProject("/proj"),
+        )
+        assertNotNull(cmd)
+        assertEquals(listOf("./gradlew", "compileScala", "--quiet"), cmd!!.argv)
+    }
+
     @Test fun `compileCommandFor unknown language returns null`() {
         val cmd = GradleBuildTool.compileCommandFor(
             fakeSupport("xyz", "XYZ"), "/proj/notes.xyz", stubProject("/proj"),

@@ -92,6 +92,16 @@ class MavenBuildToolTest {
         assertNull(cmd)
     }
 
+    @Test fun `compileCommandFor Scala returns null in this PR`() {
+        // Maven + Scala is real (scala-maven-plugin) but #3 defers detection to #7.
+        val cmd = MavenBuildTool.compileCommandFor(
+            fakeSupport("scala", "Scala"),
+            "${tempDir}/src/main/scala/Foo.scala",
+            stubProject(tempDir.toString()),
+        )
+        assertNull(cmd)
+    }
+
     @Test fun `compileCommandFor unknown language returns null`() {
         val cmd = MavenBuildTool.compileCommandFor(
             fakeSupport("xyz", "XYZ"),

@@ -52,6 +52,7 @@ object GradleBuildTool : BuildTool {
         val task = when (languageSupport.id) {
             "java" -> "compileJava"
             "kotlin" -> "compileKotlin"
+            "scala" -> "compileScala"
             else -> return null
         }
         val basePath = project.basePath ?: return null
