@@ -22,14 +22,12 @@ class LanguageSupportRegistryTest {
         override val language: Language = FakeJavaLang
         override val displayName = "Java"
         override val fileExtensions = setOf("java")
-        override val gradleCompileTaskName = "compileJava"
     }
 
     private object FakeKotlin : LanguageSupport {
         override val language: Language = FakeKotlinLang
         override val displayName = "Kotlin"
         override val fileExtensions = setOf("kt", "kts")
-        override val gradleCompileTaskName = "compileKotlin"
     }
 
     @Before fun setUp() { LanguageSupportRegistry.clearForTest() }

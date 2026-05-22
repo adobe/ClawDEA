@@ -15,6 +15,5 @@ object KotlinLanguageSupport : LanguageSupport {
     }
     override val displayName = "Kotlin"
     override val fileExtensions = setOf("kt", "kts")
-    override val gradleCompileTaskName = "compileKotlin"
     // findRelatedTypes intentionally not overridden — returns null (default).
 }

@@ -24,8 +24,4 @@ class JavaLanguageSupportTest {
     @Test fun `fileExtensions is just java`() {
         assertEquals(setOf("java"), JavaLanguageSupport.fileExtensions)
     }
-
-    @Test fun `gradleCompileTaskName is compileJava`() {
-        assertEquals("compileJava", JavaLanguageSupport.gradleCompileTaskName)
-    }
 }
