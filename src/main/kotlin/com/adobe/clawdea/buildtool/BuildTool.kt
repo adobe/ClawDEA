@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.buildtool
 
-import com.intellij.lang.Language
+import com.adobe.clawdea.language.LanguageSupport
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 
@@ -34,10 +34,12 @@ interface BuildTool {
     fun buildConfigFiles(project: Project): List<VirtualFile>
 
     /**
-     * Returns the compile command for [targetFile] in [language], or null if
-     * this build tool does not support compiling that language in [project].
+     * Returns the compile command for [targetFile] under [languageSupport], or null if
+     * this build tool does not support compiling that language in [project]. Dispatch is
+     * keyed on [LanguageSupport.id] so it works even when the IntelliJ Language is
+     * unavailable (e.g. Scala without the Scala plugin installed).
      */
-    fun compileCommandFor(language: Language, targetFile: String, project: Project): CompileCommand?
+    fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand?
 
     /**
      * Filters captured stdout/stderr to lines relevant to [targetFile].

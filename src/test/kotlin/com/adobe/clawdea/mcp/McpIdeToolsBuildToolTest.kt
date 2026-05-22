@@ -47,7 +47,7 @@ class McpIdeToolsBuildToolTest {
     ) : BuildTool {
         override fun isActive(project: Project) = activeFor(project)
         override fun buildConfigFiles(project: Project): List<VirtualFile> = emptyList()
-        override fun compileCommandFor(language: Language, targetFile: String, project: Project): CompileCommand? = command
+        override fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand? = command
         override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String = ""
     }
 

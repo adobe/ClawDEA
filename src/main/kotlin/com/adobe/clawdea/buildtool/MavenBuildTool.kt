@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.buildtool
 
+import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
-import com.intellij.lang.Language
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -44,11 +44,11 @@ object MavenBuildTool : BuildTool {
     override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
 
     override fun compileCommandFor(
-        language: Language,
+        languageSupport: LanguageSupport,
         targetFile: String,
         project: Project,
     ): CompileCommand? {
-        if (language.id != "JAVA") return null
+        if (languageSupport.id != "java") return null
         val basePath = project.basePath ?: return null
         val baseDir = File(basePath)
         val launcher = if (File(baseDir, "mvnw").exists()) "./mvnw" else "mvn"

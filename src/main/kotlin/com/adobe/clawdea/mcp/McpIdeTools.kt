@@ -225,17 +225,17 @@ class McpIdeTools(private val project: Project) {
                 ?: return Resolution(null, null, McpToolRouter.ToolResult(NO_BUILD_TOOL_MSG))
 
             val extension = filePath.substringAfterLast('.', missingDelimiterValue = "")
-            val language = LanguageSupportRegistry.forFileExtension(extension)?.language
+            val languageSupport = LanguageSupportRegistry.forFileExtension(extension)
                 ?: return Resolution(
                     buildTool, null,
                     McpToolRouter.ToolResult(unknownExtensionMsg(extension), isError = true),
                 )
 
-            val cmd = buildTool.compileCommandFor(language, filePath, project)
+            val cmd = buildTool.compileCommandFor(languageSupport, filePath, project)
                 ?: return Resolution(
                     buildTool, null,
                     McpToolRouter.ToolResult(
-                        unsupportedLanguageMsg(buildTool.displayName, language.displayName),
+                        unsupportedLanguageMsg(buildTool.displayName, languageSupport.displayName),
                     ),
                 )
 

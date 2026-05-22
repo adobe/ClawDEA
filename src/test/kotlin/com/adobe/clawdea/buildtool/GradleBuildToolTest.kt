@@ -4,18 +4,26 @@
  */
 package com.adobe.clawdea.buildtool
 
+import com.adobe.clawdea.language.LanguageSupport
 import com.intellij.lang.Language
 import com.intellij.openapi.project.Project
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeNotNull
 import org.junit.Test
 import java.io.File
 import java.lang.reflect.Proxy
 
 class GradleBuildToolTest {
+
+    private fun fakeSupport(supportId: String, supportDisplayName: String = supportId): LanguageSupport =
+        object : LanguageSupport {
+            override val id = supportId
+            override val language: Language? = null
+            override val displayName = supportDisplayName
+            override val fileExtensions = emptySet<String>()
+        }
 
     private fun stubProject(basePath: String?): Project = Proxy.newProxyInstance(
         Project::class.java.classLoader,
@@ -39,27 +47,26 @@ class GradleBuildToolTest {
     }
 
     @Test fun `compileCommandFor Java returns gradlew compileJava quiet`() {
-        val java = Language.findLanguageByID("JAVA")
-        assumeNotNull(java)
-        val cmd = GradleBuildTool.compileCommandFor(java!!, "/proj/Foo.java", stubProject("/proj"))
+        val cmd = GradleBuildTool.compileCommandFor(
+            fakeSupport("java", "Java"), "/proj/Foo.java", stubProject("/proj"),
+        )
         assertNotNull(cmd)
         assertEquals(listOf("./gradlew", "compileJava", "--quiet"), cmd!!.argv)
         assertEquals(File("/proj"), cmd.workingDir)
     }
 
     @Test fun `compileCommandFor Kotlin returns gradlew compileKotlin quiet`() {
-        val kotlin = Language.findLanguageByID("kotlin")
-        assumeNotNull(kotlin)
-        val cmd = GradleBuildTool.compileCommandFor(kotlin!!, "/proj/Foo.kt", stubProject("/proj"))
+        val cmd = GradleBuildTool.compileCommandFor(
+            fakeSupport("kotlin", "Kotlin"), "/proj/Foo.kt", stubProject("/proj"),
+        )
         assertNotNull(cmd)
         assertEquals(listOf("./gradlew", "compileKotlin", "--quiet"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor unknown language returns null`() {
-        // Use a language we know isn't supported. Plain text always exists.
-        val text = Language.findLanguageByID("TEXT")
-        assumeNotNull(text)
-        val cmd = GradleBuildTool.compileCommandFor(text!!, "/proj/notes.txt", stubProject("/proj"))
+        val cmd = GradleBuildTool.compileCommandFor(
+            fakeSupport("xyz", "XYZ"), "/proj/notes.xyz", stubProject("/proj"),
+        )
         assertNull(cmd)
     }
 
