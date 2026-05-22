@@ -1438,7 +1438,7 @@ class ChatPanel(
         return sb.toString()
     }
 
-    fun suggestInitIfMissingClaudeMd() = sessionManager.suggestInitIfMissingClaudeMd()
+    fun suggestSeedWikiIfMissing() = sessionManager.suggestSeedWikiIfMissing()
 
     private fun registerSkillCommands(): ScanStats {
         // Unregister stale skill aliases from a previous scan

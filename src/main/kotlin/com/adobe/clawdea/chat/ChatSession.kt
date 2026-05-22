@@ -46,7 +46,7 @@ class ChatSession(
         if (autoResumeSessionId != null) {
             panel.requestAutoResume(autoResumeSessionId)
         }
-        panel.suggestInitIfMissingClaudeMd()
+        panel.suggestSeedWikiIfMissing()
         ModelSelectorProbeStarter.probeIfApplicable(project)
     }
 
