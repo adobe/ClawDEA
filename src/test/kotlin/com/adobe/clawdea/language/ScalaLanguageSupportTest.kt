@@ -4,7 +4,10 @@
  */
 package com.adobe.clawdea.language
 
+import com.adobe.clawdea.language.scala.ScalaPsiBridge
+import com.intellij.openapi.application.ApplicationManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,5 +40,18 @@ class ScalaLanguageSupportTest {
         }
         // Either is acceptable — depends on whether the Scala plugin is on the classpath.
         assertTrue(lang == null || lang.id == "Scala")
+    }
+
+    @Test fun `ScalaPsiBridge service is not registered in the headless test environment`() {
+        // In the headless test environment, the Scala plugin isn't loaded and
+        // clawdea-scala.xml isn't applied — so ScalaPsiBridge is not registered.
+        // findRelatedTypes returns null in this configuration (see ScalaLanguageSupport
+        // body); the lookup itself returns null cleanly without throwing.
+        val app = ApplicationManager.getApplication()
+        val service = app?.getServiceIfCreated(ScalaPsiBridge::class.java)
+        assertNull(
+            "ScalaPsiBridge service should not be registered without the Scala plugin on the test classpath.",
+            service,
+        )
     }
 }

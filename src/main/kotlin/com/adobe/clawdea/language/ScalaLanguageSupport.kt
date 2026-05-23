@@ -11,16 +11,19 @@
  */
 package com.adobe.clawdea.language
 
+import com.adobe.clawdea.language.scala.ScalaPsiBridge
 import com.intellij.lang.Language
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
+import com.intellij.psi.PsiFile
+import com.intellij.psi.search.GlobalSearchScope
 
 /**
- * Generic Scala support — does not depend on the optional `org.intellij.scala` plugin.
- *
- * When the Scala plugin is installed, [language] resolves to the platform-registered
- * Scala Language; when it isn't, [language] is null and Scala diagnostics still work via
- * `GradleBuildTool.compileCommandFor` (which dispatches on [id], not on the Language).
- *
- * `findRelatedTypes` returns null (the default). Real Scala PSI walking is sub-project #4.
+ * Generic Scala support — does not depend on the optional `org.intellij.scala` plugin
+ * for file recognition or build-tool dispatch. When the Scala plugin is installed,
+ * [findRelatedTypes] delegates to [ScalaPsiBridge] via an optional application service
+ * registered in `clawdea-scala.xml` (sub-project #4). When it isn't, [findRelatedTypes]
+ * returns null and the caller renders the generic "not supported" message.
  */
 object ScalaLanguageSupport : LanguageSupport {
     override val id = "scala"
@@ -28,5 +31,19 @@ object ScalaLanguageSupport : LanguageSupport {
     override val fileExtensions = setOf("scala", "sc")
     override val language: Language? by lazy {
         Language.findLanguageByID("Scala")
+    }
+
+    /**
+     * Delegates to [ScalaPsiBridge] when the Scala plugin is installed; returns null
+     * otherwise. `getServiceIfCreated` is null-safe for unregistered services.
+     */
+    override fun findRelatedTypes(
+        psiFile: PsiFile,
+        project: Project,
+        scope: GlobalSearchScope,
+    ): String? {
+        return ApplicationManager.getApplication()
+            ?.getServiceIfCreated(ScalaPsiBridge::class.java)
+            ?.findRelatedTypes(psiFile, project, scope)
     }
 }
