@@ -83,17 +83,50 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
             val qualifierOpt = expr.qualifier()
             if (qualifierOpt.isDefined) {
                 val qualName = qualifierOpt.get().qualName()
-                facade.findClass(qualName, scope)?.let { renderClass(it, sb) }
+                resolveAndRender(facade, qualName, project, scope, sb)
+            } else {
+                log.info("  expr has no qualifier and no selectors")
             }
             return
         }
 
         for (selector in selectors) {
-            if (selector.isWildcardSelector || selector.isGivenSelector) continue
+            if (selector.isWildcardSelector) {
+                log.info("  selector is wildcard (skipped)")
+                continue
+            }
+            if (selector.isGivenSelector) {
+                log.info("  selector is given (skipped)")
+                continue
+            }
             val refOpt = selector.reference()
-            if (refOpt.isEmpty) continue
+            if (refOpt.isEmpty) {
+                log.info("  selector has no reference")
+                continue
+            }
             val qualName = refOpt.get().qualName()
-            facade.findClass(qualName, scope)?.let { renderClass(it, sb) }
+            resolveAndRender(facade, qualName, project, scope, sb)
+        }
+    }
+
+    private fun resolveAndRender(
+        facade: JavaPsiFacade,
+        qualName: String,
+        project: Project,
+        scope: GlobalSearchScope,
+        sb: StringBuilder,
+    ) {
+        val cls = facade.findClass(qualName, scope)
+        if (cls != null) {
+            log.info("  '$qualName' resolved via projectScope -> ${cls.qualifiedName}")
+            renderClass(cls, sb)
+            return
+        }
+        val clsAll = facade.findClass(qualName, com.intellij.psi.search.GlobalSearchScope.allScope(project))
+        if (clsAll != null) {
+            log.info("  '$qualName' NOT in projectScope, found in allScope (skipped — not a project type)")
+        } else {
+            log.info("  '$qualName' did not resolve via JavaPsiFacade.findClass in any scope")
         }
     }
 
