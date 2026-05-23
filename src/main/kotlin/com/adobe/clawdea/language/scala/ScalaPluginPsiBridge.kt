@@ -112,19 +112,27 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
 
     private fun tryRenderRef(ref: ScStableCodeReference, sb: StringBuilder) {
         val qualName = ref.qualName()
-        val resolved = try {
-            ref.resolve()
+        // ScReference is a PsiPolyVariantReference via ScPolyResolvable. The default
+        // PsiPolyVariantReference.resolve() returns null when multiResolve returns
+        // multiple results — which is exactly the case for Scala class+companion-object
+        // pairs (e.g. `models.User` binds both the case class User AND its companion
+        // object User to the same name). Use multiResolve and pick the first PsiClass.
+        val results = try {
+            ref.multiResolve(false)
         } catch (e: Throwable) {
-            log.warn("  '$qualName' resolve() threw ${e.javaClass.simpleName}: ${e.message}")
+            log.warn("  '$qualName' multiResolve threw ${e.javaClass.simpleName}: ${e.message}")
             return
         }
-        if (resolved is PsiClass) {
-            log.info("  '$qualName' resolved to PsiClass ${resolved.qualifiedName ?: resolved.name}")
-            renderClass(resolved, sb)
-        } else if (resolved != null) {
-            log.info("  '$qualName' resolved to non-class ${resolved.javaClass.simpleName} (skipped)")
+        val resolvedClass = results.asSequence()
+            .mapNotNull { it.element as? PsiClass }
+            .firstOrNull()
+        if (resolvedClass != null) {
+            log.info("  '$qualName' resolved to PsiClass ${resolvedClass.qualifiedName ?: resolvedClass.name} (multiResolve returned ${results.size} result(s))")
+            renderClass(resolvedClass, sb)
+        } else if (results.isEmpty()) {
+            log.info("  '$qualName' multiResolve returned no results")
         } else {
-            log.info("  '$qualName' did not resolve to any PsiElement")
+            log.info("  '$qualName' multiResolve returned ${results.size} result(s), none a PsiClass")
         }
     }
 
