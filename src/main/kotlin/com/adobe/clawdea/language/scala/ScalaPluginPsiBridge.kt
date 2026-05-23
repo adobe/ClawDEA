@@ -14,12 +14,12 @@ package com.adobe.clawdea.language.scala
 import com.adobe.clawdea.mcp.PsiUtils
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.plugins.scala.lang.psi.api.ScalaFile
+import org.jetbrains.plugins.scala.lang.psi.api.base.ScStableCodeReference
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportExpr
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportSelector
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportStmt
@@ -63,29 +63,31 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
         val sb = StringBuilder()
         for (stmt in imports.take(15)) {
             for (expr in scalaSeqToList<ScImportExpr>(stmt.importExprs())) {
-                renderExpr(expr, project, scope, sb)
+                renderExpr(expr, sb)
             }
         }
         return if (sb.isEmpty()) "No project-scope related types found in imports." else sb.toString()
     }
 
-    private fun renderExpr(
-        expr: ScImportExpr,
-        project: Project,
-        scope: GlobalSearchScope,
-        sb: StringBuilder,
-    ) {
-        val facade = JavaPsiFacade.getInstance(project)
+    /**
+     * Renders each class-shaped import target referenced by [expr]. Uses the Scala
+     * plugin's own [ScStableCodeReference.resolve] to traverse qualifier chains and map
+     * imported names (including aliases) to the underlying [PsiElement]. This is more
+     * robust than reconstructing fully-qualified names from `qualName()` — for selector
+     * references inside braces, `qualName()` only returns the leaf identifier (e.g.
+     * `"ArrayList"`), and combining it with `expr.qualifier()` requires per-form casing
+     * that the plugin's resolver already handles.
+     */
+    private fun renderExpr(expr: ScImportExpr, sb: StringBuilder) {
         val selectors = scalaSeqToList<ScImportSelector>(expr.selectors())
 
         if (selectors.isEmpty()) {
-            // Simple form: `import foo.Bar` — qualifier itself is the target.
-            val qualifierOpt = expr.qualifier()
-            if (qualifierOpt.isDefined) {
-                val qualName = qualifierOpt.get().qualName()
-                resolveAndRender(facade, qualName, project, scope, sb)
+            // Simple form: `import foo.Bar` — the expr's reference IS the full path.
+            val refOpt = expr.reference()
+            if (refOpt.isDefined) {
+                tryRenderRef(refOpt.get(), sb)
             } else {
-                log.info("  expr has no qualifier and no selectors")
+                log.info("  expr has no reference and no selectors")
             }
             return
         }
@@ -104,29 +106,25 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
                 log.info("  selector has no reference")
                 continue
             }
-            val qualName = refOpt.get().qualName()
-            resolveAndRender(facade, qualName, project, scope, sb)
+            tryRenderRef(refOpt.get(), sb)
         }
     }
 
-    private fun resolveAndRender(
-        facade: JavaPsiFacade,
-        qualName: String,
-        project: Project,
-        scope: GlobalSearchScope,
-        sb: StringBuilder,
-    ) {
-        val cls = facade.findClass(qualName, scope)
-        if (cls != null) {
-            log.info("  '$qualName' resolved via projectScope -> ${cls.qualifiedName}")
-            renderClass(cls, sb)
+    private fun tryRenderRef(ref: ScStableCodeReference, sb: StringBuilder) {
+        val qualName = ref.qualName()
+        val resolved = try {
+            ref.resolve()
+        } catch (e: Throwable) {
+            log.warn("  '$qualName' resolve() threw ${e.javaClass.simpleName}: ${e.message}")
             return
         }
-        val clsAll = facade.findClass(qualName, com.intellij.psi.search.GlobalSearchScope.allScope(project))
-        if (clsAll != null) {
-            log.info("  '$qualName' NOT in projectScope, found in allScope (skipped — not a project type)")
+        if (resolved is PsiClass) {
+            log.info("  '$qualName' resolved to PsiClass ${resolved.qualifiedName ?: resolved.name}")
+            renderClass(resolved, sb)
+        } else if (resolved != null) {
+            log.info("  '$qualName' resolved to non-class ${resolved.javaClass.simpleName} (skipped)")
         } else {
-            log.info("  '$qualName' did not resolve via JavaPsiFacade.findClass in any scope")
+            log.info("  '$qualName' did not resolve to any PsiElement")
         }
     }
 
