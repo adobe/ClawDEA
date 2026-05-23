@@ -18,6 +18,7 @@ import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.plugins.scala.lang.psi.api.ScalaFile
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportExpr
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportSelector
@@ -45,10 +46,15 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
             log.info("ScalaPluginPsiBridge: psiFile is not ScalaFile (class=${psiFile.javaClass.name})")
             return null
         }
+        // Walk the full PSI tree rather than calling ScalaFile.getImportStatements().
+        // The latter only returns direct file children; in Scala files with a top-level
+        // package declaration (`package foo`), imports are wrapped in a ScPackaging
+        // element and therefore missed. PsiTreeUtil.findChildrenOfType descends the
+        // whole tree.
         val imports = try {
-            scalaSeqToList<ScImportStmt>(psiFile.importStatements)
+            PsiTreeUtil.findChildrenOfType(psiFile, ScImportStmt::class.java).toList()
         } catch (e: Throwable) {
-            log.warn("ScalaPluginPsiBridge: failed to read importStatements: ${e.javaClass.simpleName}: ${e.message}", e)
+            log.warn("ScalaPluginPsiBridge: failed to collect import statements: ${e.javaClass.simpleName}: ${e.message}", e)
             throw e
         }
         log.info("ScalaPluginPsiBridge: ${imports.size} import statement(s) in ${psiFile.name}")
