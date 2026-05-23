@@ -12,6 +12,7 @@
 package com.adobe.clawdea.language.scala
 
 import com.adobe.clawdea.mcp.PsiUtils
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiClass
@@ -33,13 +34,24 @@ import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportStmt
  */
 class ScalaPluginPsiBridge : ScalaPsiBridge {
 
+    private val log = Logger.getInstance(ScalaPluginPsiBridge::class.java)
+
     override fun findRelatedTypes(
         psiFile: PsiFile,
         project: Project,
         scope: GlobalSearchScope,
     ): String? {
-        if (psiFile !is ScalaFile) return null
-        val imports = scalaSeqToList<ScImportStmt>(psiFile.importStatements)
+        if (psiFile !is ScalaFile) {
+            log.info("ScalaPluginPsiBridge: psiFile is not ScalaFile (class=${psiFile.javaClass.name})")
+            return null
+        }
+        val imports = try {
+            scalaSeqToList<ScImportStmt>(psiFile.importStatements)
+        } catch (e: Throwable) {
+            log.warn("ScalaPluginPsiBridge: failed to read importStatements: ${e.javaClass.simpleName}: ${e.message}", e)
+            throw e
+        }
+        log.info("ScalaPluginPsiBridge: ${imports.size} import statement(s) in ${psiFile.name}")
         if (imports.isEmpty()) return "No imports found."
 
         val sb = StringBuilder()

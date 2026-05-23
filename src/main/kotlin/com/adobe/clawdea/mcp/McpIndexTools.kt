@@ -14,6 +14,7 @@ package com.adobe.clawdea.mcp
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
@@ -28,6 +29,8 @@ import com.intellij.psi.search.searches.ReferencesSearch
  * find_callers, find_implementations, find_usages, find_supertypes, find_related_types.
  */
 class McpIndexTools(private val project: Project) {
+
+    private val log = Logger.getInstance(McpIndexTools::class.java)
 
     fun registerAll(router: McpToolRouter) {
         router.register(
@@ -233,10 +236,25 @@ class McpIndexTools(private val project: Project) {
 
         val results = runReadAction {
             val support = LanguageSupportRegistry.forPsiFile(psiFile)
-                ?: return@runReadAction "Related types not supported for language: ${psiFile.language.displayName}."
+            if (support == null) {
+                log.info("find_related_types: no LanguageSupport for file=$file lang=${psiFile.language.id}/${psiFile.language.displayName}")
+                return@runReadAction "Related types not supported for language: ${psiFile.language.displayName}."
+            }
+            log.info("find_related_types: matched LanguageSupport id=${support.id} for file=$file lang=${psiFile.language.id}")
             val scope = GlobalSearchScope.projectScope(project)
-            support.findRelatedTypes(psiFile, project, scope)
-                ?: "Related types not supported for language: ${support.displayName}."
+            val result = try {
+                support.findRelatedTypes(psiFile, project, scope)
+            } catch (e: Throwable) {
+                log.warn("find_related_types: ${support.id} threw ${e.javaClass.simpleName}: ${e.message}", e)
+                return@runReadAction "find_related_types failed: ${e.javaClass.simpleName}: ${e.message}"
+            }
+            if (result == null) {
+                log.info("find_related_types: ${support.id} returned null (unsupported file shape)")
+                "Related types not supported for language: ${support.displayName}."
+            } else {
+                log.info("find_related_types: ${support.id} returned ${result.length} chars")
+                result
+            }
         }
 
         return McpToolRouter.ToolResult(results)
