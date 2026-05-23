@@ -237,10 +237,10 @@ class McpIndexTools(private val project: Project) {
         val results = runReadAction {
             val support = LanguageSupportRegistry.forPsiFile(psiFile)
             if (support == null) {
-                log.info("find_related_types: no LanguageSupport for file=$file lang=${psiFile.language.id}/${psiFile.language.displayName}")
+                log.debug("find_related_types: no LanguageSupport for file=$file lang=${psiFile.language.id}/${psiFile.language.displayName}")
                 return@runReadAction "Related types not supported for language: ${psiFile.language.displayName}."
             }
-            log.info("find_related_types: matched LanguageSupport id=${support.id} for file=$file lang=${psiFile.language.id}")
+            log.debug("find_related_types: matched LanguageSupport id=${support.id} for file=$file lang=${psiFile.language.id}")
             val scope = GlobalSearchScope.projectScope(project)
             val result = try {
                 support.findRelatedTypes(psiFile, project, scope)
@@ -249,10 +249,10 @@ class McpIndexTools(private val project: Project) {
                 return@runReadAction "find_related_types failed: ${e.javaClass.simpleName}: ${e.message}"
             }
             if (result == null) {
-                log.info("find_related_types: ${support.id} returned null (unsupported file shape)")
+                log.debug("find_related_types: ${support.id} returned null (unsupported file shape)")
                 "Related types not supported for language: ${support.displayName}."
             } else {
-                log.info("find_related_types: ${support.id} returned ${result.length} chars")
+                log.debug("find_related_types: ${support.id} returned ${result.length} chars")
                 result
             }
         }

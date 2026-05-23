@@ -43,7 +43,7 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
         scope: GlobalSearchScope,
     ): String? {
         if (psiFile !is ScalaFile) {
-            log.info("ScalaPluginPsiBridge: psiFile is not ScalaFile (class=${psiFile.javaClass.name})")
+            log.debug("ScalaPluginPsiBridge: psiFile is not ScalaFile (class=${psiFile.javaClass.name})")
             return null
         }
         // Walk the full PSI tree rather than calling ScalaFile.getImportStatements().
@@ -57,7 +57,7 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
             log.warn("ScalaPluginPsiBridge: failed to collect import statements: ${e.javaClass.simpleName}: ${e.message}", e)
             throw e
         }
-        log.info("ScalaPluginPsiBridge: ${imports.size} import statement(s) in ${psiFile.name}")
+        log.debug("ScalaPluginPsiBridge: ${imports.size} import statement(s) in ${psiFile.name}")
         if (imports.isEmpty()) return "No imports found."
 
         val sb = StringBuilder()
@@ -87,23 +87,23 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
             if (refOpt.isDefined) {
                 tryRenderRef(refOpt.get(), sb)
             } else {
-                log.info("  expr has no reference and no selectors")
+                log.debug("  expr has no reference and no selectors")
             }
             return
         }
 
         for (selector in selectors) {
             if (selector.isWildcardSelector) {
-                log.info("  selector is wildcard (skipped)")
+                log.debug("  selector is wildcard (skipped)")
                 continue
             }
             if (selector.isGivenSelector) {
-                log.info("  selector is given (skipped)")
+                log.debug("  selector is given (skipped)")
                 continue
             }
             val refOpt = selector.reference()
             if (refOpt.isEmpty) {
-                log.info("  selector has no reference")
+                log.debug("  selector has no reference")
                 continue
             }
             tryRenderRef(refOpt.get(), sb)
@@ -127,12 +127,12 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
             .mapNotNull { it.element as? PsiClass }
             .firstOrNull()
         if (resolvedClass != null) {
-            log.info("  '$qualName' resolved to PsiClass ${resolvedClass.qualifiedName ?: resolvedClass.name} (multiResolve returned ${results.size} result(s))")
+            log.debug("  '$qualName' resolved to PsiClass ${resolvedClass.qualifiedName ?: resolvedClass.name} (multiResolve returned ${results.size} result(s))")
             renderClass(resolvedClass, sb)
         } else if (results.isEmpty()) {
-            log.info("  '$qualName' multiResolve returned no results")
+            log.debug("  '$qualName' multiResolve returned no results")
         } else {
-            log.info("  '$qualName' multiResolve returned ${results.size} result(s), none a PsiClass")
+            log.debug("  '$qualName' multiResolve returned ${results.size} result(s), none a PsiClass")
         }
     }
 
