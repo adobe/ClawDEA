@@ -35,15 +35,24 @@ object ScalaLanguageSupport : LanguageSupport {
 
     /**
      * Delegates to [ScalaPsiBridge] when the Scala plugin is installed; returns null
-     * otherwise. `getServiceIfCreated` is null-safe for unregistered services.
+     * otherwise. Uses `getService` (which lazy-instantiates registered services) wrapped
+     * in try-catch so an unregistered service (i.e. Scala plugin not installed →
+     * `clawdea-scala.xml` not loaded) degrades to null rather than throwing.
+     * `getServiceIfCreated` was deliberately not used because it returns null until the
+     * service has been instantiated by someone else, which never happens on the first
+     * call from this code path.
      */
     override fun findRelatedTypes(
         psiFile: PsiFile,
         project: Project,
         scope: GlobalSearchScope,
     ): String? {
-        return ApplicationManager.getApplication()
-            ?.getServiceIfCreated(ScalaPsiBridge::class.java)
-            ?.findRelatedTypes(psiFile, project, scope)
+        val app = ApplicationManager.getApplication() ?: return null
+        val bridge = try {
+            app.getService(ScalaPsiBridge::class.java)
+        } catch (_: Throwable) {
+            null
+        } ?: return null
+        return bridge.findRelatedTypes(psiFile, project, scope)
     }
 }

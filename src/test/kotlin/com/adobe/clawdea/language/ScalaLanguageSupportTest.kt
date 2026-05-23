@@ -42,13 +42,18 @@ class ScalaLanguageSupportTest {
         assertTrue(lang == null || lang.id == "Scala")
     }
 
-    @Test fun `ScalaPsiBridge service is not registered in the headless test environment`() {
+    @Test fun `ScalaPsiBridge service lookup degrades to null when Scala plugin is absent`() {
         // In the headless test environment, the Scala plugin isn't loaded and
-        // clawdea-scala.xml isn't applied — so ScalaPsiBridge is not registered.
-        // findRelatedTypes returns null in this configuration (see ScalaLanguageSupport
-        // body); the lookup itself returns null cleanly without throwing.
+        // clawdea-scala.xml isn't applied. The production code wraps the lookup in
+        // try-catch because IntelliJ versions differ — some return null for an
+        // unregistered service, others throw. Mirror that here: assert the wrapper
+        // returns null either way.
         val app = ApplicationManager.getApplication()
-        val service = app?.getServiceIfCreated(ScalaPsiBridge::class.java)
+        val service = try {
+            app?.getService(ScalaPsiBridge::class.java)
+        } catch (_: Throwable) {
+            null
+        }
         assertNull(
             "ScalaPsiBridge service should not be registered without the Scala plugin on the test classpath.",
             service,
