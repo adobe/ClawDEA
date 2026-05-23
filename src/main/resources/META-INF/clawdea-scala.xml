@@ -1,0 +1,18 @@
+<!--
+  Optional plugin descriptor — loaded by IntelliJ only when org.intellij.scala is
+  installed. Declared via the optional <depends> in plugin.xml.
+
+  Registers ScalaPluginPsiBridge as the implementation of ScalaPsiBridge. The bridge
+  consumers (ScalaLanguageSupport.findRelatedTypes) use
+  ApplicationManager.getApplication().getServiceIfCreated(ScalaPsiBridge::class.java)
+  to discover whether this service is registered; when the Scala plugin isn't
+  installed this descriptor isn't loaded, so the lookup returns null and the
+  no-plugin behavior from sub-project #3 kicks in.
+-->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService
+            serviceInterface="com.adobe.clawdea.language.scala.ScalaPsiBridge"
+            serviceImplementation="com.adobe.clawdea.language.scala.ScalaPluginPsiBridge"/>
+    </extensions>
+</idea-plugin>
