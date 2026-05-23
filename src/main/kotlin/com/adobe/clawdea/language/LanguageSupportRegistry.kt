@@ -33,7 +33,18 @@ object LanguageSupportRegistry {
     fun forLanguage(language: Language): LanguageSupport? =
         byId.values.firstOrNull { it.language?.id == language.id }
 
-    fun forPsiFile(psiFile: PsiFile): LanguageSupport? = forLanguage(psiFile.language)
+    /**
+     * Look up the LanguageSupport for a PSI file. Tries Language identity first; falls back
+     * to file extension matching when no Language matches. The fallback is necessary for
+     * IntelliJ Languages whose id differs from our registered LanguageSupport's id — e.g.
+     * Scala 3 (`psiFile.language.id == "Scala 3"`) parsed by the same Scala plugin whose
+     * Scala 2 Language has id `"Scala"`.
+     */
+    fun forPsiFile(psiFile: PsiFile): LanguageSupport? {
+        forLanguage(psiFile.language)?.let { return it }
+        val ext = psiFile.virtualFile?.extension ?: return null
+        return forFileExtension(ext)
+    }
 
     fun forFileExtension(extension: String): LanguageSupport? =
         byId.values.firstOrNull { extension in it.fileExtensions }
