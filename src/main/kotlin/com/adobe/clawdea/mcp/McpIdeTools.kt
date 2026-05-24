@@ -15,6 +15,7 @@ import com.adobe.clawdea.buildtool.BuildTool
 import com.adobe.clawdea.buildtool.BuildToolRegistry
 import com.adobe.clawdea.buildtool.CompileCommand
 import com.adobe.clawdea.language.LanguageSupportRegistry
+import com.adobe.clawdea.mcp.diagnostics.CompilerManagerDiagnostics
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
@@ -28,8 +29,24 @@ import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 
 /**
- * MCP tool handlers for IDE capabilities:
- * get_diagnostics, resolve_symbol.
+ * MCP tool handlers for IDE capabilities: get_diagnostics, resolve_symbol.
+ *
+ * `get_diagnostics` uses a four-tier strategy, preferring IntelliJ-native analysis
+ * and only shelling out to an external build tool as a safety net:
+ *
+ * 1. **DaemonCodeAnalyzer cached highlights** — when the file is open in an editor,
+ *    return the daemon's already-computed markup. Instant.
+ * 2. **InspectionEngine** — when the file is closed, run every enabled
+ *    LocalInspectionTool's `checkFile`. Returns the formatted result, or the
+ *    'No diagnostics found.' sentinel for a clean file. Null is reserved exclusively
+ *    for caught exceptions (analyzer couldn't run).
+ * 3. **CompilerManager.compile** ([CompilerManagerDiagnostics]) — IntelliJ's native
+ *    compile API. Uses the synced project model (modules, classpath, source paths).
+ *    Async-to-sync wrapped with a 60s timeout. Reached only when InspectionEngine
+ *    failed (tier 2 returned null).
+ * 4. **Build-tool subprocess** ([getDiagnosticsViaBuildTool]) — external gradle / mvn /
+ *    sbt / mill invocation. Reached only when tier 3 returns NotApplicable / Aborted
+ *    / Failed. The historical fallback; now a last-resort safety net.
  */
 class McpIdeTools(private val project: Project) {
 
@@ -108,13 +125,41 @@ class McpIdeTools(private val project: Project) {
         }
 
         // File not open — run local inspections silently via InspectionEngine.
+        // tryLocalInspections returns null ONLY on caught exception (analyzer failure),
+        // never on "ran cleanly and found nothing" — that case returns the sentinel
+        // string so we don't trigger a slow build-tool fallback for a clean file.
         val inspectionResult = tryLocalInspections(psiFile, filePath)
         if (inspectionResult != null) {
             return McpToolRouter.ToolResult(inspectionResult)
         }
 
-        // Inspection API failed or found nothing — fall back to the build tool.
-        log.info("get_diagnostics: inspections inconclusive for $filePath, falling back to build tool")
+        // InspectionEngine failed. Try CompilerManager — IntelliJ's native compile API.
+        // This is preferable to a build-tool subprocess: uses the already-synced project
+        // model (modules, classpath, source paths), incremental, no PATH issues, no
+        // text-parsing fragility.
+        log.info("get_diagnostics: InspectionEngine failed for $filePath, trying CompilerManager")
+        when (val compileResult = CompilerManagerDiagnostics.compileSync(project, vf)) {
+            is CompilerManagerDiagnostics.CompileSyncResult.Success ->
+                return McpToolRouter.ToolResult(compileResult.diagnosticsText)
+            is CompilerManagerDiagnostics.CompileSyncResult.AlreadyInProgress ->
+                return McpToolRouter.ToolResult(
+                    "Build is currently in progress, try again shortly.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.Timeout ->
+                return McpToolRouter.ToolResult(
+                    "CompilerManager timed out for $filePath (60s). The compile may still be running; retry in a moment.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.NotApplicable,
+            is CompilerManagerDiagnostics.CompileSyncResult.Aborted,
+            is CompilerManagerDiagnostics.CompileSyncResult.Failed -> {
+                log.info("get_diagnostics: CompilerManager ${compileResult.javaClass.simpleName} for $filePath, falling back to build tool")
+            }
+        }
+
+        // Safety net: external build-tool subprocess. Reached only when neither
+        // InspectionEngine nor CompilerManager could analyze the file.
         return getDiagnosticsViaBuildTool(filePath)
     }
 
@@ -152,7 +197,11 @@ class McpIdeTools(private val project: Project) {
                     }
                 }
 
-                if (sb.isEmpty()) null else sb.toString()
+                // Return the sentinel on empty so the caller treats "ran cleanly,
+                // found nothing" as success rather than triggering the build-tool
+                // fallback. Null is reserved exclusively for the caught-exception
+                // path below — i.e. InspectionEngine couldn't run at all.
+                if (sb.isEmpty()) "No diagnostics found." else sb.toString()
             } catch (e: Exception) {
                 log.info("Local inspections failed for $filePath: ${e.message}")
                 null
