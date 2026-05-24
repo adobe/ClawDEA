@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.buildtool
 
+import com.adobe.clawdea.buildtool.maven.PomReader
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
@@ -26,9 +27,14 @@ import java.io.File
  * Detection: ExternalSystem (`"Maven"`) on any module, with a marker-file fallback
  * (`pom.xml` in [Project.getBasePath]).
  *
+ * Build-config files: includes the root `pom.xml` plus every sub-module pom reachable
+ * via `<modules>` declarations (recursive, cycle-guarded — see [PomReader.walkPomTree]).
+ *
  * Compile invocation: prefers `./mvnw` when present, falls back to `mvn` on PATH.
- * Kotlin support via kotlin-maven-plugin is intentionally not detected in this PR;
- * Maven + Kotlin returns null from [compileCommandFor].
+ * Per-language dispatch is gated on plugin presence in the root pom — Java is always
+ * allowed; Kotlin requires `kotlin-maven-plugin`; Scala requires `scala-maven-plugin`.
+ * The effective-pom (deep inheritance) is intentionally not resolved — we read what
+ * is literally in the root `pom.xml`.
  */
 object MavenBuildTool : BuildTool {
     override val id = "maven"
@@ -41,21 +47,54 @@ object MavenBuildTool : BuildTool {
         return markerFiles(project).isNotEmpty()
     }
 
-    override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
+    override fun buildConfigFiles(project: Project): List<VirtualFile> {
+        val rootPomVf = markerFiles(project).firstOrNull() ?: return emptyList()
+        val rootPomFile = File(rootPomVf.path)
+        return try {
+            // Walk the module tree to surface sub-module poms. PomReader.walkPomTree
+            // is forgiving — broken module references are silently skipped — but a
+            // catastrophic failure (e.g. XML parser misconfiguration) still falls
+            // back to the root pom alone, preserving pre-#7 behavior.
+            val lfs = LocalFileSystem.getInstance()
+            PomReader.walkPomTree(rootPomFile).mapNotNull { lfs.findFileByIoFile(it) }
+                .ifEmpty { listOf(rootPomVf) }
+        } catch (_: Throwable) {
+            listOf(rootPomVf)
+        }
+    }
 
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
         targetFile: String,
         project: Project,
     ): CompileCommand? {
-        if (languageSupport.id != "java") return null
         val basePath = project.basePath ?: return null
         val baseDir = File(basePath)
+        if (languageSupport.id !in computeAllowedLanguages(File(baseDir, "pom.xml"))) return null
         val launcher = if (File(baseDir, "mvnw").exists()) "./mvnw" else "mvn"
         return CompileCommand(
             argv = listOf(launcher, "compile", "-q"),
             workingDir = baseDir,
         )
+    }
+
+    /**
+     * Determines which LanguageSupport ids this build tool will dispatch a compile
+     * command for. Java is always allowed. Kotlin is added when `kotlin-maven-plugin`
+     * is declared in the root pom; Scala is added when `scala-maven-plugin` is
+     * declared. Effective-pom (deep inheritance) is not resolved — we read the
+     * literal root pom only. On any read failure, returns the conservative default
+     * `{"java"}` to preserve pre-#7 behavior.
+     */
+    private fun computeAllowedLanguages(rootPom: File): Set<String> {
+        val langs = mutableSetOf("java")
+        try {
+            if (PomReader.hasPlugin(rootPom, "org.jetbrains.kotlin", "kotlin-maven-plugin")) langs += "kotlin"
+            if (PomReader.hasPlugin(rootPom, "net.alchim31.maven", "scala-maven-plugin")) langs += "scala"
+        } catch (_: Throwable) {
+            // Conservative fallback — java only.
+        }
+        return langs
     }
 
     override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String {
