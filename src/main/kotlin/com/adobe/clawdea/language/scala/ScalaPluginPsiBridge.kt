@@ -20,9 +20,13 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.plugins.scala.lang.psi.api.ScalaFile
 import org.jetbrains.plugins.scala.lang.psi.api.base.ScStableCodeReference
+import org.jetbrains.plugins.scala.lang.psi.api.statements.ScExtension
+import org.jetbrains.plugins.scala.lang.psi.api.statements.ScFunction
+import org.jetbrains.plugins.scala.lang.psi.api.statements.ScValueOrVariable
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportExpr
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportSelector
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportStmt
+import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.ScGiven
 
 /**
  * [ScalaPsiBridge] implementation that walks the IntelliJ Scala plugin's PSI to render
@@ -70,11 +74,79 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
     }
 
     override fun findImplicitDefinitions(psiFile: PsiFile): String? {
-        // Stub — real implementation lands in the next commit. Returning the
-        // empty-state sentinel keeps the call path live and lets the MCP tool
-        // be wired up in parallel without an intermediate-state failure mode.
-        if (psiFile !is ScalaFile) return null
-        return "No implicit definitions found."
+        if (psiFile !is ScalaFile) {
+            log.debug("findImplicitDefinitions: psiFile is not ScalaFile (class=${psiFile.javaClass.name})")
+            return null
+        }
+
+        val givens = mutableListOf<Pair<Int, String>>()
+        val implicitDefs = mutableListOf<Pair<Int, String>>()
+        val implicitVals = mutableListOf<Pair<Int, String>>()
+        val extensions = mutableListOf<Pair<Int, String>>()
+
+        val document = psiFile.viewProvider.document
+
+        try {
+            // Givens — walk ScGiven (sealed: ScGivenDefinition, ScGivenAlias*, etc.)
+            for (g in PsiTreeUtil.findChildrenOfType(psiFile, ScGiven::class.java).take(MAX_PER_CATEGORY)) {
+                val line = document?.getLineNumber(g.textOffset)?.plus(1) ?: 0
+                givens.add(line to firstLine(g.text))
+            }
+            // Implicit val/var — ScValueOrVariable with the implicit modifier
+            for (v in PsiTreeUtil.findChildrenOfType(psiFile, ScValueOrVariable::class.java)) {
+                if (!v.hasModifierProperty("implicit")) continue
+                val line = document?.getLineNumber(v.textOffset)?.plus(1) ?: 0
+                implicitVals.add(line to firstLine(v.text))
+                if (implicitVals.size >= MAX_PER_CATEGORY) break
+            }
+            // Implicit def — ScFunction with the implicit modifier
+            for (f in PsiTreeUtil.findChildrenOfType(psiFile, ScFunction::class.java)) {
+                if (!f.hasModifierProperty("implicit")) continue
+                val line = document?.getLineNumber(f.textOffset)?.plus(1) ?: 0
+                implicitDefs.add(line to firstLine(f.text))
+                if (implicitDefs.size >= MAX_PER_CATEGORY) break
+            }
+            // Extensions — ScExtension (Scala 3)
+            for (e in PsiTreeUtil.findChildrenOfType(psiFile, ScExtension::class.java).take(MAX_PER_CATEGORY)) {
+                val line = document?.getLineNumber(e.textOffset)?.plus(1) ?: 0
+                val memberCount = scalaSeqToList<ScFunction>(e.extensionMethods()).size
+                extensions.add(line to "${firstLine(e.text)} — $memberCount member(s)")
+            }
+        } catch (t: Throwable) {
+            log.warn("findImplicitDefinitions: PSI walk failed: ${t.javaClass.simpleName}: ${t.message}", t)
+            return "findImplicitDefinitions failed: ${t.javaClass.simpleName}: ${t.message}"
+        }
+
+        val total = givens.size + implicitVals.size + implicitDefs.size + extensions.size
+        if (total == 0) return "No implicit definitions found."
+
+        val sb = StringBuilder()
+        appendSection(sb, "givens", givens)
+        appendSection(sb, "implicit vals/vars", implicitVals)
+        appendSection(sb, "implicit defs", implicitDefs)
+        appendSection(sb, "extensions", extensions)
+        return sb.toString().trimEnd()
+    }
+
+    private fun appendSection(sb: StringBuilder, title: String, entries: List<Pair<Int, String>>) {
+        if (entries.isEmpty()) return
+        sb.appendLine("--- $title ---")
+        for ((line, signature) in entries) {
+            sb.appendLine("  line $line: $signature")
+        }
+        sb.appendLine()
+    }
+
+    private fun firstLine(text: String): String {
+        val firstLine = text.lineSequence().firstOrNull()?.trim() ?: ""
+        return if (firstLine.length > MAX_SIGNATURE_LEN) {
+            firstLine.take(MAX_SIGNATURE_LEN - 3) + "..."
+        } else firstLine
+    }
+
+    companion object {
+        private const val MAX_PER_CATEGORY = 50
+        private const val MAX_SIGNATURE_LEN = 200
     }
 
     /**
