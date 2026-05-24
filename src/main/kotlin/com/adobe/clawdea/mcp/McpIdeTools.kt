@@ -108,13 +108,16 @@ class McpIdeTools(private val project: Project) {
         }
 
         // File not open — run local inspections silently via InspectionEngine.
+        // tryLocalInspections returns null ONLY on caught exception (analyzer failure),
+        // never on "ran cleanly and found nothing" — that case returns the sentinel
+        // string so we don't trigger a slow build-tool fallback for a clean file.
         val inspectionResult = tryLocalInspections(psiFile, filePath)
         if (inspectionResult != null) {
             return McpToolRouter.ToolResult(inspectionResult)
         }
 
-        // Inspection API failed or found nothing — fall back to the build tool.
-        log.info("get_diagnostics: inspections inconclusive for $filePath, falling back to build tool")
+        // Inspection API threw — fall back to the build tool.
+        log.info("get_diagnostics: InspectionEngine failed for $filePath, falling back to build tool")
         return getDiagnosticsViaBuildTool(filePath)
     }
 
@@ -152,7 +155,11 @@ class McpIdeTools(private val project: Project) {
                     }
                 }
 
-                if (sb.isEmpty()) null else sb.toString()
+                // Return the sentinel on empty so the caller treats "ran cleanly,
+                // found nothing" as success rather than triggering the build-tool
+                // fallback. Null is reserved exclusively for the caught-exception
+                // path below — i.e. InspectionEngine couldn't run at all.
+                if (sb.isEmpty()) "No diagnostics found." else sb.toString()
             } catch (e: Exception) {
                 log.info("Local inspections failed for $filePath: ${e.message}")
                 null
