@@ -22,14 +22,15 @@ import com.intellij.openapi.startup.ProjectActivity
  *
  * Registration order matters: it determines the result of [BuildToolRegistry.detectPrimary]
  * when multiple build tools are active. Gradle is registered first because it is the
- * historical default ClawDEA assumed; Maven follows; sbt last. A project that triggers
- * multiple detections (uncommon at the same base path) will prefer Gradle, then Maven,
- * then sbt.
+ * historical default ClawDEA assumed; Maven follows; sbt; Mill last. A project that
+ * triggers multiple detections (uncommon at the same base path) will prefer Gradle,
+ * then Maven, then sbt, then Mill.
  */
 class BuildToolInitializer : ProjectActivity {
     override suspend fun execute(project: Project) {
         BuildToolRegistry.register(GradleBuildTool)
         BuildToolRegistry.register(MavenBuildTool)
         BuildToolRegistry.register(SbtBuildTool)
+        BuildToolRegistry.register(MillBuildTool)
     }
 }
