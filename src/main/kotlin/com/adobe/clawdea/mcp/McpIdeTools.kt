@@ -15,6 +15,7 @@ import com.adobe.clawdea.buildtool.BuildTool
 import com.adobe.clawdea.buildtool.BuildToolRegistry
 import com.adobe.clawdea.buildtool.CompileCommand
 import com.adobe.clawdea.language.LanguageSupportRegistry
+import com.adobe.clawdea.mcp.diagnostics.CompilerManagerDiagnostics
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
@@ -116,8 +117,33 @@ class McpIdeTools(private val project: Project) {
             return McpToolRouter.ToolResult(inspectionResult)
         }
 
-        // Inspection API threw — fall back to the build tool.
-        log.info("get_diagnostics: InspectionEngine failed for $filePath, falling back to build tool")
+        // InspectionEngine failed. Try CompilerManager — IntelliJ's native compile API.
+        // This is preferable to a build-tool subprocess: uses the already-synced project
+        // model (modules, classpath, source paths), incremental, no PATH issues, no
+        // text-parsing fragility.
+        log.info("get_diagnostics: InspectionEngine failed for $filePath, trying CompilerManager")
+        when (val compileResult = CompilerManagerDiagnostics.compileSync(project, vf)) {
+            is CompilerManagerDiagnostics.CompileSyncResult.Success ->
+                return McpToolRouter.ToolResult(compileResult.diagnosticsText)
+            is CompilerManagerDiagnostics.CompileSyncResult.AlreadyInProgress ->
+                return McpToolRouter.ToolResult(
+                    "Build is currently in progress, try again shortly.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.Timeout ->
+                return McpToolRouter.ToolResult(
+                    "CompilerManager timed out for $filePath (60s). The compile may still be running; retry in a moment.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.NotApplicable,
+            is CompilerManagerDiagnostics.CompileSyncResult.Aborted,
+            is CompilerManagerDiagnostics.CompileSyncResult.Failed -> {
+                log.info("get_diagnostics: CompilerManager ${compileResult.javaClass.simpleName} for $filePath, falling back to build tool")
+            }
+        }
+
+        // Safety net: external build-tool subprocess. Reached only when neither
+        // InspectionEngine nor CompilerManager could analyze the file.
         return getDiagnosticsViaBuildTool(filePath)
     }
 
