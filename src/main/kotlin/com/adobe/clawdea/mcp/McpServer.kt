@@ -16,10 +16,12 @@ import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
 import com.adobe.clawdea.chat.permission.PermissionPolicy
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.debug.McpDebugTools
+import com.adobe.clawdea.language.scala.ScalaPsiBridge
 import com.adobe.clawdea.profiling.analysis.AnalysisService
 import com.adobe.clawdea.profiling.mcp.McpProfilingTools
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -72,6 +74,7 @@ class McpServer(private val project: Project) : Disposable {
         McpEditReviewTools(project).registerAll(router)
         McpDebugTools(project).registerAll(router)
         McpProfilingTools(project, AnalysisService()).registerAll(router)
+        registerScalaToolsIfAvailable()
         McpPermissionPromptTool(
             dispatcherResolver = { toolName, inputJson, toolUseId ->
                 PermissionRouterRegistry.getInstance(project).route(toolName, inputJson, toolUseId)
@@ -90,6 +93,27 @@ class McpServer(private val project: Project) : Disposable {
                 AutoAllowSignal.getInstance(project).notify(toolName, inputJson, toolUseId)
             },
         ).registerAll(router)
+    }
+
+    /**
+     * Registers [McpScalaTools] only when [ScalaPsiBridge] is available — i.e. the
+     * optional `org.intellij.scala` plugin is installed and `clawdea-scala.xml` was
+     * loaded. When absent, `find_implicit_definitions` simply does not appear in
+     * `tools/list`, avoiding a confusing "tool exists but always returns
+     * not-supported" surface for users without the Scala plugin.
+     *
+     * Uses `getService` (which lazy-instantiates registered services) wrapped in
+     * try-catch — some IntelliJ versions throw for unregistered services rather
+     * than returning null.
+     */
+    private fun registerScalaToolsIfAvailable() {
+        val bridge = try {
+            ApplicationManager.getApplication()?.getService(ScalaPsiBridge::class.java)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        McpScalaTools(project, bridge).registerAll(router)
+        log.info("Registered Scala-specific MCP tools (ScalaPsiBridge present)")
     }
 
     private fun start() {
