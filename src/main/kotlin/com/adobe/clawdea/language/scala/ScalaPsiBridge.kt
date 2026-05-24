@@ -42,4 +42,21 @@ interface ScalaPsiBridge {
         project: Project,
         scope: GlobalSearchScope,
     ): String?
+
+    /**
+     * Walk the Scala file's PSI tree for declarations that introduce implicit /
+     * contextual behavior — Scala 3 `given`s, Scala 2 `implicit val`/`implicit def`,
+     * and Scala 3 `extension` blocks. Returns:
+     *
+     * - `null` when [psiFile] is not a Scala file (consumer renders a "Not a Scala file."
+     *   sentinel — same null-as-not-applicable convention used by [findRelatedTypes]).
+     * - `"No implicit definitions found."` when the file has none of the four shapes.
+     * - A multi-section text rendering otherwise: one section per category (givens,
+     *   implicit vals/defs, extensions) with 1-based line numbers and one-line
+     *   signatures.
+     *
+     * File-scoped only — no cross-file scope analysis. See spec
+     * `2026-05-24-scala-specific-mcp-tools-design.md` non-goals.
+     */
+    fun findImplicitDefinitions(psiFile: PsiFile): String?
 }

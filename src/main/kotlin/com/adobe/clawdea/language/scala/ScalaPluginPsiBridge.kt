@@ -69,6 +69,14 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
         return if (sb.isEmpty()) "No project-scope related types found in imports." else sb.toString()
     }
 
+    override fun findImplicitDefinitions(psiFile: PsiFile): String? {
+        // Stub — real implementation lands in the next commit. Returning the
+        // empty-state sentinel keeps the call path live and lets the MCP tool
+        // be wired up in parallel without an intermediate-state failure mode.
+        if (psiFile !is ScalaFile) return null
+        return "No implicit definitions found."
+    }
+
     /**
      * Renders each class-shaped import target referenced by [expr]. Uses the Scala
      * plugin's own [ScStableCodeReference.resolve] to traverse qualifier chains and map
