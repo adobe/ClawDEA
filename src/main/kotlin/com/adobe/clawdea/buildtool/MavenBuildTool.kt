@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.buildtool
 
+import com.adobe.clawdea.buildtool.maven.PomReader
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
 import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
@@ -26,9 +27,14 @@ import java.io.File
  * Detection: ExternalSystem (`"Maven"`) on any module, with a marker-file fallback
  * (`pom.xml` in [Project.getBasePath]).
  *
+ * Build-config files: includes the root `pom.xml` plus every sub-module pom reachable
+ * via `<modules>` declarations (recursive, cycle-guarded — see [PomReader.walkPomTree]).
+ *
  * Compile invocation: prefers `./mvnw` when present, falls back to `mvn` on PATH.
- * Kotlin support via kotlin-maven-plugin is intentionally not detected in this PR;
- * Maven + Kotlin returns null from [compileCommandFor].
+ * Per-language dispatch is gated on plugin presence in the root pom — Java is always
+ * allowed; Kotlin requires `kotlin-maven-plugin`; Scala requires `scala-maven-plugin`.
+ * The effective-pom (deep inheritance) is intentionally not resolved — we read what
+ * is literally in the root `pom.xml`.
  */
 object MavenBuildTool : BuildTool {
     override val id = "maven"
@@ -41,7 +47,21 @@ object MavenBuildTool : BuildTool {
         return markerFiles(project).isNotEmpty()
     }
 
-    override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
+    override fun buildConfigFiles(project: Project): List<VirtualFile> {
+        val rootPomVf = markerFiles(project).firstOrNull() ?: return emptyList()
+        val rootPomFile = File(rootPomVf.path)
+        return try {
+            // Walk the module tree to surface sub-module poms. PomReader.walkPomTree
+            // is forgiving — broken module references are silently skipped — but a
+            // catastrophic failure (e.g. XML parser misconfiguration) still falls
+            // back to the root pom alone, preserving pre-#7 behavior.
+            val lfs = LocalFileSystem.getInstance()
+            PomReader.walkPomTree(rootPomFile).mapNotNull { lfs.findFileByIoFile(it) }
+                .ifEmpty { listOf(rootPomVf) }
+        } catch (_: Throwable) {
+            listOf(rootPomVf)
+        }
+    }
 
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
