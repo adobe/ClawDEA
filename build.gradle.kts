@@ -14,6 +14,12 @@ dependencies {
         bundledPlugin("com.intellij.java")
         bundledPlugin("Git4Idea")
         bundledPlugin("org.jetbrains.plugins.terminal")
+        // Optional Scala plugin from JetBrains Marketplace. Compile classpath only —
+        // runtime loading is gated by the optional <depends> in plugin.xml.
+        plugin(
+            providers.gradleProperty("scalaPluginId").get(),
+            providers.gradleProperty("scalaPluginVersion").get(),
+        )
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
     }

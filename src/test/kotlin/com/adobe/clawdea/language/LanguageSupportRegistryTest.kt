@@ -5,12 +5,14 @@
 package com.adobe.clawdea.language
 
 import com.intellij.lang.Language
+import com.intellij.psi.PsiFile
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
+import java.lang.reflect.Proxy
 
 class LanguageSupportRegistryTest {
 
@@ -78,5 +80,30 @@ class LanguageSupportRegistryTest {
 
     @Test fun `forLanguage returns null when not registered`() {
         assertNull(LanguageSupportRegistry.forLanguage(FakeJava.language!!))
+    }
+
+    @Test fun `forPsiFile returns null when language unmatched and virtualFile is null`() {
+        // Exercises the early-return path of forPsiFile when forLanguage misses AND
+        // there's no VirtualFile to derive an extension from. The positive
+        // "language id mismatches but extension matches" case (the Scala 3 fix)
+        // requires a real VirtualFile and is covered by the manual smoke against
+        // the Scala plugin sandbox; VirtualFile is abstract and not headless-mockable
+        // without significant subclass-stub boilerplate.
+        LanguageSupportRegistry.register(FakeJava)
+        val unknownLang = object : Language("UNKNOWN") {}
+        val psiFile = Proxy.newProxyInstance(
+            PsiFile::class.java.classLoader,
+            arrayOf(PsiFile::class.java),
+        ) { _, method, _ ->
+            when (method.name) {
+                "getLanguage" -> unknownLang
+                "getVirtualFile" -> null
+                "toString" -> "stubPsiFile($unknownLang)"
+                "hashCode" -> System.identityHashCode(unknownLang)
+                "equals" -> false
+                else -> null
+            }
+        } as PsiFile
+        assertNull(LanguageSupportRegistry.forPsiFile(psiFile))
     }
 }

@@ -82,6 +82,40 @@ class CliEventParserTest {
     }
 
     @Test
+    fun `parses tool result with array-form content`() {
+        // MCP servers return their content as an array of text blocks; the Claude CLI
+        // sometimes forwards the tool_result in array form rather than collapsed to a
+        // single string. The parser must handle both.
+        val json = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_arr_1","type":"tool_result","content":[{"type":"text","text":"--- class User ---\n  Long id\n"}]}]}}"""
+        val event = parser.parse(json)
+        assertTrue(event is CliEvent.ToolResult)
+        val result = event as CliEvent.ToolResult
+        assertEquals("toolu_arr_1", result.toolUseId)
+        assertEquals("--- class User ---\n  Long id\n", result.content)
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun `parses tool result with array-form content multiple text blocks`() {
+        val json = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_arr_2","type":"tool_result","content":[{"type":"text","text":"part one"},{"type":"text","text":"part two"}]}]}}"""
+        val event = parser.parse(json)
+        assertTrue(event is CliEvent.ToolResult)
+        val result = event as CliEvent.ToolResult
+        assertEquals("toolu_arr_2", result.toolUseId)
+        assertEquals("part one\npart two", result.content)
+    }
+
+    @Test
+    fun `parses tool result with array-form content and is_error`() {
+        val json = """{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_arr_3","type":"tool_result","content":[{"type":"text","text":"oops"}],"is_error":true}]}}"""
+        val event = parser.parse(json)
+        assertTrue(event is CliEvent.ToolResult)
+        val result = event as CliEvent.ToolResult
+        assertEquals("oops", result.content)
+        assertTrue(result.isError)
+    }
+
+    @Test
     fun `parses result success event`() {
         val json = """{"type":"result","subtype":"success","is_error":false,"result":"Done!","total_cost_usd":0.05,"session_id":"abc-123"}"""
         val event = parser.parse(json)

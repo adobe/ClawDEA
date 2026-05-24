@@ -215,6 +215,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     <depends>com.intellij.modules.java</depends>
     <depends>Git4Idea</depends>
 
+    <!-- Optional plugin integrations. clawdea-scala.xml is loaded only when the
+         org.intellij.scala plugin is installed; see sub-project #4. -->
+    <depends optional="true" config-file="clawdea-scala.xml">org.intellij.scala</depends>
+
     <extensions defaultExtensionNs="com.intellij">
         <!-- Settings -->
         <applicationService
