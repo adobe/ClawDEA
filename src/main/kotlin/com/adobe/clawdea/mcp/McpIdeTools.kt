@@ -29,8 +29,24 @@ import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 
 /**
- * MCP tool handlers for IDE capabilities:
- * get_diagnostics, resolve_symbol.
+ * MCP tool handlers for IDE capabilities: get_diagnostics, resolve_symbol.
+ *
+ * `get_diagnostics` uses a four-tier strategy, preferring IntelliJ-native analysis
+ * and only shelling out to an external build tool as a safety net:
+ *
+ * 1. **DaemonCodeAnalyzer cached highlights** — when the file is open in an editor,
+ *    return the daemon's already-computed markup. Instant.
+ * 2. **InspectionEngine** — when the file is closed, run every enabled
+ *    LocalInspectionTool's `checkFile`. Returns the formatted result, or the
+ *    'No diagnostics found.' sentinel for a clean file. Null is reserved exclusively
+ *    for caught exceptions (analyzer couldn't run).
+ * 3. **CompilerManager.compile** ([CompilerManagerDiagnostics]) — IntelliJ's native
+ *    compile API. Uses the synced project model (modules, classpath, source paths).
+ *    Async-to-sync wrapped with a 60s timeout. Reached only when InspectionEngine
+ *    failed (tier 2 returned null).
+ * 4. **Build-tool subprocess** ([getDiagnosticsViaBuildTool]) — external gradle / mvn /
+ *    sbt / mill invocation. Reached only when tier 3 returns NotApplicable / Aborted
+ *    / Failed. The historical fallback; now a last-resort safety net.
  */
 class McpIdeTools(private val project: Project) {
 
