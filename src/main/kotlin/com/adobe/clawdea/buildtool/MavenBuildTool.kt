@@ -68,14 +68,33 @@ object MavenBuildTool : BuildTool {
         targetFile: String,
         project: Project,
     ): CompileCommand? {
-        if (languageSupport.id != "java") return null
         val basePath = project.basePath ?: return null
         val baseDir = File(basePath)
+        if (languageSupport.id !in computeAllowedLanguages(File(baseDir, "pom.xml"))) return null
         val launcher = if (File(baseDir, "mvnw").exists()) "./mvnw" else "mvn"
         return CompileCommand(
             argv = listOf(launcher, "compile", "-q"),
             workingDir = baseDir,
         )
+    }
+
+    /**
+     * Determines which LanguageSupport ids this build tool will dispatch a compile
+     * command for. Java is always allowed. Kotlin is added when `kotlin-maven-plugin`
+     * is declared in the root pom; Scala is added when `scala-maven-plugin` is
+     * declared. Effective-pom (deep inheritance) is not resolved — we read the
+     * literal root pom only. On any read failure, returns the conservative default
+     * `{"java"}` to preserve pre-#7 behavior.
+     */
+    private fun computeAllowedLanguages(rootPom: File): Set<String> {
+        val langs = mutableSetOf("java")
+        try {
+            if (PomReader.hasPlugin(rootPom, "org.jetbrains.kotlin", "kotlin-maven-plugin")) langs += "kotlin"
+            if (PomReader.hasPlugin(rootPom, "net.alchim31.maven", "scala-maven-plugin")) langs += "scala"
+        } catch (_: Throwable) {
+            // Conservative fallback — java only.
+        }
+        return langs
     }
 
     override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String {
