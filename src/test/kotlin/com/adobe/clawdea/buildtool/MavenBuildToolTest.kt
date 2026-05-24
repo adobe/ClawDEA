@@ -82,8 +82,8 @@ class MavenBuildToolTest {
         assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
     }
 
-    @Test fun `compileCommandFor Kotlin returns null in this PR`() {
-        // Maven + Kotlin is real (kotlin-maven-plugin) but #2 does not detect it.
+    @Test fun `compileCommandFor Kotlin returns null when kotlin-maven-plugin is absent from pom`() {
+        // No pom.xml in tempDir -> PomReader.hasPlugin returns false -> allowed = {java}.
         val cmd = MavenBuildTool.compileCommandFor(
             fakeSupport("kotlin", "Kotlin"),
             "${tempDir}/src/main/kotlin/Foo.kt",
@@ -92,14 +92,35 @@ class MavenBuildToolTest {
         assertNull(cmd)
     }
 
-    @Test fun `compileCommandFor Scala returns null in this PR`() {
-        // Maven + Scala is real (scala-maven-plugin) but #3 defers detection to #7.
+    @Test fun `compileCommandFor Scala returns null when scala-maven-plugin is absent from pom`() {
         val cmd = MavenBuildTool.compileCommandFor(
             fakeSupport("scala", "Scala"),
             "${tempDir}/src/main/scala/Foo.scala",
             stubProject(tempDir.toString()),
         )
         assertNull(cmd)
+    }
+
+    @Test fun `compileCommandFor Kotlin returns mvn command when kotlin-maven-plugin is in pom`() {
+        writePomWithPlugin("org.jetbrains.kotlin", "kotlin-maven-plugin")
+        val cmd = MavenBuildTool.compileCommandFor(
+            fakeSupport("kotlin", "Kotlin"),
+            "${tempDir}/src/main/kotlin/Foo.kt",
+            stubProject(tempDir.toString()),
+        )
+        assertNotNull(cmd)
+        assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
+    }
+
+    @Test fun `compileCommandFor Scala returns mvn command when scala-maven-plugin is in pom`() {
+        writePomWithPlugin("net.alchim31.maven", "scala-maven-plugin")
+        val cmd = MavenBuildTool.compileCommandFor(
+            fakeSupport("scala", "Scala"),
+            "${tempDir}/src/main/scala/Foo.scala",
+            stubProject(tempDir.toString()),
+        )
+        assertNotNull(cmd)
+        assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor unknown language returns null`() {
@@ -109,6 +130,25 @@ class MavenBuildToolTest {
             stubProject(tempDir.toString()),
         )
         assertNull(cmd)
+    }
+
+    private fun writePomWithPlugin(groupId: String, artifactId: String) {
+        val pom = tempDir.resolve("pom.xml").toFile()
+        pom.writeText("""<?xml version="1.0" encoding="UTF-8"?>
+            <project>
+              <groupId>com.example</groupId>
+              <artifactId>test</artifactId>
+              <version>1.0.0</version>
+              <build>
+                <plugins>
+                  <plugin>
+                    <groupId>$groupId</groupId>
+                    <artifactId>$artifactId</artifactId>
+                  </plugin>
+                </plugins>
+              </build>
+            </project>
+        """.trimIndent())
     }
 
     @Test fun `filterDiagnostics extracts ERROR lines matching the target path`() {
