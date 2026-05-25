@@ -889,7 +889,17 @@ function showThinking() {
 }
 function hideThinking() {
     var el = document.getElementById('thinking-indicator');
-    if (el) el.remove();
+    if (!el) return;
+    // Stop the pulse animation before removal — JCEF sometimes leaves the
+    // animated area painted on screen even after the node is gone, until a
+    // scroll forces a redraw.
+    var dots = el.querySelector('.thinking-dots');
+    if (dots) dots.classList.add('paused');
+    el.remove();
+    // Force a layout/paint cycle so JCEF invalidates the area without waiting
+    // for a user scroll.
+    void document.body.offsetHeight;
+    requestAnimationFrame(function () { window.scrollBy(0, 0); });
 }
 function setTurnControlButton(state) {
     var indicator = document.getElementById('thinking-indicator');
