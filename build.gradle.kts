@@ -14,6 +14,12 @@ dependencies {
         bundledPlugin("com.intellij.java")
         bundledPlugin("Git4Idea")
         bundledPlugin("org.jetbrains.plugins.terminal")
+        // Optional Scala plugin from JetBrains Marketplace. Compile classpath only —
+        // runtime loading is gated by the optional <depends> in plugin.xml.
+        plugin(
+            providers.gradleProperty("scalaPluginId").get(),
+            providers.gradleProperty("scalaPluginVersion").get(),
+        )
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Platform)
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
     }
@@ -21,6 +27,11 @@ dependencies {
     implementation("com.google.code.gson:gson:2.14.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test")
+    // Required when running LightJavaCodeInsightFixtureTestCase fixtures from the
+    // IDE's JUnit runner — UsefulTestCase references opentest4j AssertionFailedError
+    // in method signatures, and the IntelliJ Platform test framework no longer
+    // brings it in transitively as of 2026.1.
+    testImplementation("org.opentest4j:opentest4j:1.3.0")
 }
 
 intellijPlatform {

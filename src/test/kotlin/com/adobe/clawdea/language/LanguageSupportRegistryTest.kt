@@ -1,0 +1,109 @@
+/*
+ * Copyright 2026 Adobe. All rights reserved.
+ * Licensed under the Apache License, Version 2.0.
+ */
+package com.adobe.clawdea.language
+
+import com.intellij.lang.Language
+import com.intellij.psi.PsiFile
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Before
+import org.junit.Test
+import java.lang.reflect.Proxy
+
+class LanguageSupportRegistryTest {
+
+    // Stub Language subclasses avoid depending on IntelliJ's plugin classpath in headless tests.
+    private object FakeJavaLang : Language("FAKE_JAVA")
+    private object FakeKotlinLang : Language("FAKE_KOTLIN")
+
+    private object FakeJava : LanguageSupport {
+        override val id = "java"
+        override val language: Language? = FakeJavaLang
+        override val displayName = "Java"
+        override val fileExtensions = setOf("java")
+    }
+
+    private object FakeKotlin : LanguageSupport {
+        override val id = "kotlin"
+        override val language: Language? = FakeKotlinLang
+        override val displayName = "Kotlin"
+        override val fileExtensions = setOf("kt", "kts")
+    }
+
+    @Before fun setUp() { LanguageSupportRegistry.clearForTest() }
+    @After  fun tearDown() { LanguageSupportRegistry.clearForTest() }
+
+    @Test fun `register then forLanguage returns same instance`() {
+        LanguageSupportRegistry.register(FakeJava)
+        assertSame(FakeJava, LanguageSupportRegistry.forLanguage(FakeJava.language!!))
+    }
+
+    @Test fun `register for same id replaces prior entry`() {
+        LanguageSupportRegistry.register(FakeJava)
+        val replacement = object : LanguageSupport by FakeJava {}
+        LanguageSupportRegistry.register(replacement)
+        assertSame(replacement, LanguageSupportRegistry.forLanguage(FakeJava.language!!))
+    }
+
+    @Test fun `forFileExtension kt returns kotlin support`() {
+        LanguageSupportRegistry.register(FakeKotlin)
+        assertSame(FakeKotlin, LanguageSupportRegistry.forFileExtension("kt"))
+    }
+
+    @Test fun `forFileExtension kts returns kotlin support`() {
+        LanguageSupportRegistry.register(FakeKotlin)
+        assertSame(FakeKotlin, LanguageSupportRegistry.forFileExtension("kts"))
+    }
+
+    @Test fun `forFileExtension java returns java support`() {
+        LanguageSupportRegistry.register(FakeJava)
+        assertSame(FakeJava, LanguageSupportRegistry.forFileExtension("java"))
+    }
+
+    @Test fun `forFileExtension unknown returns null`() {
+        LanguageSupportRegistry.register(FakeJava)
+        LanguageSupportRegistry.register(FakeKotlin)
+        assertNull(LanguageSupportRegistry.forFileExtension("py"))
+    }
+
+    @Test fun `all returns snapshot that does not mutate registry`() {
+        LanguageSupportRegistry.register(FakeJava)
+        LanguageSupportRegistry.register(FakeKotlin)
+        val snapshot = LanguageSupportRegistry.all().toMutableList()
+        snapshot.clear()
+        assertEquals(2, LanguageSupportRegistry.all().size)
+    }
+
+    @Test fun `forLanguage returns null when not registered`() {
+        assertNull(LanguageSupportRegistry.forLanguage(FakeJava.language!!))
+    }
+
+    @Test fun `forPsiFile returns null when language unmatched and virtualFile is null`() {
+        // Exercises the early-return path of forPsiFile when forLanguage misses AND
+        // there's no VirtualFile to derive an extension from. The positive
+        // "language id mismatches but extension matches" case (the Scala 3 fix)
+        // requires a real VirtualFile and is covered by the manual smoke against
+        // the Scala plugin sandbox; VirtualFile is abstract and not headless-mockable
+        // without significant subclass-stub boilerplate.
+        LanguageSupportRegistry.register(FakeJava)
+        val unknownLang = object : Language("UNKNOWN") {}
+        val psiFile = Proxy.newProxyInstance(
+            PsiFile::class.java.classLoader,
+            arrayOf(PsiFile::class.java),
+        ) { _, method, _ ->
+            when (method.name) {
+                "getLanguage" -> unknownLang
+                "getVirtualFile" -> null
+                "toString" -> "stubPsiFile($unknownLang)"
+                "hashCode" -> System.identityHashCode(unknownLang)
+                "equals" -> false
+                else -> null
+            }
+        } as PsiFile
+        assertNull(LanguageSupportRegistry.forPsiFile(psiFile))
+    }
+}

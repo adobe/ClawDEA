@@ -31,6 +31,7 @@ class ChatBrowserRenderer(
     private val permissionDecisionQuery: JBCefJSQuery,
     private val driftActionQuery: JBCefJSQuery,
     private val runSlashCommandQuery: JBCefJSQuery,
+    private val wikiGitStateActionQuery: JBCefJSQuery,
 ) {
     var browserReady = false
         private set
@@ -52,6 +53,7 @@ class ChatBrowserRenderer(
                     permissionDecisionJs = permissionDecisionQuery.inject("arg"),
                     driftActionJs = driftActionQuery.inject("action"),
                     runSlashCommandJs = runSlashCommandQuery.inject("slash"),
+                    wikiGitStateActionJs = wikiGitStateActionQuery.inject("action"),
                 )
                 cefBrowser?.executeJavaScript(bridgeScripts, cefBrowser.url, 0)
                 ApplicationManager.getApplication().invokeLater {
@@ -207,6 +209,16 @@ class ChatBrowserRenderer(
             "unavailable" -> "edit-status-unavailable"
             else -> "edit-status-pending"
         }
+        val glyph = when (status.lowercase()) {
+            "auto-accepted" -> "⚡"
+            "accepted" -> "✓"
+            "rejected" -> "✗"
+            "modified" -> "✎"
+            "reviewing..." -> "…"
+            "unavailable" -> "—"
+            else -> "•"
+        }
+        val labelText = "$glyph $safeStatus"
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var el = document.querySelector('.edit-link[data-tool-id="$safeId"]');
@@ -218,11 +230,11 @@ class ChatBrowserRenderer(
                 if (rejectBtn) rejectBtn.remove();
                 if (badge) {
                     badge.className = '$statusClass';
-                    badge.textContent = '[$safeStatus]';
+                    badge.textContent = '$labelText';
                 } else {
                     var span = document.createElement('span');
                     span.className = '$statusClass';
-                    span.textContent = '[$safeStatus]';
+                    span.textContent = '$labelText';
                     el.appendChild(span);
                 }
             })();""",
@@ -253,6 +265,14 @@ class ChatBrowserRenderer(
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript(
             "updateDriftBanner('${escapeForJs(html)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    fun updateWikiGitStateBanner(html: String) {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript(
+            "updateWikiGitStateBanner('${escapeForJs(html)}');",
             browser.cefBrowser.url, 0,
         )
     }

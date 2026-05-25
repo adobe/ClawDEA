@@ -29,6 +29,7 @@ class ChatHtmlTemplate {
         permissionDecisionJs: String,
         driftActionJs: String,
         runSlashCommandJs: String,
+        wikiGitStateActionJs: String,
     ): String = """
         window.bridgeStopTool = function() { $abortJs };
         window.bridgeTurnControl = function(action) { $turnControlJs };
@@ -40,6 +41,7 @@ class ChatHtmlTemplate {
         window.bridgePermissionDecision = function(arg) { $permissionDecisionJs };
         window.bridgeDriftAction = function(action) { $driftActionJs };
         window.bridgeRunSlashCommand = function(slash) { $runSlashCommandJs };
+        window.bridgeWikiGitStateAction = function(action) { $wikiGitStateActionJs };
         window.collectQuestionAnswers = function(card) {
             // Walk every radio/checkbox in the card; group multi-select labels
             // under their question text. Also collect any freeform text inputs
@@ -98,6 +100,10 @@ class ChatHtmlTemplate {
                 }
                 case 'question-cancel': bridgePermissionDecision(permissionId + ':cancel'); break;
                 case 'drift-action': bridgeDriftAction(el.getAttribute('data-drift-action') || ''); break;
+                case 'wiki-git-state-action':
+                    console.log('[clawdea] wiki-git-state-action click', el.getAttribute('data-wgs-action'));
+                    bridgeWikiGitStateAction(el.getAttribute('data-wgs-action') || '');
+                    break;
                 case 'run-slash-command': {
                     // Anchor links default to navigating; suppress that so the
                     // page doesn't try to follow href="#".

@@ -16,10 +16,12 @@ import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
 import com.adobe.clawdea.chat.permission.PermissionPolicy
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.debug.McpDebugTools
+import com.adobe.clawdea.language.scala.ScalaPsiBridge
 import com.adobe.clawdea.profiling.analysis.AnalysisService
 import com.adobe.clawdea.profiling.mcp.McpProfilingTools
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -72,6 +74,7 @@ class McpServer(private val project: Project) : Disposable {
         McpEditReviewTools(project).registerAll(router)
         McpDebugTools(project).registerAll(router)
         McpProfilingTools(project, AnalysisService()).registerAll(router)
+        registerScalaToolsIfAvailable()
         McpPermissionPromptTool(
             dispatcherResolver = { toolName, inputJson, toolUseId ->
                 PermissionRouterRegistry.getInstance(project).route(toolName, inputJson, toolUseId)
@@ -90,6 +93,22 @@ class McpServer(private val project: Project) : Disposable {
                 AutoAllowSignal.getInstance(project).notify(toolName, inputJson, toolUseId)
             },
         ).registerAll(router)
+    }
+
+    /**
+     * Registers [McpScalaTools] only when [ScalaPsiBridge] is available — i.e. the
+     * IntelliJ Scala plugin is installed. When absent, the Scala tools simply do
+     * not appear in `tools/list`. Some IntelliJ versions throw for unregistered
+     * services rather than returning null, hence the try-catch.
+     */
+    private fun registerScalaToolsIfAvailable() {
+        val bridge = try {
+            ApplicationManager.getApplication()?.getService(ScalaPsiBridge::class.java)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        McpScalaTools(project, bridge).registerAll(router)
+        log.info("Registered Scala-specific MCP tools (ScalaPsiBridge present)")
     }
 
     private fun start() {
@@ -158,6 +177,9 @@ class McpServer(private val project: Project) : Disposable {
                     val durationMs = (System.nanoTime() - startNanos) / 1_000_000
                     val status = if (result.isError) "error" else "ok"
                     log.info("tools/call id=$id tool=$toolName $status duration=${durationMs}ms")
+                    if (result.isError) {
+                        log.warn("tools/call id=$id tool=$toolName error: ${result.text} | parsedArgs=$arguments | rawBody=$body")
+                    }
                     McpProtocol.toolResultResponse(id ?: "null", result.text, result.isError)
                 }
                 else -> {

@@ -20,6 +20,27 @@
 5. **Tool call (per request)** — CLI POSTs JSON-RPC, the HTTP handler hands the request to the dispatch executor. Executor calls `router.dispatch(toolName, args)`. Handler runs, returns `ToolResult`, response goes back to the CLI.
 6. **Project close** — `Disposable.dispose()` stops the HTTP server, shuts down the dispatch executor.
 
+## get_diagnostics tier fallback
+
+`McpIdeTools.get_diagnostics` is a four-tier strategy that prefers IntelliJ-native analysis and only shells out to a build tool as a last resort. Tiers run in order; each tier only fires when the previous one cannot answer ([McpIdeTools.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpIdeTools.kt)).
+
+1. **DaemonCodeAnalyzer cached highlights** — fast path when the file is open in an editor. Uses `DaemonCodeAnalyzerEx.processHighlights` against the existing document.
+2. **InspectionEngine `LocalInspectionTool.checkFile`** — when the file is closed, runs every enabled local inspection. A clean file returns the `"No diagnostics found."` sentinel; **null is reserved exclusively for the caught-exception path** so a clean file does not fall through to the slow tiers.
+3. **`CompilerManager.compile`** ([CompilerManagerDiagnostics.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/diagnostics/CompilerManagerDiagnostics.kt)) — IntelliJ's native compile API, async-to-sync wrapped via a `CountDownLatch` scheduled from the EDT. Must not be called from the EDT or it deadlocks. Returns `NotApplicable` / `Aborted` / `Failed` to signal "try the next tier"; `AlreadyInProgress` and `Timeout` short-circuit with an error so the user can retry.
+4. **Build-tool subprocess** — external `gradle` / `mvn` / `sbt` / `mill` invocation via `BuildToolRegistry.detectPrimary` and `BuildTool.compileCommandFor`.
+
+Tiers 3+4 share a `TIER_3_4_BUDGET_MILLIS = 55_000` envelope (5 s reserved under the 60 s MCP timeout), split evenly with a `MIN_TIER_4_BUDGET_MILLIS = 5_000` floor so the build tool always gets a real chance to run.
+
+## Language dispatch
+
+Tier 4 (and other language-aware tools) routes through [LanguageSupportRegistry](../../../src/main/kotlin/com/adobe/clawdea/language/LanguageSupportRegistry.kt), which keeps lock-free snapshots indexed by IntelliJ Language id and by file extension. Dispatch order:
+
+1. `LanguageSupportRegistry.forFileExtension(ext)` — used by `McpIdeTools.resolveCompileCommand` to pick a `LanguageSupport` from a file path before any PSI is loaded.
+2. `LanguageSupportRegistry.forPsiFile(psiFile)` — tries `Language.id` first, then falls back to extension. The fallback is load-bearing for Scala 3, whose IntelliJ `Language.id` is `"Scala 3"` while ClawDEA registers a single [ScalaLanguageSupport](../../../src/main/kotlin/com/adobe/clawdea/language/ScalaLanguageSupport.kt) keyed off `Language.id == "Scala"` plus extensions `scala` and `sc`.
+3. Language-specific PSI work (e.g. Scala's `findRelatedTypes`) is delegated to a soft-loaded service like [ScalaPsiBridge](../../../src/main/kotlin/com/adobe/clawdea/language/scala/ScalaPsiBridge.kt). The bridge is registered only when the IntelliJ Scala plugin is present; `ScalaLanguageSupport` looks it up via `getService` inside a try/catch and returns null when absent, so ClawDEA degrades gracefully on installs without the Scala plugin.
+
+Registration happens once at plugin initialization in [LanguageSupportInitializer](../../../src/main/kotlin/com/adobe/clawdea/language/LanguageSupportInitializer.kt). Registry reads must be lazy for any caller that may run before initialization (e.g. `CandidateFingerprinter` during indexing).
+
 ## Anti-patterns
 
 - **Blocking the HTTP server thread** — All tool work must happen on the dispatch executor. Blocking the server thread serializes all tool calls and is observable as user-facing latency on simple lookups.

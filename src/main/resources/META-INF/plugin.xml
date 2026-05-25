@@ -111,6 +111,30 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.6.0</h3>
+<h4>Scala support</h4>
+<ul>
+  <li><b>Scala in the index tools.</b> <code>find_symbol</code>, <code>find_usages</code>, <code>find_callers</code>, <code>find_implementations</code>, <code>find_supertypes</code>, and <code>resolve_symbol</code> now work on Scala sources via a new <code>ScalaLanguageSupport</code>. Companion-class ambiguity is resolved with <code>multiResolve</code>, and import refs are resolved through the Scala plugin's own resolver so wildcard/aliased imports are followed correctly.</li>
+  <li><b>Optional Scala-plugin integration.</b> When the IntelliJ Scala plugin is installed, ClawDEA loads <code>clawdea-scala.xml</code> and registers a <code>ScalaPluginPsiBridge</code> that powers <code>find_related_types</code> and a new Scala-specific MCP tool, <code>find_implicit_definitions</code>, listing implicit givens, val/def declarations, and extension blocks in a Scala file.</li>
+</ul>
+<h4>Build-tool adapter abstraction</h4>
+<ul>
+  <li><b>Pluggable build tools.</b> A new <code>BuildTool</code> interface and <code>BuildToolRegistry</code> let ClawDEA discover Gradle, Maven, sbt, and Mill projects uniformly. <code>FileCollector</code> and the diagnostics pipeline now route through this registry instead of hard-coded Gradle paths.</li>
+  <li><b>Maven, sbt, Mill.</b> <code>MavenBuildTool</code> walks the module tree, dispatches Kotlin/Scala compile when the respective Maven plugins are present, and reads pom.xml via the new <code>PomReader</code> DOM helper. <code>SbtBuildTool</code> and <code>MillBuildTool</code> bring sbt and Mill projects into the same flow.</li>
+  <li><b>Per-language compile dispatch.</b> Gradle now dispatches Scala to <code>compileScala</code>; <code>BuildTool.compileCommandFor</code> takes a <code>LanguageSupport</code> so each adapter picks the right task per language.</li>
+</ul>
+<h4>Diagnostics tier improvements</h4>
+<ul>
+  <li><b>IntelliJ first, build-tool fallback.</b> <code>get_diagnostics</code> now prefers IntelliJ inspections and the in-process <code>CompilerManager</code> over a build-tool subprocess. A new <code>CompilerManagerDiagnostics</code> helper turns the async compile API into a sync result. Tier 2 returns a clean "No diagnostics found." on empty inspection results instead of falling through.</li>
+</ul>
+<h4>UX polish &amp; fixes</h4>
+<ul>
+  <li>Edit-status badges now match the Auto-allowed style; the "Ask unlisted" approval mode gets a question-dialog icon in settings.</li>
+  <li>Chat: thinking indicator is force-repainted after hide so it never lingers as a ghost row.</li>
+  <li>Wiki: drift bookkeeping picks up legacy <code>.drift-state.json</code> at custom wiki paths; MCP errors are now logged with full context.</li>
+  <li>CLI: <code>CliEventParser</code> handles array-form <code>tool_result</code> content so structured tool outputs no longer render as empty.</li>
+</ul>
+
 <h3>1.5.0</h3>
 <h4>Wiki team mode</h4>
 <ul>
@@ -215,6 +239,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     <depends>com.intellij.modules.java</depends>
     <depends>Git4Idea</depends>
 
+    <!-- Optional integration: clawdea-scala.xml loads only when the
+         org.intellij.scala plugin is installed. -->
+    <depends optional="true" config-file="clawdea-scala.xml">org.intellij.scala</depends>
+
     <extensions defaultExtensionNs="com.intellij">
         <!-- Settings -->
         <applicationService
@@ -261,8 +289,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <!-- Drift Detection -->
         <projectService
             serviceImplementation="com.adobe.clawdea.knowledge.drift.DriftDetectionService"/>
+        <projectService
+            serviceImplementation="com.adobe.clawdea.knowledge.drift.DriftPeriodicScanner"/>
         <postStartupActivity
             implementation="com.adobe.clawdea.knowledge.drift.DriftStartupActivity"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.knowledge.drift.DriftPeriodicScannerStartupActivity"/>
         <postStartupActivity
             implementation="com.adobe.clawdea.mcp.McpServerStartupActivity"/>
 
@@ -271,6 +303,14 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
             serviceImplementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriber"/>
         <postStartupActivity
             implementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriberStartupActivity"/>
+
+        <!-- Language Support Registry (Java + Kotlin built-in) -->
+        <postStartupActivity
+            implementation="com.adobe.clawdea.language.LanguageSupportInitializer"/>
+
+        <!-- Build Tool Registry (Gradle + Maven built-in) -->
+        <postStartupActivity
+            implementation="com.adobe.clawdea.buildtool.BuildToolInitializer"/>
 
         <!-- Claude Gateway -->
         <applicationService

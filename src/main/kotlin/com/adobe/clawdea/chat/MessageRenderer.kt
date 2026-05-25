@@ -235,7 +235,15 @@ class MessageRenderer(
                 "reviewing..." -> "edit-status-reviewing"
                 else -> "edit-status-pending"
             }
-            """<span class="$statusClass">[$safeStatus]</span>"""
+            val glyph = when (status.lowercase()) {
+                "auto-accepted" -> "&#9889;" // ⚡, matches Auto-allowed
+                "accepted" -> "&#10003;"     // ✓
+                "rejected" -> "&#10007;"     // ✗
+                "modified" -> "&#9998;"      // ✎
+                "reviewing..." -> "&#8230;"  // …
+                else -> "&#8226;"            // •
+            }
+            """<span class="$statusClass">$glyph $safeStatus</span>"""
         }
 
         return """
@@ -340,6 +348,20 @@ class MessageRenderer(
                     title = desc ?: "Bash",
                     body = cmd ?: input,
                 )
+            }
+            lower.endsWith("read_sibling_wiki") -> {
+                val repo = extractJsonString(input, "repo")
+                val page = extractJsonString(input, "page")
+                val suffix = listOfNotNull(repo, page).joinToString("/")
+                ToolDisplay(title = "Read sibling Wiki${if (suffix.isNotEmpty()) " $suffix" else ""}", body = "")
+            }
+            lower.endsWith("read_wiki_page") -> {
+                val name = extractJsonString(input, "name")
+                ToolDisplay(title = "Read Wiki${if (!name.isNullOrEmpty()) " $name" else ""}", body = "")
+            }
+            lower.endsWith("search_wiki") -> {
+                val query = extractJsonString(input, "query")
+                ToolDisplay(title = "Search Wiki${if (!query.isNullOrEmpty()) ": $query" else ""}", body = "")
             }
             lower.contains("read") -> {
                 val path = extractJsonString(input, "file_path")

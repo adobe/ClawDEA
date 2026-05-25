@@ -12,6 +12,7 @@
 // src/main/kotlin/com/adobe/clawdea/context/FileCollector.kt
 package com.adobe.clawdea.context
 
+import com.adobe.clawdea.buildtool.BuildToolRegistry
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.openapi.editor.Editor
@@ -68,24 +69,16 @@ class FileCollector {
                 ))
             }
 
-            // Build config (pom.xml or build.gradle)
-            val projectDir = project.basePath?.let {
-                com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(it)
-            }
-            if (projectDir != null) {
-                val buildFile = projectDir.findChild("pom.xml")
-                    ?: projectDir.findChild("build.gradle")
-                    ?: projectDir.findChild("build.gradle.kts")
-                if (buildFile != null) {
-                    val buildPsi = psiManager.findFile(buildFile)
-                    if (buildPsi != null) {
-                        items.add(ContextItem(
-                            label = "Build config: ${buildFile.name}",
-                            content = buildPsi.text,
-                            score = 0.4,
-                            source = "file"
-                        ))
-                    }
+            // Build config files from all detected build tools (Gradle, Maven, …).
+            for (buildTool in BuildToolRegistry.detectAll(project)) {
+                for (buildFile in buildTool.buildConfigFiles(project)) {
+                    val buildPsi = psiManager.findFile(buildFile) ?: continue
+                    items.add(ContextItem(
+                        label = "Build config: ${buildFile.name}",
+                        content = buildPsi.text,
+                        score = 0.4,
+                        source = "file"
+                    ))
                 }
             }
 

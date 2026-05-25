@@ -86,12 +86,25 @@ class CliEventParser {
             val blockType = extractString(block, "\"type\"")
             if (blockType == "tool_result") {
                 val toolUseId = extractString(block, "\"tool_use_id\"") ?: ""
-                val content = extractString(block, "\"content\"") ?: ""
+                val content = extractToolResultContent(block)
                 val isError = block.contains("\"is_error\":true")
                 return CliEvent.ToolResult(toolUseId, content, isError)
             }
         }
         return CliEvent.Unknown(rawType = "user", rawJson = json)
+    }
+
+    /**
+     * The Anthropic Messages API allows tool_result `content` to be either a string
+     * or an array of `{"type":"text","text":...}` blocks. The Claude CLI forwards
+     * whichever form the MCP server emitted; both must be supported.
+     */
+    private fun extractToolResultContent(block: String): String {
+        extractString(block, "\"content\"")?.let { return it }
+        return extractContentArray(block)
+            .filter { extractString(it, "\"type\"") == "text" }
+            .mapNotNull { extractString(it, "\"text\"") }
+            .joinToString("\n")
     }
 
     private fun parseResult(json: String): CliEvent {

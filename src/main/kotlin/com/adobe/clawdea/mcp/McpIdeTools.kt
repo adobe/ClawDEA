@@ -11,6 +11,11 @@
  */
 package com.adobe.clawdea.mcp
 
+import com.adobe.clawdea.buildtool.BuildTool
+import com.adobe.clawdea.buildtool.BuildToolRegistry
+import com.adobe.clawdea.buildtool.CompileCommand
+import com.adobe.clawdea.language.LanguageSupportRegistry
+import com.adobe.clawdea.mcp.diagnostics.CompilerManagerDiagnostics
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerEx
@@ -24,8 +29,22 @@ import com.intellij.psi.PsiNamedElement
 import com.intellij.psi.util.PsiTreeUtil
 
 /**
- * MCP tool handlers for IDE capabilities:
- * get_diagnostics, resolve_symbol.
+ * MCP tool handlers for IDE capabilities: get_diagnostics, resolve_symbol.
+ *
+ * `get_diagnostics` uses a four-tier strategy, preferring IntelliJ-native analysis
+ * and only shelling out to an external build tool as a safety net:
+ *
+ * 1. **DaemonCodeAnalyzer cached highlights** — when the file is open in an editor.
+ * 2. **InspectionEngine** — when the file is closed; runs every enabled
+ *    LocalInspectionTool's `checkFile`. Returns the formatted result, or the
+ *    `"No diagnostics found."` sentinel for a clean file. Null is reserved
+ *    exclusively for the caught-exception path (analyzer couldn't run).
+ * 3. **CompilerManager.compile** ([CompilerManagerDiagnostics]) — IntelliJ's native
+ *    compile API; uses the synced project model. Async-to-sync wrapped with a 60s
+ *    timeout. Reached only when tier 2 returned null.
+ * 4. **Build-tool subprocess** ([getDiagnosticsViaBuildTool]) — external gradle /
+ *    mvn / sbt / mill invocation. Reached only when tier 3 returns NotApplicable /
+ *    Aborted / Failed.
  */
 class McpIdeTools(private val project: Project) {
 
@@ -103,15 +122,42 @@ class McpIdeTools(private val project: Project) {
             return McpToolRouter.ToolResult(results)
         }
 
-        // File not open — run local inspections silently via InspectionEngine.
+        // tryLocalInspections returns null ONLY on caught exception. A clean file
+        // returns the "No diagnostics found." sentinel — that path must NOT fall
+        // through to the slow tier-3/4 fallbacks.
         val inspectionResult = tryLocalInspections(psiFile, filePath)
         if (inspectionResult != null) {
             return McpToolRouter.ToolResult(inspectionResult)
         }
 
-        // Inspection API failed or found nothing — fall back to Gradle compile.
-        log.info("get_diagnostics: inspections inconclusive for $filePath, falling back to Gradle")
-        return getDiagnosticsViaGradle(filePath)
+        // Total budget for tiers 3+4 must fit inside McpServer's 60s tool timeout.
+        // Reserve a small overhead margin and split evenly between tier 3 and tier 4.
+        val deadlineMillis = System.currentTimeMillis() + TIER_3_4_BUDGET_MILLIS
+
+        log.info("get_diagnostics: InspectionEngine failed for $filePath, trying CompilerManager")
+        val tier3Budget = (deadlineMillis - System.currentTimeMillis()).coerceAtLeast(0L) / 2
+        when (val compileResult = CompilerManagerDiagnostics.compileSync(project, vf, tier3Budget)) {
+            is CompilerManagerDiagnostics.CompileSyncResult.Success ->
+                return McpToolRouter.ToolResult(compileResult.diagnosticsText)
+            is CompilerManagerDiagnostics.CompileSyncResult.AlreadyInProgress ->
+                return McpToolRouter.ToolResult(
+                    "Build is currently in progress, try again shortly.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.Timeout ->
+                return McpToolRouter.ToolResult(
+                    "CompilerManager timed out for $filePath after ${tier3Budget}ms. The compile may still be running; retry in a moment.",
+                    isError = true,
+                )
+            is CompilerManagerDiagnostics.CompileSyncResult.NotApplicable,
+            is CompilerManagerDiagnostics.CompileSyncResult.Aborted,
+            is CompilerManagerDiagnostics.CompileSyncResult.Failed -> {
+                log.info("get_diagnostics: CompilerManager ${compileResult.javaClass.simpleName} for $filePath, falling back to build tool")
+            }
+        }
+
+        val tier4Budget = (deadlineMillis - System.currentTimeMillis()).coerceAtLeast(MIN_TIER_4_BUDGET_MILLIS)
+        return getDiagnosticsViaBuildTool(filePath, tier4Budget)
     }
 
     private fun tryLocalInspections(psiFile: com.intellij.psi.PsiFile, filePath: String): String? {
@@ -148,7 +194,10 @@ class McpIdeTools(private val project: Project) {
                     }
                 }
 
-                if (sb.isEmpty()) null else sb.toString()
+                // Empty must yield the sentinel (not null), so a clean file does
+                // NOT trigger the slow tier-3/4 fallback. Null is reserved for the
+                // caught-exception path below.
+                if (sb.isEmpty()) "No diagnostics found." else sb.toString()
             } catch (e: Exception) {
                 log.info("Local inspections failed for $filePath: ${e.message}")
                 null
@@ -156,29 +205,35 @@ class McpIdeTools(private val project: Project) {
         }
     }
 
-    private fun getDiagnosticsViaGradle(filePath: String): McpToolRouter.ToolResult {
-        val basePath = project.basePath ?: return McpToolRouter.ToolResult("No project base path", isError = true)
-        val isKotlin = filePath.endsWith(".kt") || filePath.endsWith(".kts")
-        val task = if (isKotlin) "compileKotlin" else "compileJava"
+    private fun getDiagnosticsViaBuildTool(filePath: String, budgetMillis: Long): McpToolRouter.ToolResult {
+        val basePath = project.basePath
+            ?: return McpToolRouter.ToolResult("No project base path", isError = true)
 
+        val (buildTool, cmd) = when (val resolution = resolveCompileCommand(filePath, project)) {
+            is CompileResolution.Ready -> resolution.buildTool to resolution.command
+            is CompileResolution.EarlyResult -> return resolution.result
+        }
+
+        // Cap the build-tool subprocess at the smaller of (cmd.timeout, remaining
+        // tier-4 budget) so we don't blow past the MCP tool envelope.
+        val effectiveTimeoutMillis = minOf(cmd.timeout.inWholeMilliseconds, budgetMillis)
         return try {
-            val process = ProcessBuilder("./gradlew", task, "--quiet")
-                .directory(java.io.File(basePath))
+            val process = ProcessBuilder(cmd.argv)
+                .directory(cmd.workingDir)
                 .redirectErrorStream(true)
                 .start()
-            val exited = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+            val exited = process.waitFor(effectiveTimeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
             if (!exited) {
                 process.destroyForcibly()
-                return McpToolRouter.ToolResult("Gradle compile timed out after 30s", isError = true)
+                return McpToolRouter.ToolResult(
+                    "${buildTool.displayName} compile timed out after ${effectiveTimeoutMillis}ms", isError = true,
+                )
             }
             val output = process.inputStream.bufferedReader().readText()
             if (process.exitValue() == 0) {
                 McpToolRouter.ToolResult("No diagnostics found.")
             } else {
-                val relPath = PsiUtils.toRelativePath(filePath, basePath)
-                val relevant = output.lines()
-                    .filter { it.contains(relPath) || it.contains(filePath) }
-                    .joinToString("\n")
+                val relevant = buildTool.filterDiagnostics(output, filePath, basePath)
                 if (relevant.isBlank()) {
                     McpToolRouter.ToolResult(output.take(2000))
                 } else {
@@ -186,7 +241,52 @@ class McpIdeTools(private val project: Project) {
                 }
             }
         } catch (e: Exception) {
-            McpToolRouter.ToolResult("Gradle compile failed: ${e.message}", isError = true)
+            McpToolRouter.ToolResult("${buildTool.displayName} compile failed: ${e.message}", isError = true)
+        }
+    }
+
+    companion object {
+        // Tiers 3 + 4 must complete inside the 60s MCP tool timeout. Reserve 5s for
+        // overhead (process spawn, output read, error envelope) and split the rest.
+        private const val TIER_3_4_BUDGET_MILLIS = 55_000L
+        private const val MIN_TIER_4_BUDGET_MILLIS = 5_000L
+
+        internal const val NO_BUILD_TOOL_MSG =
+            "No build tool detected for this project; diagnostics fell back to in-IDE inspections only."
+
+        internal fun unknownExtensionMsg(extension: String): String =
+            "No language support known for file extension '.$extension'"
+
+        internal fun unsupportedLanguageMsg(toolDisplayName: String, languageDisplayName: String): String =
+            "$toolDisplayName does not support compiling $languageDisplayName in this project."
+
+        internal sealed class CompileResolution {
+            data class Ready(val buildTool: BuildTool, val command: CompileCommand) : CompileResolution()
+            data class EarlyResult(val result: McpToolRouter.ToolResult) : CompileResolution()
+        }
+
+        /**
+         * Pure decision: returns either an early [McpToolRouter.ToolResult]
+         * (informational or error) or a (buildTool, command) pair to execute.
+         */
+        internal fun resolveCompileCommand(filePath: String, project: Project): CompileResolution {
+            val buildTool = BuildToolRegistry.detectPrimary(project)
+                ?: return CompileResolution.EarlyResult(McpToolRouter.ToolResult(NO_BUILD_TOOL_MSG))
+
+            val extension = filePath.substringAfterLast('.', missingDelimiterValue = "")
+            val languageSupport = LanguageSupportRegistry.forFileExtension(extension)
+                ?: return CompileResolution.EarlyResult(
+                    McpToolRouter.ToolResult(unknownExtensionMsg(extension), isError = true),
+                )
+
+            val cmd = buildTool.compileCommandFor(languageSupport, project)
+                ?: return CompileResolution.EarlyResult(
+                    McpToolRouter.ToolResult(
+                        unsupportedLanguageMsg(buildTool.displayName, languageSupport.displayName),
+                    ),
+                )
+
+            return CompileResolution.Ready(buildTool, cmd)
         }
     }
 

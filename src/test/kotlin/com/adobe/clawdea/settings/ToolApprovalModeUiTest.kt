@@ -13,7 +13,6 @@ package com.adobe.clawdea.settings
 
 import com.intellij.icons.AllIcons
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -36,11 +35,11 @@ class ToolApprovalModeUiTest {
     }
 
     @Test
-    fun `ask unlisted has no warning icon`() {
+    fun `ask unlisted shows help icon at toolbar size`() {
         val mode = ToolApprovalModeUi.modeFor("Ask unlisted")
 
         assertEquals(ToolApprovalModeUi.Severity.NONE, mode.severity)
-        assertNull(mode.icon)
+        assertSame(AllIcons.Actions.Help, mode.icon)
     }
 
     @Test

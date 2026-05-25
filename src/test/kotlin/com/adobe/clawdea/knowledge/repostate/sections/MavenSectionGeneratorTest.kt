@@ -11,47 +11,46 @@
  */
 package com.adobe.clawdea.knowledge.repostate.sections
 
+import com.adobe.clawdea.buildtool.maven.PomReader
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class MavenSectionGeneratorTest {
+
+    @get:Rule val tempFolder = TemporaryFolder()
 
     private val singleModuleRoot = File("src/test/testData/mapfixtures/single-module")
     private val multiModuleRoot = File("src/test/testData/mapfixtures/multi-module")
 
     @Test
-    fun `parseModules returns submodule paths in order`() {
-        val pom = File(multiModuleRoot, "pom.xml").readText()
-        val modules = MavenSectionGenerator.parseModules(pom)
+    fun `PomReader readModules returns submodule paths in order`() {
+        val modules = PomReader.readModules(File(multiModuleRoot, "pom.xml"))
         assertEquals(listOf("bundles/acme-modules-api", "bundles/acme-modules-core", "content"), modules)
     }
 
     @Test
-    fun `parseModules returns empty for single-module pom`() {
-        val pom = File(singleModuleRoot, "pom.xml").readText()
-        assertTrue(MavenSectionGenerator.parseModules(pom).isEmpty())
+    fun `PomReader readModules returns empty for single-module pom`() {
+        assertTrue(PomReader.readModules(File(singleModuleRoot, "pom.xml")).isEmpty())
     }
 
     @Test
-    fun `parseModules handles missing modules block`() {
-        assertTrue(MavenSectionGenerator.parseModules("<project></project>").isEmpty())
-    }
-
-    @Test
-    fun `parseArtifactDescription extracts description`() {
-        val pom = File(multiModuleRoot, "bundles/acme-modules-core/pom.xml").readText()
+    fun `PomReader readDescription extracts description`() {
         assertEquals(
             "Modules core implementation. Lives under com.example.app.frontend.modules.impl.",
-            MavenSectionGenerator.parseArtifactDescription(pom),
+            PomReader.readDescription(File(multiModuleRoot, "bundles/acme-modules-core/pom.xml")),
         )
     }
 
     @Test
-    fun `parseArtifactDescription returns null when missing`() {
-        assertNull(MavenSectionGenerator.parseArtifactDescription("<project></project>"))
+    fun `PomReader readDescription returns null when missing`() {
+        val pom = tempFolder.newFile("pom.xml")
+        pom.writeText("<project><artifactId>x</artifactId></project>")
+        assertNull(PomReader.readDescription(pom))
     }
 
     @Test

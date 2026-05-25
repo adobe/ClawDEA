@@ -228,6 +228,39 @@ class DriftStateStoreTest {
         }
     }
 
+    @Test fun `migration picks up legacy drift-state at team-mode wiki dir`() {
+        // Custom wiki path scenario: project was in default mode at a custom
+        // location (e.g. docs/llm-wiki) BEFORE team mode existed, so the legacy
+        // .drift-state.json is at <wikiDir>, not at .claude/wiki/.
+        val tmp = Files.createTempDirectory("drift-migrate-custom")
+        try {
+            val projectBase = tmp
+            val newWikiDir = Files.createDirectories(tmp.resolve("docs/llm-wiki"))
+            // Legacy file lives at the custom wiki location.
+            Files.writeString(
+                newWikiDir.resolve(".drift-state.json"),
+                """{"lastScanAt":"2026-05-20T00:00:00Z","lastSyncedCommit":"cafebabe","dismissed":["sig-x"]}""",
+            )
+            // Mark team mode.
+            val clawdeaDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(clawdeaDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val read = DriftStateStore.read(wikiDir = newWikiDir, projectBase = projectBase)
+            assertEquals("cafebabe", read.lastSyncedCommit)
+            assertEquals(listOf("sig-x"), read.dismissed)
+
+            // Legacy file at custom path is gone after migration.
+            assert(!Files.exists(newWikiDir.resolve(".drift-state.json"))) {
+                "legacy file at custom wiki path should be deleted after migration"
+            }
+            assert(Files.exists(newWikiDir.resolve(".wiki-state.json"))) {
+                "team file should exist after migration"
+            }
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun `migration moves legacy drift-state into split files on first read`() {
         val tmp = Files.createTempDirectory("drift-migrate")
         try {

@@ -59,6 +59,7 @@ class ChatHtmlTemplateTest {
             permissionDecisionJs = "PERMISSION_JS",
             driftActionJs = "DRIFT_JS",
             runSlashCommandJs = "RUN_SLASH_JS",
+            wikiGitStateActionJs = "WGS_JS",
         )
         assertContains(js, "ABORT_JS")
         assertContains(js, "TURN_CONTROL_JS")
@@ -70,6 +71,7 @@ class ChatHtmlTemplateTest {
         assertContains(js, "PERMISSION_JS")
         assertContains(js, "DRIFT_JS")
         assertContains(js, "RUN_SLASH_JS")
+        assertContains(js, "WGS_JS")
         assertContains(js, "window.bridgeStopTool")
         assertContains(js, "window.bridgeTurnControl")
         assertContains(js, "window.bridgeOpenDiff")
@@ -80,11 +82,13 @@ class ChatHtmlTemplateTest {
         assertContains(js, "window.bridgePermissionDecision")
         assertContains(js, "window.bridgeDriftAction")
         assertContains(js, "window.bridgeRunSlashCommand")
+        assertContains(js, "window.bridgeWikiGitStateAction")
         assertContains(js, "permission-allow")
         assertContains(js, "permission-deny")
         assertContains(js, "turn-pause")
         assertContains(js, "turn-stop")
         assertContains(js, "drift-action")
         assertContains(js, "run-slash-command")
+        assertContains(js, "wiki-git-state-action")
     }
 }
