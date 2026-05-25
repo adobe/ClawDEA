@@ -97,14 +97,9 @@ class McpServer(private val project: Project) : Disposable {
 
     /**
      * Registers [McpScalaTools] only when [ScalaPsiBridge] is available — i.e. the
-     * optional `org.intellij.scala` plugin is installed and `clawdea-scala.xml` was
-     * loaded. When absent, `find_implicit_definitions` simply does not appear in
-     * `tools/list`, avoiding a confusing "tool exists but always returns
-     * not-supported" surface for users without the Scala plugin.
-     *
-     * Uses `getService` (which lazy-instantiates registered services) wrapped in
-     * try-catch — some IntelliJ versions throw for unregistered services rather
-     * than returning null.
+     * IntelliJ Scala plugin is installed. When absent, the Scala tools simply do
+     * not appear in `tools/list`. Some IntelliJ versions throw for unregistered
+     * services rather than returning null, hence the try-catch.
      */
     private fun registerScalaToolsIfAvailable() {
         val bridge = try {
@@ -182,6 +177,9 @@ class McpServer(private val project: Project) : Disposable {
                     val durationMs = (System.nanoTime() - startNanos) / 1_000_000
                     val status = if (result.isError) "error" else "ok"
                     log.info("tools/call id=$id tool=$toolName $status duration=${durationMs}ms")
+                    if (result.isError) {
+                        log.warn("tools/call id=$id tool=$toolName error: ${result.text} | parsedArgs=$arguments | rawBody=$body")
+                    }
                     McpProtocol.toolResultResponse(id ?: "null", result.text, result.isError)
                 }
                 else -> {

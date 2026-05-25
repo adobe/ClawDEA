@@ -131,21 +131,27 @@ object DriftStateStore {
         } catch (_: Throwable) {
             DEFAULT_CLAUDE_DIR to DEFAULT_WIKI_SUBDIR
         }
-        val legacyWikiDir = projectBase.resolve(claudeDirName).resolve(wikiSubdir)
-        val legacyFile = legacyWikiDir.resolve(LEGACY_FILE)
-        if (!Files.isRegularFile(legacyFile)) return
+        // Check both possible legacy locations: the conventional .claude/wiki/
+        // and the team-mode wiki dir itself (for projects that ran in default
+        // mode at a custom wiki path before opting into team mode).
+        val candidates = listOf(
+            projectBase.resolve(claudeDirName).resolve(wikiSubdir).resolve(LEGACY_FILE),
+            newWikiDir.resolve(LEGACY_FILE),
+        ).filter { Files.isRegularFile(it) }
+        val legacyFile = candidates.firstOrNull() ?: return
         val legacyState = try {
             GSON.fromJson(Files.readString(legacyFile), DriftState::class.java) ?: DriftState()
         } catch (e: Throwable) {
             LOG.warn("Migration: failed to read legacy drift-state at $legacyFile: ${e.message}")
             return
         }
-        // Write split files first, then delete the legacy file. This is idempotent —
-        // if anything fails before the delete, the next read finds the legacy file
-        // again and retries.
+        // Write split files first, then delete the legacy file(s). Idempotent —
+        // if anything fails before delete, the next read retries.
         writeTeam(newWikiDir, projectBase, legacyState)
-        try { Files.deleteIfExists(legacyFile) } catch (e: Throwable) {
-            LOG.warn("Migration: failed to delete legacy file $legacyFile: ${e.message}")
+        for (file in candidates) {
+            try { Files.deleteIfExists(file) } catch (e: Throwable) {
+                LOG.warn("Migration: failed to delete legacy file $file: ${e.message}")
+            }
         }
     }
 
