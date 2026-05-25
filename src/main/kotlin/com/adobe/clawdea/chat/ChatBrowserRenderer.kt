@@ -207,6 +207,16 @@ class ChatBrowserRenderer(
             "unavailable" -> "edit-status-unavailable"
             else -> "edit-status-pending"
         }
+        val glyph = when (status.lowercase()) {
+            "auto-accepted" -> "⚡"
+            "accepted" -> "✓"
+            "rejected" -> "✗"
+            "modified" -> "✎"
+            "reviewing..." -> "…"
+            "unavailable" -> "—"
+            else -> "•"
+        }
+        val labelText = "$glyph $safeStatus"
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var el = document.querySelector('.edit-link[data-tool-id="$safeId"]');
@@ -218,11 +228,11 @@ class ChatBrowserRenderer(
                 if (rejectBtn) rejectBtn.remove();
                 if (badge) {
                     badge.className = '$statusClass';
-                    badge.textContent = '[$safeStatus]';
+                    badge.textContent = '$labelText';
                 } else {
                     var span = document.createElement('span');
                     span.className = '$statusClass';
-                    span.textContent = '[$safeStatus]';
+                    span.textContent = '$labelText';
                     el.appendChild(span);
                 }
             })();""",

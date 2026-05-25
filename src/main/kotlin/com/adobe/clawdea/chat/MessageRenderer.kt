@@ -235,7 +235,15 @@ class MessageRenderer(
                 "reviewing..." -> "edit-status-reviewing"
                 else -> "edit-status-pending"
             }
-            """<span class="$statusClass">[$safeStatus]</span>"""
+            val glyph = when (status.lowercase()) {
+                "auto-accepted" -> "&#9889;" // ⚡, matches Auto-allowed
+                "accepted" -> "&#10003;"     // ✓
+                "rejected" -> "&#10007;"     // ✗
+                "modified" -> "&#9998;"      // ✎
+                "reviewing..." -> "&#8230;"  // …
+                else -> "&#8226;"            // •
+            }
+            """<span class="$statusClass">$glyph $safeStatus</span>"""
         }
 
         return """
