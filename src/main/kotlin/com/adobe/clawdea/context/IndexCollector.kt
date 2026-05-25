@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.context
 
+import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.openapi.diagnostic.Logger
@@ -184,41 +185,16 @@ class IndexCollector {
     private fun queryRelatedTypes(psiFile: PsiFile, project: Project): List<ContextItem> {
         return runWithTimeout("related-types") {
             runReadAction {
-                val items = mutableListOf<ContextItem>()
-                // PSI-type-specific branch. Extending to Scala/etc. will require either
-                // adding a per-language collector hook to LanguageSupport (sub-project #3)
-                // or expanding this when-branch.
-                if (psiFile !is PsiJavaFile) return@runReadAction items
-
-                val importList = psiFile.importList ?: return@runReadAction items
+                val support = LanguageSupportRegistry.forPsiFile(psiFile) ?: return@runReadAction emptyList()
                 val scope = GlobalSearchScope.projectScope(project)
-
-                for (importStmt in importList.importStatements.take(15)) {
-                    val qualifiedName = importStmt.qualifiedName ?: continue
-                    val resolved = JavaPsiFacade.getInstance(project)
-                        .findClass(qualifiedName, scope) ?: continue
-
-                    val text = buildString {
-                        val modifiers = resolved.modifierList?.text?.trim() ?: ""
-                        if (modifiers.isNotBlank()) append("$modifiers ")
-                        append(if (resolved.isInterface) "interface " else "class ")
-                        appendLine(resolved.name)
-                        for (method in resolved.methods.take(10)) {
-                            appendLine("  ${formatMethodSignature(method)}")
-                        }
-                        for (field in resolved.fields.take(5)) {
-                            appendLine("  ${field.type.presentableText} ${field.name}")
-                        }
-                    }
-
-                    items.add(ContextItem(
-                        label = "Related type: ${resolved.name}",
-                        content = text,
+                support.enumerateRelatedTypes(psiFile, project, scope).map { entry ->
+                    ContextItem(
+                        label = "Related type: ${entry.name}",
+                        content = entry.text,
                         score = 0.5,
-                        source = "index"
-                    ))
+                        source = "index",
+                    )
                 }
-                items
             }
         }
     }

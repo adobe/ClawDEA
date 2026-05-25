@@ -14,12 +14,11 @@ package com.adobe.clawdea.buildtool
 import com.adobe.clawdea.buildtool.maven.PomReader
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
-import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
+import java.util.WeakHashMap
 
 /**
  * Maven build tool adapter.
@@ -27,50 +26,75 @@ import java.io.File
  * Detection: ExternalSystem (`"Maven"`) on any module, with a marker-file fallback
  * (`pom.xml` in [Project.getBasePath]).
  *
- * Build-config files: includes the root `pom.xml` plus every sub-module pom reachable
- * via `<modules>` declarations (recursive, cycle-guarded — see [PomReader.walkPomTree]).
+ * Build-config files: the root `pom.xml` plus every sub-module pom reachable via
+ * `<modules>` (recursive, cycle-guarded — see [PomReader.walkPomTree]).
  *
  * Compile invocation: prefers `./mvnw` when present, falls back to `mvn` on PATH.
- * Per-language dispatch is gated on plugin presence in the root pom — Java is always
- * allowed; Kotlin requires `kotlin-maven-plugin`; Scala requires `scala-maven-plugin`.
- * The effective-pom (deep inheritance) is intentionally not resolved — we read what
- * is literally in the root `pom.xml`.
+ * Per-language dispatch is gated on plugin presence in the root pom only — Java is
+ * always allowed; Kotlin requires `kotlin-maven-plugin`; Scala requires
+ * `scala-maven-plugin`. The effective-pom (deep inheritance) is not resolved.
  */
 object MavenBuildTool : BuildTool {
     override val id = "maven"
     override val displayName = "Maven"
 
     private const val MAVEN_SYSTEM_ID = "Maven"
+    private val MARKER_NAMES = listOf("pom.xml")
 
-    override fun isActive(project: Project): Boolean {
-        if (detectedViaExternalSystem(project)) return true
-        return markerFiles(project).isNotEmpty()
-    }
+    override fun isActive(project: Project): Boolean =
+        BuildToolDetection.detectedViaExternalSystem(project, MAVEN_SYSTEM_ID) ||
+            BuildToolDetection.markerFiles(project, MARKER_NAMES).isNotEmpty()
 
     override fun buildConfigFiles(project: Project): List<VirtualFile> {
-        val rootPomVf = markerFiles(project).firstOrNull() ?: return emptyList()
+        val rootPomVf = BuildToolDetection.markerFiles(project, MARKER_NAMES).firstOrNull() ?: return emptyList()
         val rootPomFile = File(rootPomVf.path)
         return try {
-            // Walk the module tree to surface sub-module poms. PomReader.walkPomTree
-            // is forgiving — broken module references are silently skipped — but a
-            // catastrophic failure (e.g. XML parser misconfiguration) still falls
-            // back to the root pom alone, preserving pre-#7 behavior.
-            val lfs = LocalFileSystem.getInstance()
-            PomReader.walkPomTree(rootPomFile).mapNotNull { lfs.findFileByIoFile(it) }
+            walkPomTreeCached(project, rootPomFile)
+                .mapNotNull { LocalFileSystem.getInstance().findFileByIoFile(it) }
                 .ifEmpty { listOf(rootPomVf) }
         } catch (_: Throwable) {
+            // Catastrophic XML parser failure — fall back to the root pom alone.
             listOf(rootPomVf)
         }
     }
 
+    private data class PomTreeCache(val poms: List<File>, val lastModifieds: LongArray) {
+        fun isFresh(): Boolean {
+            if (poms.size != lastModifieds.size) return false
+            for (i in poms.indices) {
+                if (poms[i].lastModified() != lastModifieds[i]) return false
+            }
+            return true
+        }
+    }
+
+    private val pomTreeCache = WeakHashMap<Project, PomTreeCache>()
+
+    /**
+     * Returns the pom tree rooted at [rootPomFile], cached per-project. Cache freshness
+     * is verified by stat-ing each cached pom's `lastModified`; if any has changed the
+     * tree is re-walked. Walking is the only path that re-parses XML, so chat-context
+     * calls hit the stat-only fast path.
+     */
+    private fun walkPomTreeCached(project: Project, rootPomFile: File): List<File> {
+        synchronized(pomTreeCache) {
+            pomTreeCache[project]?.takeIf { it.isFresh() }?.let { return it.poms }
+        }
+        val poms = PomReader.walkPomTree(rootPomFile)
+        val stamps = LongArray(poms.size) { poms[it].lastModified() }
+        synchronized(pomTreeCache) {
+            pomTreeCache[project] = PomTreeCache(poms, stamps)
+        }
+        return poms
+    }
+
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
-        targetFile: String,
         project: Project,
     ): CompileCommand? {
         val basePath = project.basePath ?: return null
         val baseDir = File(basePath)
-        if (languageSupport.id !in computeAllowedLanguages(File(baseDir, "pom.xml"))) return null
+        if (!isLanguageAllowed(languageSupport.id, File(baseDir, "pom.xml"))) return null
         val launcher = if (File(baseDir, "mvnw").exists()) "./mvnw" else "mvn"
         return CompileCommand(
             argv = listOf(launcher, "compile", "-q"),
@@ -79,22 +103,22 @@ object MavenBuildTool : BuildTool {
     }
 
     /**
-     * Determines which LanguageSupport ids this build tool will dispatch a compile
-     * command for. Java is always allowed. Kotlin is added when `kotlin-maven-plugin`
-     * is declared in the root pom; Scala is added when `scala-maven-plugin` is
-     * declared. Effective-pom (deep inheritance) is not resolved — we read the
-     * literal root pom only. On any read failure, returns the conservative default
-     * `{"java"}` to preserve pre-#7 behavior.
+     * Java is always allowed; Kotlin/Scala require the corresponding maven plugin in
+     * the root pom. The effective-pom (deep inheritance) is not resolved.
      */
-    private fun computeAllowedLanguages(rootPom: File): Set<String> {
-        val langs = mutableSetOf("java")
-        try {
-            if (PomReader.hasPlugin(rootPom, "org.jetbrains.kotlin", "kotlin-maven-plugin")) langs += "kotlin"
-            if (PomReader.hasPlugin(rootPom, "net.alchim31.maven", "scala-maven-plugin")) langs += "scala"
+    private fun isLanguageAllowed(languageId: String, rootPom: File): Boolean {
+        if (languageId == LanguageSupport.ID_JAVA) return true
+        return try {
+            when (languageId) {
+                LanguageSupport.ID_KOTLIN ->
+                    PomReader.hasPlugin(rootPom, "org.jetbrains.kotlin", "kotlin-maven-plugin")
+                LanguageSupport.ID_SCALA ->
+                    PomReader.hasPlugin(rootPom, "net.alchim31.maven", "scala-maven-plugin")
+                else -> false
+            }
         } catch (_: Throwable) {
-            // Conservative fallback — java only.
+            false
         }
-        return langs
     }
 
     override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String {
@@ -107,24 +131,4 @@ object MavenBuildTool : BuildTool {
             .joinToString("\n")
     }
 
-    private fun detectedViaExternalSystem(project: Project): Boolean {
-        val modules = try {
-            ModuleManager.getInstance(project).modules
-        } catch (_: Throwable) {
-            return false
-        }
-        return modules.any { module ->
-            try {
-                ExternalSystemModulePropertyManager.getInstance(module).getExternalSystemId() == MAVEN_SYSTEM_ID
-            } catch (_: Throwable) {
-                false
-            }
-        }
-    }
-
-    private fun markerFiles(project: Project): List<VirtualFile> {
-        val basePath = project.basePath ?: return emptyList()
-        val baseDir = LocalFileSystem.getInstance().findFileByPath(basePath) ?: return emptyList()
-        return listOfNotNull(baseDir.findChild("pom.xml"))
-    }
 }

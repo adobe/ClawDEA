@@ -13,37 +13,38 @@ package com.adobe.clawdea.buildtool
 
 import com.intellij.openapi.project.Project
 import org.jetbrains.annotations.TestOnly
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Process-wide registry of [BuildTool] implementations, keyed by [BuildTool.id].
  *
  * Populated once at project startup (see `BuildToolInitializer`). Re-registration
- * for the same id is idempotent (replaces prior entry, preserves order).
- *
- * Read paths are thread-safe. Writes happen at startup and from tests.
+ * for the same id is idempotent (replaces prior entry, preserves order). Read
+ * paths return an immutable snapshot rebuilt only on writes — `detectAll` runs
+ * per chat-context request, so per-call list allocation matters.
  */
 object BuildToolRegistry {
-    private val byId = ConcurrentHashMap<String, BuildTool>()
-    private val orderedIds = CopyOnWriteArrayList<String>()
+    private val lock = Any()
+    private val byId = LinkedHashMap<String, BuildTool>()
 
-    fun register(buildTool: BuildTool) {
-        val isNew = byId.put(buildTool.id, buildTool) == null
-        if (isNew) orderedIds.add(buildTool.id)
+    @Volatile
+    private var snapshot: List<BuildTool> = emptyList()
+
+    fun register(buildTool: BuildTool) = synchronized(lock) {
+        byId[buildTool.id] = buildTool
+        snapshot = byId.values.toList()
     }
 
-    fun all(): Collection<BuildTool> = orderedIds.mapNotNull { byId[it] }
+    fun all(): List<BuildTool> = snapshot
 
     fun detectAll(project: Project): List<BuildTool> =
-        all().filter { it.isActive(project) }
+        snapshot.filter { it.isActive(project) }
 
     fun detectPrimary(project: Project): BuildTool? =
-        detectAll(project).firstOrNull()
+        snapshot.firstOrNull { it.isActive(project) }
 
     @TestOnly
-    internal fun clearForTest() {
+    internal fun clearForTest() = synchronized(lock) {
         byId.clear()
-        orderedIds.clear()
+        snapshot = emptyList()
     }
 }

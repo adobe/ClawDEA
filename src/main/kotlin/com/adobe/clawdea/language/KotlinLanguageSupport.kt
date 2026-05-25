@@ -7,14 +7,13 @@ package com.adobe.clawdea.language
 import com.intellij.lang.Language
 
 object KotlinLanguageSupport : LanguageSupport {
-    override val id = "kotlin"
+    override val id = LanguageSupport.ID_KOTLIN
 
-    // Lazy so headless unit tests can read other fields without triggering the
-    // Language registry lookup (Kotlin plugin isn't on the headless test classpath).
+    // Lazy so headless tests can read other fields without forcing the Language
+    // registry lookup (Kotlin plugin isn't on the headless test classpath).
     override val language: Language? by lazy {
         Language.findLanguageByID("kotlin")
     }
     override val displayName = "Kotlin"
     override val fileExtensions = setOf("kt", "kts")
-    // findRelatedTypes intentionally not overridden — returns null (default).
 }

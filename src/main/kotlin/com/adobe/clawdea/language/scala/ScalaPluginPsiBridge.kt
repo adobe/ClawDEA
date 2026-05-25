@@ -29,13 +29,11 @@ import org.jetbrains.plugins.scala.lang.psi.api.toplevel.imports.ScImportStmt
 import org.jetbrains.plugins.scala.lang.psi.api.toplevel.typedef.ScGiven
 
 /**
- * [ScalaPsiBridge] implementation that walks the IntelliJ Scala plugin's PSI to render
- * class/trait/object signatures from a Scala file's imports. Only loaded when the Scala
- * plugin is installed (registered in `clawdea-scala.xml`).
- *
- * Output matches Java's findRelatedTypes shape — caller and agent treat them uniformly.
- * Wildcard imports (`import foo._`/`import foo.*`), given imports (`import foo.given`),
- * and method imports are silently skipped — this PR handles classes/traits/objects only.
+ * [ScalaPsiBridge] implementation that walks the IntelliJ Scala plugin's PSI. Only
+ * loaded when the Scala plugin is installed (registered in `clawdea-scala.xml`).
+ * Output matches Java's findRelatedTypes shape so callers can treat them uniformly.
+ * Wildcard imports, given imports, and method imports are silently skipped — only
+ * classes/traits/objects are rendered.
  */
 class ScalaPluginPsiBridge : ScalaPsiBridge {
 
@@ -87,30 +85,29 @@ class ScalaPluginPsiBridge : ScalaPsiBridge {
         val document = psiFile.viewProvider.document
 
         try {
-            // Givens — walk ScGiven (sealed: ScGivenDefinition, ScGivenAlias*, etc.)
-            for (g in PsiTreeUtil.findChildrenOfType(psiFile, ScGiven::class.java).take(MAX_PER_CATEGORY)) {
-                val line = document?.getLineNumber(g.textOffset)?.plus(1) ?: 0
-                givens.add(line to firstLine(g.text))
-            }
-            // Implicit val/var — ScValueOrVariable with the implicit modifier
-            for (v in PsiTreeUtil.findChildrenOfType(psiFile, ScValueOrVariable::class.java)) {
-                if (!v.hasModifierProperty("implicit")) continue
-                val line = document?.getLineNumber(v.textOffset)?.plus(1) ?: 0
-                implicitVals.add(line to firstLine(v.text))
-                if (implicitVals.size >= MAX_PER_CATEGORY) break
-            }
-            // Implicit def — ScFunction with the implicit modifier
-            for (f in PsiTreeUtil.findChildrenOfType(psiFile, ScFunction::class.java)) {
-                if (!f.hasModifierProperty("implicit")) continue
-                val line = document?.getLineNumber(f.textOffset)?.plus(1) ?: 0
-                implicitDefs.add(line to firstLine(f.text))
-                if (implicitDefs.size >= MAX_PER_CATEGORY) break
-            }
-            // Extensions — ScExtension (Scala 3)
-            for (e in PsiTreeUtil.findChildrenOfType(psiFile, ScExtension::class.java).take(MAX_PER_CATEGORY)) {
-                val line = document?.getLineNumber(e.textOffset)?.plus(1) ?: 0
-                val memberCount = scalaSeqToList<ScFunction>(e.extensionMethods()).size
-                extensions.add(line to "${firstLine(e.text)} — $memberCount member(s)")
+            // Single tree walk dispatching on type. Replaces four separate
+            // findChildrenOfType traversals.
+            PsiTreeUtil.processElements(psiFile) { element ->
+                when (element) {
+                    is ScGiven -> if (givens.size < MAX_PER_CATEGORY) {
+                        val line = document?.getLineNumber(element.textOffset)?.plus(1) ?: 0
+                        givens.add(line to firstLine(element.text))
+                    }
+                    is ScExtension -> if (extensions.size < MAX_PER_CATEGORY) {
+                        val line = document?.getLineNumber(element.textOffset)?.plus(1) ?: 0
+                        val memberCount = scalaSeqToList<ScFunction>(element.extensionMethods()).size
+                        extensions.add(line to "${firstLine(element.text)} — $memberCount member(s)")
+                    }
+                    is ScFunction -> if (implicitDefs.size < MAX_PER_CATEGORY && element.hasModifierProperty("implicit")) {
+                        val line = document?.getLineNumber(element.textOffset)?.plus(1) ?: 0
+                        implicitDefs.add(line to firstLine(element.text))
+                    }
+                    is ScValueOrVariable -> if (implicitVals.size < MAX_PER_CATEGORY && element.hasModifierProperty("implicit")) {
+                        val line = document?.getLineNumber(element.textOffset)?.plus(1) ?: 0
+                        implicitVals.add(line to firstLine(element.text))
+                    }
+                }
+                true
             }
         } catch (t: Throwable) {
             log.warn("findImplicitDefinitions: PSI walk failed: ${t.javaClass.simpleName}: ${t.message}", t)

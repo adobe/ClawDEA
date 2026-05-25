@@ -20,16 +20,9 @@ import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * DOM-based `pom.xml` introspection. Pure JVM (no IntelliJ runtime), so it is fully
- * unit-testable without an IDE fixture. Used by [com.adobe.clawdea.buildtool.MavenBuildTool]
- * for multi-module discovery and plugin-based language dispatch.
- *
- * Read-only operations only — we never write to pom files. The parser is configured
- * XXE-safe (no external entities, no DTDs, no XInclude).
- *
- * All methods are forgiving: parse failures, missing files, and malformed pom shapes
- * return empty/false rather than throwing. Callers can safely use this on arbitrary
- * project layouts.
+ * Read-only DOM-based `pom.xml` introspection. The parser is XXE-safe (no external
+ * entities, no DTDs, no XInclude). All methods are forgiving — parse failures,
+ * missing files, and malformed shapes return empty/false rather than throwing.
  */
 object PomReader {
     private val log = Logger.getInstance(PomReader::class.java)
@@ -41,6 +34,30 @@ object PomReader {
         val root = doc.documentElement ?: return emptyList()
         val modulesEl = firstChildElement(root, "modules") ?: return emptyList()
         return childElements(modulesEl, "module").mapNotNull { it.textContent?.trim()?.takeIf { t -> t.isNotEmpty() } }
+    }
+
+    /** Returns the trimmed text of the project-level `<description>` element, or null. */
+    fun readDescription(pomFile: File): String? {
+        val doc = parsePom(pomFile) ?: return null
+        val root = doc.documentElement ?: return null
+        return firstChildElement(root, "description")?.textContent?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** `groupId` and `artifactId` from `<project>` and its `<parent>` element, deduplicated. */
+    data class Coords(val groupIds: Set<String>, val artifactIds: Set<String>)
+
+    fun readCoords(pomFile: File): Coords {
+        val doc = parsePom(pomFile) ?: return Coords(emptySet(), emptySet())
+        val root = doc.documentElement ?: return Coords(emptySet(), emptySet())
+        val groupIds = mutableSetOf<String>()
+        val artifactIds = mutableSetOf<String>()
+        firstChildElement(root, "groupId")?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { groupIds += it }
+        firstChildElement(root, "artifactId")?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { artifactIds += it }
+        firstChildElement(root, "parent")?.let { parent ->
+            firstChildElement(parent, "groupId")?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { groupIds += it }
+            firstChildElement(parent, "artifactId")?.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { artifactIds += it }
+        }
+        return Coords(groupIds, artifactIds)
     }
 
     /**
@@ -103,19 +120,23 @@ object PomReader {
         return false
     }
 
+    // Factory configuration is invariant; lazily initialised once and shared.
+    // DocumentBuilder instances are not thread-safe, so we still create one per parse.
+    private val factory: DocumentBuilderFactory by lazy {
+        DocumentBuilderFactory.newInstance().apply {
+            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+            setFeature("http://xml.org/sax/features/external-general-entities", false)
+            setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+            setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+            isXIncludeAware = false
+            isExpandEntityReferences = false
+            isNamespaceAware = false
+        }
+    }
+
     private fun parsePom(file: File): Document? {
         if (!file.exists() || !file.isFile) return null
         return try {
-            val factory = DocumentBuilderFactory.newInstance().apply {
-                // XXE-safety: disable external entities and DTDs.
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                setFeature("http://xml.org/sax/features/external-general-entities", false)
-                setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-                isXIncludeAware = false
-                isExpandEntityReferences = false
-                isNamespaceAware = false
-            }
             factory.newDocumentBuilder().parse(file)
         } catch (t: Throwable) {
             log.debug("PomReader: failed to parse ${file.path}: ${t.javaClass.simpleName}: ${t.message}")

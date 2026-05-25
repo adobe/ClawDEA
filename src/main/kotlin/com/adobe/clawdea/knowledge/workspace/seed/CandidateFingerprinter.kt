@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.workspace.seed
 
+import com.adobe.clawdea.buildtool.maven.PomReader
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import java.nio.file.Files
 import java.nio.file.Path
@@ -76,9 +77,12 @@ object CandidateFingerprinter {
         val ext = name.substringAfterLast('.', missingDelimiterValue = "")
         if (ext.isEmpty()) return false
         if (LanguageSupportRegistry.forFileExtension(ext) != null) return true
-        // Fallback for early-indexing scenarios where the registry hasn't been populated yet.
-        return ext == "java" || ext == "kt" || ext == "kts"
+        // Fallback when fingerprinting runs before LanguageSupportInitializer populates
+        // the registry. Must cover every built-in language or its sources are dropped.
+        return ext in BUILTIN_SOURCE_EXTENSIONS
     }
+
+    private val BUILTIN_SOURCE_EXTENSIONS = setOf("java", "kt", "kts", "scala", "sc")
 
     private fun scanSourceFile(file: Path, pkgOut: MutableSet<String>, importOut: MutableSet<String>) {
         try {
@@ -123,62 +127,17 @@ object CandidateFingerprinter {
         val artifactIds = mutableSetOf<String>()
         val groupIds = mutableSetOf<String>()
         if (!Files.isDirectory(root)) return PomFingerprint(emptySet(), emptySet())
-        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
-            // Defensive: avoid XXE on untrusted poms
-            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
-            runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
-            runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
-            isNamespaceAware = false
-        }
         try {
             Files.walk(root, 6).use { stream ->
                 stream.filter { Files.isRegularFile(it) && it.fileName?.toString() == "pom.xml" }
-                    .forEach { pom -> extractProjectCoords(pom, factory, artifactIds, groupIds) }
+                    .forEach { pom ->
+                        val coords = PomReader.readCoords(pom.toFile())
+                        artifactIds.addAll(coords.artifactIds)
+                        groupIds.addAll(coords.groupIds)
+                    }
             }
         } catch (_: Throwable) { /* skip bad subtree */ }
         return PomFingerprint(artifactIds, groupIds)
-    }
-
-    private fun extractProjectCoords(
-        pom: Path,
-        factory: javax.xml.parsers.DocumentBuilderFactory,
-        artifactIds: MutableSet<String>,
-        groupIds: MutableSet<String>,
-    ) {
-        try {
-            val builder = factory.newDocumentBuilder()
-            // Suppress error reporting to stderr for malformed poms
-            builder.setErrorHandler(object : org.xml.sax.ErrorHandler {
-                override fun warning(e: org.xml.sax.SAXParseException) {}
-                override fun error(e: org.xml.sax.SAXParseException) {}
-                override fun fatalError(e: org.xml.sax.SAXParseException) { throw e }
-            })
-            val doc = Files.newInputStream(pom).use { builder.parse(it) }
-            val project = doc.documentElement ?: return
-            if (project.nodeName != "project") return
-            // Direct children of <project>: capture <groupId> and <artifactId>; recurse into <parent> only.
-            val children = project.childNodes
-            for (i in 0 until children.length) {
-                val child = children.item(i)
-                if (child.nodeType != org.w3c.dom.Node.ELEMENT_NODE) continue
-                when (child.nodeName) {
-                    "artifactId" -> child.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { artifactIds.add(it) }
-                    "groupId" -> child.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { groupIds.add(it) }
-                    "parent" -> {
-                        val parentChildren = child.childNodes
-                        for (j in 0 until parentChildren.length) {
-                            val pc = parentChildren.item(j)
-                            if (pc.nodeType != org.w3c.dom.Node.ELEMENT_NODE) continue
-                            when (pc.nodeName) {
-                                "artifactId" -> pc.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { artifactIds.add(it) }
-                                "groupId" -> pc.textContent?.trim()?.takeIf { it.isNotEmpty() }?.let { groupIds.add(it) }
-                            }
-                        }
-                    }
-                    // <dependencies>, <dependencyManagement>, <build>, <profiles>, <reporting>, etc. — skip entirely
-                }
-            }
-        } catch (_: Throwable) { /* skip bad pom */ }
     }
 
     internal fun extractPomDeps(root: Path): Set<String> {

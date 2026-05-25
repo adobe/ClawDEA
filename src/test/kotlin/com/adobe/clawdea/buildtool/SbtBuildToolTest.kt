@@ -4,9 +4,6 @@
  */
 package com.adobe.clawdea.buildtool
 
-import com.adobe.clawdea.language.LanguageSupport
-import com.intellij.lang.Language
-import com.intellij.openapi.project.Project
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,7 +12,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
-import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -23,13 +19,8 @@ class SbtBuildToolTest {
 
     private lateinit var tempDir: Path
 
-    private fun fakeSupport(supportId: String, supportDisplayName: String = supportId): LanguageSupport =
-        object : LanguageSupport {
-            override val id = supportId
-            override val language: Language? = null
-            override val displayName = supportDisplayName
-            override val fileExtensions = emptySet<String>()
-        }
+    private fun fakeSupport(id: String, displayName: String = id) =
+        fakeLanguageSupport(id, displayName)
 
     @Before fun setUp() {
         tempDir = Files.createTempDirectory("sbt-build-tool-test")
@@ -38,19 +29,6 @@ class SbtBuildToolTest {
     @After fun tearDown() {
         tempDir.toFile().deleteRecursively()
     }
-
-    private fun stubProject(basePath: String?): Project = Proxy.newProxyInstance(
-        Project::class.java.classLoader,
-        arrayOf(Project::class.java),
-    ) { _, method, _ ->
-        when (method.name) {
-            "getBasePath" -> basePath
-            "toString" -> "stubProject($basePath)"
-            "hashCode" -> System.identityHashCode(basePath)
-            "equals" -> false
-            else -> null
-        }
-    } as Project
 
     @Test fun `id is sbt`() {
         assertEquals("sbt", SbtBuildTool.id)
@@ -61,11 +39,7 @@ class SbtBuildToolTest {
     }
 
     @Test fun `compileCommandFor Scala returns sbt compile`() {
-        val cmd = SbtBuildTool.compileCommandFor(
-            fakeSupport("scala", "Scala"),
-            "${tempDir}/src/main/scala/Foo.scala",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = SbtBuildTool.compileCommandFor(fakeSupport("scala", "Scala"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("sbt", "-batch", "-no-colors", "compile"), cmd!!.argv)
         assertEquals(File(tempDir.toString()), cmd.workingDir)
@@ -73,40 +47,24 @@ class SbtBuildToolTest {
 
     @Test fun `compileCommandFor Java returns sbt compile`() {
         // sbt's compile task compiles both Scala and Java source trees together.
-        val cmd = SbtBuildTool.compileCommandFor(
-            fakeSupport("java", "Java"),
-            "${tempDir}/src/main/java/Foo.java",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = SbtBuildTool.compileCommandFor(fakeSupport("java", "Java"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("sbt", "-batch", "-no-colors", "compile"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor Kotlin returns null`() {
         // sbt + Kotlin is uncommon and unsupported here.
-        val cmd = SbtBuildTool.compileCommandFor(
-            fakeSupport("kotlin", "Kotlin"),
-            "${tempDir}/src/main/kotlin/Foo.kt",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = SbtBuildTool.compileCommandFor(fakeSupport("kotlin", "Kotlin"), stubProject(tempDir.toString()))
         assertNull(cmd)
     }
 
     @Test fun `compileCommandFor unknown language returns null`() {
-        val cmd = SbtBuildTool.compileCommandFor(
-            fakeSupport("xyz", "XYZ"),
-            "${tempDir}/notes.xyz",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = SbtBuildTool.compileCommandFor(fakeSupport("xyz", "XYZ"), stubProject(tempDir.toString()))
         assertNull(cmd)
     }
 
     @Test fun `compileCommandFor returns null when project has no basePath`() {
-        val cmd = SbtBuildTool.compileCommandFor(
-            fakeSupport("scala", "Scala"),
-            "${tempDir}/src/main/scala/Foo.scala",
-            stubProject(null),
-        )
+        val cmd = SbtBuildTool.compileCommandFor(fakeSupport("scala", "Scala"), stubProject(null))
         assertNull(cmd)
     }
 

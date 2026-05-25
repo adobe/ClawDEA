@@ -13,45 +13,58 @@ import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.search.GlobalSearchScope
 
 object JavaLanguageSupport : LanguageSupport {
-    override val id = "java"
+    override val id = LanguageSupport.ID_JAVA
 
-    // Lazy so headless unit tests can read other fields without triggering the
-    // Language registry lookup (Java plugin isn't on the headless test classpath).
+    // Lazy so headless tests can read other fields without forcing the Language
+    // registry lookup (Java plugin isn't on the headless test classpath).
     override val language: Language? by lazy {
         Language.findLanguageByID("JAVA")
     }
     override val displayName = "Java"
     override val fileExtensions = setOf("java")
 
-    /**
-     * Moved verbatim from McpIndexTools.findRelatedTypes. Caller is responsible
-     * for runReadAction + DumbService guards.
-     *
-     * Returns:
-     *  - null when the file is not a Java file (caller decides how to render)
-     *  - non-null string otherwise (possibly the "No imports found." sentinel)
-     */
     override fun findRelatedTypes(
         psiFile: PsiFile,
         project: Project,
         scope: GlobalSearchScope,
     ): String? {
         if (psiFile !is PsiJavaFile) return null
-        val importList = psiFile.importList ?: return "No imports found."
+        if (psiFile.importList == null) return "No imports found."
+        val entries = enumerateRelatedTypes(psiFile, project, scope)
+        if (entries.isEmpty()) return "No project-scope related types found in imports."
         val sb = StringBuilder()
-        for (importStmt in importList.importStatements.take(15)) {
+        for (entry in entries) {
+            sb.appendLine(entry.text)
+            sb.appendLine()
+        }
+        return sb.toString()
+    }
+
+    override fun enumerateRelatedTypes(
+        psiFile: PsiFile,
+        project: Project,
+        scope: GlobalSearchScope,
+    ): List<LanguageSupport.RelatedType> {
+        if (psiFile !is PsiJavaFile) return emptyList()
+        val importList = psiFile.importList ?: return emptyList()
+        val out = mutableListOf<LanguageSupport.RelatedType>()
+        for (importStmt in importList.importStatements.take(MAX_IMPORTS)) {
             val qualifiedName = importStmt.qualifiedName ?: continue
             val resolved = JavaPsiFacade.getInstance(project).findClass(qualifiedName, scope) ?: continue
             val kind = if (resolved.isInterface) "interface" else "class"
-            sb.appendLine("--- $kind ${resolved.name} ---")
-            for (m in resolved.methods.take(10)) {
-                sb.appendLine("  ${PsiUtils.formatMethodSignature(m)}")
-            }
-            for (f in resolved.fields.take(5)) {
-                sb.appendLine("  ${f.type.presentableText} ${f.name}")
-            }
-            sb.appendLine()
+            val text = buildString {
+                appendLine("--- $kind ${resolved.name} ---")
+                for (m in resolved.methods.take(10)) {
+                    appendLine("  ${PsiUtils.formatMethodSignature(m)}")
+                }
+                for (f in resolved.fields.take(5)) {
+                    appendLine("  ${f.type.presentableText} ${f.name}")
+                }
+            }.trimEnd()
+            out.add(LanguageSupport.RelatedType(name = resolved.name ?: qualifiedName, text = text))
         }
-        return if (sb.isEmpty()) "No project-scope related types found in imports." else sb.toString()
+        return out
     }
+
+    private const val MAX_IMPORTS = 15
 }

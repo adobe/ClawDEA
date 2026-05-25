@@ -14,7 +14,6 @@ package com.adobe.clawdea.buildtool
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
 
@@ -38,19 +37,19 @@ object MillBuildTool : BuildTool {
     override val id = "mill"
     override val displayName = "Mill"
 
-    // Order matters for buildConfigFiles enumeration — newer syntax first.
     private val MARKER_NAMES = listOf("build.mill", "build.mill.scala", "build.sc")
 
-    override fun isActive(project: Project): Boolean = markerFiles(project).isNotEmpty()
+    override fun isActive(project: Project): Boolean =
+        BuildToolDetection.markerFiles(project, MARKER_NAMES).isNotEmpty()
 
-    override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
+    override fun buildConfigFiles(project: Project): List<VirtualFile> =
+        BuildToolDetection.markerFiles(project, MARKER_NAMES)
 
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
-        targetFile: String,
         project: Project,
     ): CompileCommand? {
-        if (languageSupport.id != "scala" && languageSupport.id != "java") return null
+        if (languageSupport.id != LanguageSupport.ID_SCALA && languageSupport.id != LanguageSupport.ID_JAVA) return null
         val basePath = project.basePath ?: return null
         val baseDir = File(basePath)
         val launcher = if (File(baseDir, "mill").canExecute()) "./mill" else "mill"
@@ -70,9 +69,4 @@ object MillBuildTool : BuildTool {
             .joinToString("\n")
     }
 
-    private fun markerFiles(project: Project): List<VirtualFile> {
-        val basePath = project.basePath ?: return emptyList()
-        val baseDir = LocalFileSystem.getInstance().findFileByPath(basePath) ?: return emptyList()
-        return MARKER_NAMES.mapNotNull { baseDir.findChild(it) }
-    }
 }

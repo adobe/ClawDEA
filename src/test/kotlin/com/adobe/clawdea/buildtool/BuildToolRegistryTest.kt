@@ -14,7 +14,6 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.lang.reflect.Proxy
 
 class BuildToolRegistryTest {
 
@@ -25,17 +24,11 @@ class BuildToolRegistryTest {
     ) : BuildTool {
         override fun isActive(project: Project) = activeFor(project)
         override fun buildConfigFiles(project: Project): List<VirtualFile> = emptyList()
-        override fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand? = null
+        override fun compileCommandFor(languageSupport: LanguageSupport, project: Project): CompileCommand? = null
         override fun filterDiagnostics(output: String, targetFile: String, basePath: String): String = ""
     }
 
-    // Hand-rolled Project stub via JDK dynamic proxy. The fake build tools never read
-    // anything from the project; isActive lambdas use the project as an opaque key
-    // (or ignore it entirely). Sufficient for registry-shape tests.
-    private val stubProject: Project = Proxy.newProxyInstance(
-        Project::class.java.classLoader,
-        arrayOf(Project::class.java),
-    ) { _, _, _ -> null } as Project
+    private val project: Project = stubProject(basePath = "/proj")
 
     @Before fun setUp() { BuildToolRegistry.clearForTest() }
     @After  fun tearDown() { BuildToolRegistry.clearForTest() }
@@ -60,12 +53,12 @@ class BuildToolRegistryTest {
         val maven = FakeBuildTool("maven", "Maven", activeFor = { true })
         BuildToolRegistry.register(gradle)
         BuildToolRegistry.register(maven)
-        assertSame(gradle, BuildToolRegistry.detectPrimary(stubProject))
+        assertSame(gradle, BuildToolRegistry.detectPrimary(project))
     }
 
     @Test fun `detectPrimary returns null when none active`() {
         BuildToolRegistry.register(FakeBuildTool("gradle", "Gradle"))
-        assertNull(BuildToolRegistry.detectPrimary(stubProject))
+        assertNull(BuildToolRegistry.detectPrimary(project))
     }
 
     @Test fun `detectAll returns all active in registration order`() {
@@ -75,7 +68,7 @@ class BuildToolRegistryTest {
         BuildToolRegistry.register(gradle)
         BuildToolRegistry.register(maven)
         BuildToolRegistry.register(sbt)
-        val active = BuildToolRegistry.detectAll(stubProject)
+        val active = BuildToolRegistry.detectAll(project)
         assertEquals(listOf(gradle, maven), active)
     }
 

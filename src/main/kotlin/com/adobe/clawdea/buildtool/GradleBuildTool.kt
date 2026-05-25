@@ -13,10 +13,7 @@ package com.adobe.clawdea.buildtool
 
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
-import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import java.io.File
 
@@ -36,23 +33,23 @@ object GradleBuildTool : BuildTool {
     override val displayName = "Gradle"
 
     private const val GRADLE_SYSTEM_ID = "GRADLE"
+    private val MARKER_NAMES = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
 
-    override fun isActive(project: Project): Boolean {
-        if (detectedViaExternalSystem(project)) return true
-        return markerFiles(project).isNotEmpty()
-    }
+    override fun isActive(project: Project): Boolean =
+        BuildToolDetection.detectedViaExternalSystem(project, GRADLE_SYSTEM_ID) ||
+            BuildToolDetection.markerFiles(project, MARKER_NAMES).isNotEmpty()
 
-    override fun buildConfigFiles(project: Project): List<VirtualFile> = markerFiles(project)
+    override fun buildConfigFiles(project: Project): List<VirtualFile> =
+        BuildToolDetection.markerFiles(project, MARKER_NAMES)
 
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
-        targetFile: String,
         project: Project,
     ): CompileCommand? {
         val task = when (languageSupport.id) {
-            "java" -> "compileJava"
-            "kotlin" -> "compileKotlin"
-            "scala" -> "compileScala"
+            LanguageSupport.ID_JAVA -> "compileJava"
+            LanguageSupport.ID_KOTLIN -> "compileKotlin"
+            LanguageSupport.ID_SCALA -> "compileScala"
             else -> return null
         }
         val basePath = project.basePath ?: return null
@@ -67,27 +64,5 @@ object GradleBuildTool : BuildTool {
         return output.lines()
             .filter { it.contains(relPath) || it.contains(targetFile) }
             .joinToString("\n")
-    }
-
-    private fun detectedViaExternalSystem(project: Project): Boolean {
-        val modules = try {
-            ModuleManager.getInstance(project).modules
-        } catch (_: Throwable) {
-            return false
-        }
-        return modules.any { module ->
-            try {
-                ExternalSystemModulePropertyManager.getInstance(module).getExternalSystemId() == GRADLE_SYSTEM_ID
-            } catch (_: Throwable) {
-                false
-            }
-        }
-    }
-
-    private fun markerFiles(project: Project): List<VirtualFile> {
-        val basePath = project.basePath ?: return emptyList()
-        val baseDir = LocalFileSystem.getInstance().findFileByPath(basePath) ?: return emptyList()
-        val names = listOf("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
-        return names.mapNotNull { baseDir.findChild(it) }
     }
 }

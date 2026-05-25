@@ -27,19 +27,19 @@ interface BuildTool {
     val id: String
     val displayName: String
 
-    /** True if this build tool applies to [project] (ExternalSystem ∪ marker-file fallback). */
+    /** True if this build tool applies to [project]. */
     fun isActive(project: Project): Boolean
 
     /** Build-configuration files this tool contributes to primer/context. */
     fun buildConfigFiles(project: Project): List<VirtualFile>
 
     /**
-     * Returns the compile command for [targetFile] under [languageSupport], or null if
-     * this build tool does not support compiling that language in [project]. Dispatch is
-     * keyed on [LanguageSupport.id] so it works even when the IntelliJ Language is
+     * Returns the compile command for [languageSupport], or null if this build tool
+     * does not support compiling that language in [project]. Dispatch is keyed on
+     * [LanguageSupport.id] so it works even when the IntelliJ Language is
      * unavailable (e.g. Scala without the Scala plugin installed).
      */
-    fun compileCommandFor(languageSupport: LanguageSupport, targetFile: String, project: Project): CompileCommand?
+    fun compileCommandFor(languageSupport: LanguageSupport, project: Project): CompileCommand?
 
     /**
      * Filters captured stdout/stderr to lines relevant to [targetFile].

@@ -4,9 +4,6 @@
  */
 package com.adobe.clawdea.buildtool
 
-import com.adobe.clawdea.language.LanguageSupport
-import com.intellij.lang.Language
-import com.intellij.openapi.project.Project
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -15,7 +12,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
-import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -23,13 +19,8 @@ class MavenBuildToolTest {
 
     private lateinit var tempDir: Path
 
-    private fun fakeSupport(supportId: String, supportDisplayName: String = supportId): LanguageSupport =
-        object : LanguageSupport {
-            override val id = supportId
-            override val language: Language? = null
-            override val displayName = supportDisplayName
-            override val fileExtensions = emptySet<String>()
-        }
+    private fun fakeSupport(id: String, displayName: String = id) =
+        fakeLanguageSupport(id, displayName)
 
     @Before fun setUp() {
         tempDir = Files.createTempDirectory("maven-build-tool-test")
@@ -38,19 +29,6 @@ class MavenBuildToolTest {
     @After fun tearDown() {
         tempDir.toFile().deleteRecursively()
     }
-
-    private fun stubProject(basePath: String?): Project = Proxy.newProxyInstance(
-        Project::class.java.classLoader,
-        arrayOf(Project::class.java),
-    ) { _, method, _ ->
-        when (method.name) {
-            "getBasePath" -> basePath
-            "toString" -> "stubProject($basePath)"
-            "hashCode" -> System.identityHashCode(basePath)
-            "equals" -> false
-            else -> null
-        }
-    } as Project
 
     @Test fun `id is maven`() {
         assertEquals("maven", MavenBuildTool.id)
@@ -62,73 +40,45 @@ class MavenBuildToolTest {
 
     @Test fun `compileCommandFor Java uses mvnw when wrapper exists`() {
         Files.createFile(tempDir.resolve("mvnw")).toFile().setExecutable(true)
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("java", "Java"),
-            "${tempDir}/src/main/java/Foo.java",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("java", "Java"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("./mvnw", "compile", "-q"), cmd!!.argv)
         assertEquals(File(tempDir.toString()), cmd.workingDir)
     }
 
     @Test fun `compileCommandFor Java falls back to mvn when wrapper absent`() {
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("java", "Java"),
-            "${tempDir}/src/main/java/Foo.java",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("java", "Java"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor Kotlin returns null when kotlin-maven-plugin is absent from pom`() {
         // No pom.xml in tempDir -> PomReader.hasPlugin returns false -> allowed = {java}.
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("kotlin", "Kotlin"),
-            "${tempDir}/src/main/kotlin/Foo.kt",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("kotlin", "Kotlin"), stubProject(tempDir.toString()))
         assertNull(cmd)
     }
 
     @Test fun `compileCommandFor Scala returns null when scala-maven-plugin is absent from pom`() {
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("scala", "Scala"),
-            "${tempDir}/src/main/scala/Foo.scala",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("scala", "Scala"), stubProject(tempDir.toString()))
         assertNull(cmd)
     }
 
     @Test fun `compileCommandFor Kotlin returns mvn command when kotlin-maven-plugin is in pom`() {
         writePomWithPlugin("org.jetbrains.kotlin", "kotlin-maven-plugin")
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("kotlin", "Kotlin"),
-            "${tempDir}/src/main/kotlin/Foo.kt",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("kotlin", "Kotlin"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor Scala returns mvn command when scala-maven-plugin is in pom`() {
         writePomWithPlugin("net.alchim31.maven", "scala-maven-plugin")
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("scala", "Scala"),
-            "${tempDir}/src/main/scala/Foo.scala",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("scala", "Scala"), stubProject(tempDir.toString()))
         assertNotNull(cmd)
         assertEquals(listOf("mvn", "compile", "-q"), cmd!!.argv)
     }
 
     @Test fun `compileCommandFor unknown language returns null`() {
-        val cmd = MavenBuildTool.compileCommandFor(
-            fakeSupport("xyz", "XYZ"),
-            "${tempDir}/notes.xyz",
-            stubProject(tempDir.toString()),
-        )
+        val cmd = MavenBuildTool.compileCommandFor(fakeSupport("xyz", "XYZ"), stubProject(tempDir.toString()))
         assertNull(cmd)
     }
 

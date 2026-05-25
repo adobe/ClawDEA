@@ -95,47 +95,16 @@ class CliEventParser {
     }
 
     /**
-     * Extracts the textual content of a tool_result block. Per the Anthropic Messages API,
-     * the `content` field can be either a JSON string OR an array of content blocks
-     * (`[{"type":"text","text":"..."}, ...]`). The Claude CLI emits either form depending
-     * on the MCP server response shape; we handle both.
+     * The Anthropic Messages API allows tool_result `content` to be either a string
+     * or an array of `{"type":"text","text":...}` blocks. The Claude CLI forwards
+     * whichever form the MCP server emitted; both must be supported.
      */
     private fun extractToolResultContent(block: String): String {
-        // String form: "content":"..."
         extractString(block, "\"content\"")?.let { return it }
-        // Array form: "content":[{"type":"text","text":"..."}, ...]
-        val contentKey = "\"content\""
-        val keyIndex = block.indexOf(contentKey)
-        if (keyIndex == -1) return ""
-        val colonIndex = block.indexOf(':', keyIndex + contentKey.length)
-        if (colonIndex == -1) return ""
-        var i = colonIndex + 1
-        while (i < block.length && block[i].isWhitespace()) i++
-        if (i >= block.length || block[i] != '[') return ""
-        val bracketEnd = findMatchingClose(block, i, '[', ']')
-        if (bracketEnd == -1) return ""
-        val arrayContent = block.substring(i + 1, bracketEnd)
-        val sb = StringBuilder()
-        var j = 0
-        while (j < arrayContent.length) {
-            when (arrayContent[j]) {
-                '"' -> j = skipString(arrayContent, j)
-                '{' -> {
-                    val end = findMatchingClose(arrayContent, j, '{', '}')
-                    if (end == -1) break
-                    val inner = arrayContent.substring(j, end + 1)
-                    if (extractString(inner, "\"type\"") == "text") {
-                        extractString(inner, "\"text\"")?.let {
-                            if (sb.isNotEmpty()) sb.append("\n")
-                            sb.append(it)
-                        }
-                    }
-                    j = end
-                }
-            }
-            j++
-        }
-        return sb.toString()
+        return extractContentArray(block)
+            .filter { extractString(it, "\"type\"") == "text" }
+            .mapNotNull { extractString(it, "\"text\"") }
+            .joinToString("\n")
     }
 
     private fun parseResult(json: String): CliEvent {

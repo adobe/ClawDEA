@@ -19,32 +19,49 @@ import com.intellij.psi.search.GlobalSearchScope
 /**
  * Per-language hooks consumed by MCP tools and the context engine.
  * Implementations are registered with [LanguageSupportRegistry] at project startup.
- *
- * Behavior-preserving seam: every method exists to host code that already lives somewhere
- * in the codebase today, just routed through this seam.
  */
 interface LanguageSupport {
     /** Stable identifier in ClawDEA's namespace (lowercase). e.g. "java", "kotlin", "scala". */
     val id: String
 
     /**
-     * IntelliJ Language object when the relevant platform plugin is installed. Null when
-     * the language is supported by ClawDEA but the corresponding IntelliJ plugin is missing
-     * (e.g. Scala when `org.intellij.scala` isn't installed).
+     * IntelliJ Language when the relevant platform plugin is installed. Null when
+     * the language is supported by ClawDEA but the corresponding IntelliJ plugin is
+     * absent (e.g. Scala without `org.intellij.scala`).
      */
     val language: Language?
 
     val displayName: String
     val fileExtensions: Set<String>
 
-    fun isFileInLanguage(psiFile: PsiFile): Boolean {
-        val lang = language ?: return false
-        return psiFile.language.id == lang.id
-    }
-
     fun findRelatedTypes(
         psiFile: PsiFile,
         project: Project,
         scope: GlobalSearchScope,
     ): String? = null
+
+    /**
+     * Per-type entries derived from the file's imports — used by IndexCollector to
+     * surface related types as individual ContextItems. Defaults to empty so callers
+     * naturally degrade to the [findRelatedTypes] string when richer rendering is
+     * available, or skip entirely otherwise.
+     */
+    fun enumerateRelatedTypes(
+        psiFile: PsiFile,
+        project: Project,
+        scope: GlobalSearchScope,
+    ): List<RelatedType> = emptyList()
+
+    /** A single project-scope type referenced from the current file. */
+    data class RelatedType(
+        val name: String,
+        /** Pre-rendered content (modifiers + signature + member previews). */
+        val text: String,
+    )
+
+    companion object {
+        const val ID_JAVA = "java"
+        const val ID_KOTLIN = "kotlin"
+        const val ID_SCALA = "scala"
+    }
 }

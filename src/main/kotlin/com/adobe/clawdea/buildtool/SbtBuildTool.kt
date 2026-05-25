@@ -13,8 +13,6 @@ package com.adobe.clawdea.buildtool
 
 import com.adobe.clawdea.language.LanguageSupport
 import com.adobe.clawdea.mcp.PsiUtils
-import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
@@ -40,11 +38,11 @@ object SbtBuildTool : BuildTool {
     override val displayName = "sbt"
 
     private const val SBT_SYSTEM_ID = "SBT"
+    private val MARKER_NAMES = listOf("build.sbt")
 
-    override fun isActive(project: Project): Boolean {
-        if (detectedViaExternalSystem(project)) return true
-        return markerFile(project) != null
-    }
+    override fun isActive(project: Project): Boolean =
+        BuildToolDetection.detectedViaExternalSystem(project, SBT_SYSTEM_ID) ||
+            BuildToolDetection.markerFiles(project, MARKER_NAMES).isNotEmpty()
 
     override fun buildConfigFiles(project: Project): List<VirtualFile> {
         val basePath = project.basePath ?: return emptyList()
@@ -62,10 +60,9 @@ object SbtBuildTool : BuildTool {
 
     override fun compileCommandFor(
         languageSupport: LanguageSupport,
-        targetFile: String,
         project: Project,
     ): CompileCommand? {
-        if (languageSupport.id != "scala" && languageSupport.id != "java") return null
+        if (languageSupport.id != LanguageSupport.ID_SCALA && languageSupport.id != LanguageSupport.ID_JAVA) return null
         val basePath = project.basePath ?: return null
         return CompileCommand(
             argv = listOf("sbt", "-batch", "-no-colors", "compile"),
@@ -83,24 +80,4 @@ object SbtBuildTool : BuildTool {
             .joinToString("\n")
     }
 
-    private fun detectedViaExternalSystem(project: Project): Boolean {
-        val modules = try {
-            ModuleManager.getInstance(project).modules
-        } catch (_: Throwable) {
-            return false
-        }
-        return modules.any { module ->
-            try {
-                ExternalSystemModulePropertyManager.getInstance(module).getExternalSystemId() == SBT_SYSTEM_ID
-            } catch (_: Throwable) {
-                false
-            }
-        }
-    }
-
-    private fun markerFile(project: Project): VirtualFile? {
-        val basePath = project.basePath ?: return null
-        val baseDir = LocalFileSystem.getInstance().findFileByPath(basePath) ?: return null
-        return baseDir.findChild("build.sbt")
-    }
 }
