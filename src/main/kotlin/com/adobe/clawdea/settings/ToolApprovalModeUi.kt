@@ -34,7 +34,7 @@ object ToolApprovalModeUi {
     )
 
     private val modes = listOf(
-        Mode("confirm-all", "Ask unlisted", Severity.NONE, null),
+        Mode("confirm-all", "Ask unlisted", Severity.NONE, AllIcons.General.QuestionDialog),
         Mode("allow-safe", "Allow safe", Severity.WARNING, AllIcons.General.Warning),
         Mode("allow-all", "Allow all", Severity.DANGER, AllIcons.General.Error),
     )
