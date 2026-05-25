@@ -349,6 +349,20 @@ class MessageRenderer(
                     body = cmd ?: input,
                 )
             }
+            lower.endsWith("read_sibling_wiki") -> {
+                val repo = extractJsonString(input, "repo")
+                val page = extractJsonString(input, "page")
+                val suffix = listOfNotNull(repo, page).joinToString("/")
+                ToolDisplay(title = "Read sibling Wiki${if (suffix.isNotEmpty()) " $suffix" else ""}", body = "")
+            }
+            lower.endsWith("read_wiki_page") -> {
+                val name = extractJsonString(input, "name")
+                ToolDisplay(title = "Read Wiki${if (!name.isNullOrEmpty()) " $name" else ""}", body = "")
+            }
+            lower.endsWith("search_wiki") -> {
+                val query = extractJsonString(input, "query")
+                ToolDisplay(title = "Search Wiki${if (!query.isNullOrEmpty()) ": $query" else ""}", body = "")
+            }
             lower.contains("read") -> {
                 val path = extractJsonString(input, "file_path")
                 ToolDisplay(title = "Read ${path ?: ""}", body = "")

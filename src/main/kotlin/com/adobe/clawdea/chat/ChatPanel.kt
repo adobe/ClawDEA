@@ -136,16 +136,49 @@ class ChatPanel(
     // Used by SessionManager's /seed-wiki suggestion and could power any future
     // "click here to run /foo" affordance.
     private val runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    // JS→Kotlin bridge for the wiki-git-state banner (fix / dismiss).
+    private val wikiGitStateActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     private val htmlTemplate = ChatHtmlTemplate()
     private val browserRenderer = ChatBrowserRenderer(
         browser, htmlTemplate, abortQuery, turnControlQuery, openDiffQuery,
         editActionQuery, healthQuery, openFileQuery, navigateQuery,
         permissionDecisionQuery, driftActionQuery, runSlashCommandQuery,
+        wikiGitStateActionQuery,
     )
 
     // Unregister handle for the DriftDetectionService listener; populated in init, called from dispose().
     private lateinit var driftListenerUnregister: () -> Unit
+
+    // Top-of-chat banner for wiki state files with unexpected git tracking status.
+    // Stacked above [driftBanner]. Hidden whenever [WikiGitStateChecker.check] returns empty.
+    @Volatile
+    private var wikiGitStateBannerDismissed: Boolean = false
+    private val wikiGitStateBanner = WikiGitStateBanner(
+        updateHtml = { html -> browserRenderer.updateWikiGitStateBanner(html) },
+        onFix = {
+            log.info("WikiGitStateBanner: fix click")
+            scope.launch(Dispatchers.IO) {
+                val checker = com.adobe.clawdea.knowledge.wiki.WikiGitStateChecker.getInstance(project)
+                val issues = checker.check()
+                log.info("WikiGitStateBanner.fix: ${issues.size} issue(s) to address")
+                for (issue in issues) {
+                    runCatching { checker.fix(issue) }.onFailure {
+                        log.warn("WikiGitStateBanner.fix: exception fixing $issue: ${it.message}", it)
+                    }
+                }
+                refreshWikiGitStateBanner()
+            }
+        },
+        onDismiss = {
+            wikiGitStateBannerDismissed = true
+            // Clear the DOM directly; the banner instance itself is what called us,
+            // so we can't reference it here without a forward-decl loop.
+            browserRenderer.updateWikiGitStateBanner(
+                """<div id="wiki-git-state-banner" style="display:none;"></div>""",
+            )
+        },
+    )
 
     // Top-of-chat banner for pending drift events (wiki staleness)
     private val driftBanner = DriftBanner(
@@ -436,6 +469,15 @@ class ChatPanel(
             JBCefJSQuery.Response("ok")
         }
 
+        // Wiki-git-state banner action bridge: fix / dismiss clicks
+        wikiGitStateActionQuery.addHandler { action ->
+            log.info("wiki-git-state action click received: action=$action")
+            ApplicationManager.getApplication().invokeLater {
+                wikiGitStateBanner.handleAction(action)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
         // Slash-command link bridge: lets in-message links run a slash command
         // verbatim through the standard send pipeline (queueing, expansion,
         // dispatch). The JS side reads `data-slash` from the clicked element
@@ -464,10 +506,20 @@ class ChatPanel(
                     appendHtml(renderer.renderInfoMessage(msg))
                 }
             }
+            // Both /wiki-relocate and /seed-wiki call DriftDetectionService.rescan()
+            // after writing config / gitignore — piggyback on that signal to
+            // re-evaluate the wiki-git-state contract without an extra plumbing path.
+            scope.launch(Dispatchers.IO) { refreshWikiGitStateBanner() }
         }
         // Initial render based on current state (StartupActivity may have already run rescan).
         ApplicationManager.getApplication().invokeLater {
             driftBanner.setEvents(driftService.current())
+        }
+
+        // One-shot wiki-git-state check at chat start. Off-EDT; the banner update
+        // hops back to EDT inside refreshWikiGitStateBanner.
+        scope.launch(Dispatchers.IO) {
+            refreshWikiGitStateBanner()
         }
 
         // Load chat HTML
@@ -1951,6 +2003,9 @@ class ChatPanel(
             ApplicationManager.getApplication().invokeLater {
                 val action = com.intellij.openapi.actionSystem.ActionManager.getInstance()
                     .getAction("SearchEverywhere") ?: return@invokeLater
+                val manager = com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
+                    .getInstance(project)
+                if (manager.isShown) return@invokeLater
                 val dataContext = com.intellij.openapi.actionSystem.impl.SimpleDataContext.builder()
                         .add(com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT, project)
                         .build()
@@ -1961,9 +2016,7 @@ class ChatPanel(
                     com.intellij.openapi.actionSystem.ActionUiKind.NONE,
                     null,
                 )
-                com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
-                    .getInstance(project)
-                    .show(com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl.ALL_CONTRIBUTORS_GROUP_ID, searchText, event)
+                manager.show(com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl.ALL_CONTRIBUTORS_GROUP_ID, searchText, event)
             }
         }
     }
@@ -1993,6 +2046,28 @@ class ChatPanel(
             .getNotificationGroup("ClawDEA")
             .createNotification(title, message, type)
             .notify(project)
+    }
+
+    /**
+     * Re-runs the wiki-git-state check and updates the banner. Safe to call from
+     * any thread — the check itself is off-EDT (git4idea), the banner update is
+     * marshalled onto EDT.
+     *
+     * Called once at chat-init and whenever a command (e.g. `/wiki-relocate`,
+     * `/seed-wiki`) might have changed the tracked/ignored status of one of the
+     * three checked files.
+     */
+    fun refreshWikiGitStateBanner() {
+        if (wikiGitStateBannerDismissed) return
+        val issues = try {
+            com.adobe.clawdea.knowledge.wiki.WikiGitStateChecker.getInstance(project).check()
+        } catch (e: Throwable) {
+            log.warn("WikiGitStateChecker failed: ${e.message}")
+            emptyList()
+        }
+        ApplicationManager.getApplication().invokeLater {
+            wikiGitStateBanner.setIssues(issues)
+        }
     }
 
     // ── JCEF rendering (delegated to ChatBrowserRenderer) ─────────
@@ -2025,6 +2100,7 @@ class ChatPanel(
         permissionDecisionQuery.dispose()
         driftActionQuery.dispose()
         runSlashCommandQuery.dispose()
+        wikiGitStateActionQuery.dispose()
         browser.dispose()
     }
 

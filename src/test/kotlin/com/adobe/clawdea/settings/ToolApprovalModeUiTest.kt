@@ -35,11 +35,11 @@ class ToolApprovalModeUiTest {
     }
 
     @Test
-    fun `ask unlisted shows question dialog icon`() {
+    fun `ask unlisted shows help icon at toolbar size`() {
         val mode = ToolApprovalModeUi.modeFor("Ask unlisted")
 
         assertEquals(ToolApprovalModeUi.Severity.NONE, mode.severity)
-        assertSame(AllIcons.General.QuestionDialog, mode.icon)
+        assertSame(AllIcons.Actions.Help, mode.icon)
     }
 
     @Test

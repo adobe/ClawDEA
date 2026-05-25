@@ -31,6 +31,7 @@ class ChatBrowserRenderer(
     private val permissionDecisionQuery: JBCefJSQuery,
     private val driftActionQuery: JBCefJSQuery,
     private val runSlashCommandQuery: JBCefJSQuery,
+    private val wikiGitStateActionQuery: JBCefJSQuery,
 ) {
     var browserReady = false
         private set
@@ -52,6 +53,7 @@ class ChatBrowserRenderer(
                     permissionDecisionJs = permissionDecisionQuery.inject("arg"),
                     driftActionJs = driftActionQuery.inject("action"),
                     runSlashCommandJs = runSlashCommandQuery.inject("slash"),
+                    wikiGitStateActionJs = wikiGitStateActionQuery.inject("action"),
                 )
                 cefBrowser?.executeJavaScript(bridgeScripts, cefBrowser.url, 0)
                 ApplicationManager.getApplication().invokeLater {
@@ -263,6 +265,14 @@ class ChatBrowserRenderer(
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript(
             "updateDriftBanner('${escapeForJs(html)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    fun updateWikiGitStateBanner(html: String) {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript(
+            "updateWikiGitStateBanner('${escapeForJs(html)}');",
             browser.cefBrowser.url, 0,
         )
     }
