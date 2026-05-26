@@ -20,6 +20,36 @@
 5. **Tool call (per request)** — CLI POSTs JSON-RPC, the HTTP handler hands the request to the dispatch executor. Executor calls `router.dispatch(toolName, args)`. Handler runs, returns `ToolResult`, response goes back to the CLI.
 6. **Project close** — `Disposable.dispose()` stops the HTTP server, shuts down the dispatch executor.
 
+## JetBrains MCP coexistence
+
+When the JetBrains-bundled MCP plugin (`com.intellij.mcpServer`) is installed,
+enabled, and has its "Enable MCP Server" setting turned on, ClawDEA stops
+registering four tool names that collide with JetBrains' surface:
+
+- `search_text` — same name on both sides; JB delivers same semantics.
+- `find_files` — covered by JB's `find_files_by_glob` + `find_files_by_name_keyword`.
+- `resolve_symbol` — covered by JB's `get_symbol_info` (richer Quick-Doc-style info).
+- `get_diagnostics` — covered by JB's `get_file_problems` + `build_project`.
+
+The drop list is the constant
+[`CollidingToolNames`](../../../src/main/kotlin/com/adobe/clawdea/mcp/coexistence/CollidingToolNames.kt).
+Detection runs **once at project open** through
+[`JetBrainsMcpProbe`](../../../src/main/kotlin/com/adobe/clawdea/mcp/coexistence/JetBrainsMcpProbe.kt),
+which inspects the plugin descriptor via `PluginManagerCore` and, if present,
+reads the JB plugin's setting via reflection through
+[`JetBrainsMcpSettingsReader`](../../../src/main/kotlin/com/adobe/clawdea/mcp/coexistence/JetBrainsMcpSettingsReader.kt).
+
+The probe returns one of three states:
+
+- **Enabled** — drop the four names from the router map.
+- **Disabled** — register all tools as today.
+- **Unknown** (probe threw) — register all tools (fail-open). A WARN is logged
+  so future JetBrains internal renames are visible in `idea.log`.
+
+Live re-registration mid-session is intentionally not supported: the CLI's
+`tools/list` is cached per session, so toggling the JB setting requires an IDE
+restart to take effect on the Claude Code side anyway.
+
 ## get_diagnostics tier fallback
 
 `McpIdeTools.get_diagnostics` is a four-tier strategy that prefers IntelliJ-native analysis and only shells out to a build tool as a last resort. Tiers run in order; each tier only fires when the previous one cannot answer ([McpIdeTools.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpIdeTools.kt)).
