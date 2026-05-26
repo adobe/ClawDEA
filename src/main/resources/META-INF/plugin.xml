@@ -111,6 +111,13 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.6.2</h3>
+<h4>JetBrains MCP server coexistence</h4>
+<ul>
+  <li><b>No more duplicate tool names.</b> When IntelliJ's bundled MCP Server plugin is installed and its server is enabled, ClawDEA stops registering four tool names that collide with JetBrains' surface: <code>search_text</code>, <code>find_files</code>, <code>resolve_symbol</code>, and <code>get_diagnostics</code>. Claude Code now sees one tool per name; ClawDEA's unique tools (<code>find_usages</code>, <code>find_callers</code>, <code>find_implementations</code>, all <code>debug_*</code>, all <code>propose_*</code>, profiling, wiki, workspace) remain available.</li>
+  <li><b>Fail-open detection.</b> ClawDEA reads JetBrains' setting via reflection. If the setting class is renamed or otherwise unreadable, ClawDEA logs a WARN and keeps its full surface registered, so the plugin stays useful even after future JetBrains internal changes.</li>
+</ul>
+
 <h3>1.6.1</h3>
 <h4>Drift state no longer dirties the working tree</h4>
 <ul>
