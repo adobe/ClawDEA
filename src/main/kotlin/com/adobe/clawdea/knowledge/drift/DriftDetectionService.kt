@@ -38,6 +38,12 @@ class DriftDetectionService(private val project: Project) {
             notifyListeners()
             return emptyList<DriftEvent>() to emptyList()
         }
+        // Skip while a git operation is in progress (rebase, merge, cherry-pick,
+        // revert). Writing `.wiki-state.json` mid-rebase dirties the working tree
+        // and breaks `git rebase --continue` with "You have unstaged changes".
+        if (isRepoBusy(project)) {
+            return lastEvents to lastApplied
+        }
         val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
         val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
@@ -58,7 +64,13 @@ class DriftDetectionService(private val project: Project) {
         }
         val newState = applied.newState.copy(lastScanAt = now.toString())
         val headSha = currentHeadSha(project) ?: ""
-        val newStateWithSync = bumpSyncedCommit(newState, headSha)
+        // Only advance lastSyncedCommit on first-run baseline or when wiki content
+        // was actually authored. Advancing on every tick rewrites the team-shared
+        // `.wiki-state.json` and creates a dirty file after every commit, which is
+        // what makes `git rebase` (and `git stash pop`) refuse to start.
+        val newStateWithSync = if (shouldAdvanceSync(state, applied)) {
+            bumpSyncedCommit(newState, headSha)
+        } else newState
         if (newStateWithSync != state) {
             DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = newStateWithSync)
         }
@@ -95,6 +107,10 @@ class DriftDetectionService(private val project: Project) {
 
     fun dismiss(signature: String) {
         val basePath = project.basePath ?: return
+        // Same in-progress-git guard as `rescan` — dismiss rewrites the
+        // team-shared `.wiki-state.json` (it strips the signature from
+        // `suggestions`), so it has the same dirty-tree hazard.
+        if (isRepoBusy(project)) return
         val projectBase = Paths.get(basePath)
         val wikiDir = WikiLocator.getInstance(project).wikiDir()
         DriftStateStore.update(wikiDir = wikiDir, projectBase = projectBase) { state ->
@@ -125,6 +141,12 @@ class DriftDetectionService(private val project: Project) {
         return repo.currentRevision
     }
 
+    private fun isRepoBusy(project: Project): Boolean {
+        val repo = git4idea.repo.GitRepositoryManager.getInstance(project)
+            .repositories.firstOrNull() ?: return false
+        return repo.state != com.intellij.dvcs.repo.Repository.State.NORMAL
+    }
+
     private fun buildInvoker(basePath: String): WikiAuthorInvoker {
         val settings = ClawDEASettings.getInstance()
         val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
@@ -150,6 +172,25 @@ class DriftDetectionService(private val project: Project) {
         internal fun bumpSyncedCommit(state: DriftState, headSha: String): DriftState {
             if (headSha.isBlank()) return state
             return state.copy(lastSyncedCommit = headSha)
+        }
+
+        /**
+         * `lastSyncedCommit` is "the commit the wiki currently describes". Advance
+         * it only when one of these holds:
+         *  - First run baseline: the field is blank — adopt current HEAD so the
+         *    next scan has a reference point for the `lastSyncedCommit..HEAD`
+         *    range. Without this the detector would report every commit forever.
+         *  - Wiki content actually changed in this scan: at least one event was
+         *    applied (deterministic auto-apply or wiki-author edit).
+         *
+         * Routine ticks where nothing was authored leave the SHA where it is,
+         * which means `.wiki-state.json` only changes when the wiki content
+         * itself changes. That keeps the team-shared file out of working-tree
+         * diffs that would block `git rebase` / `git stash pop`.
+         */
+        internal fun shouldAdvanceSync(beforeState: DriftState, applied: ApplyResult): Boolean {
+            if (beforeState.lastSyncedCommit.isBlank()) return true
+            return applied.events.isNotEmpty()
         }
 
         internal fun collectRaw(

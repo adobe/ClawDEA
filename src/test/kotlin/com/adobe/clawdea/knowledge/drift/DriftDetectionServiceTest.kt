@@ -36,6 +36,29 @@ class DriftDetectionServiceTest {
         assertEquals("new1234", after.lastSyncedCommit)
     }
 
+    @Test fun `shouldAdvanceSync is true on first run baseline`() {
+        val before = DriftState(lastSyncedCommit = "")
+        val applied = DriftDetectionService.Companion.ApplyResult(emptyList(), before)
+        org.junit.Assert.assertTrue(DriftDetectionService.shouldAdvanceSync(before, applied))
+    }
+
+    @Test fun `shouldAdvanceSync is false when nothing was applied`() {
+        val before = DriftState(lastSyncedCommit = "abc1234")
+        val applied = DriftDetectionService.Companion.ApplyResult(emptyList(), before)
+        org.junit.Assert.assertFalse(DriftDetectionService.shouldAdvanceSync(before, applied))
+    }
+
+    @Test fun `shouldAdvanceSync is true when events were applied`() {
+        val before = DriftState(lastSyncedCommit = "abc1234")
+        val event = DriftEvent.CodeRename(
+            wikiPage = java.nio.file.Paths.get(".claude/wiki/concepts/x.md"),
+            brokenLink = "old",
+            suggestedReplacement = "new",
+        )
+        val applied = DriftDetectionService.Companion.ApplyResult(listOf(event), before)
+        org.junit.Assert.assertTrue(DriftDetectionService.shouldAdvanceSync(before, applied))
+    }
+
     @Test
     fun `applyAndDismiss with autoUpdate calls wiki-author for non-deterministic events`() = kotlinx.coroutines.runBlocking {
         val invoker = StubInvoker(actedOnAll = true)

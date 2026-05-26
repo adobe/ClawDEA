@@ -111,6 +111,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.6.1</h3>
+<h4>Drift state no longer dirties the working tree</h4>
+<ul>
+  <li><b>Rebase / merge no longer abort with "unstaged changes".</b> The drift detector now skips <code>rescan</code> and <code>dismiss</code> while a git operation is in progress (<code>GitRepository.state != NORMAL</code>), so <code>.wiki-state.json</code> is never rewritten mid-rebase, mid-merge, mid-cherry-pick, or mid-revert.</li>
+  <li><b>Idle ticks no longer write to disk.</b> <code>lastSyncedCommit</code> is now advanced only on the first-run baseline or when a rescan actually applies an event; routine ticks leave the field where it is. The team-shared <code>.wiki-state.json</code> stops appearing as a phantom modification after every commit, fetch, or branch switch.</li>
+</ul>
 <h3>1.6.0</h3>
 <h4>Scala support</h4>
 <ul>
