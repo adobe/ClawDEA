@@ -17,6 +17,10 @@ import com.adobe.clawdea.chat.permission.PermissionPolicy
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.debug.McpDebugTools
 import com.adobe.clawdea.language.scala.ScalaPsiBridge
+import com.adobe.clawdea.mcp.coexistence.CollidingToolNames
+import com.adobe.clawdea.mcp.coexistence.JetBrainsMcpProbe
+import com.adobe.clawdea.mcp.coexistence.JetBrainsMcpStatus
+import com.adobe.clawdea.mcp.coexistence.applyCollisionFilter
 import com.adobe.clawdea.profiling.analysis.AnalysisService
 import com.adobe.clawdea.profiling.mcp.McpProfilingTools
 import com.adobe.clawdea.settings.ClawDEASettings
@@ -93,6 +97,30 @@ class McpServer(private val project: Project) : Disposable {
                 AutoAllowSignal.getInstance(project).notify(toolName, inputJson, toolUseId)
             },
         ).registerAll(router)
+
+        applyJetBrainsMcpCoexistence()
+    }
+
+    private fun applyJetBrainsMcpCoexistence() {
+        val status = JetBrainsMcpProbe.forCurrentIde().status
+        when (status) {
+            JetBrainsMcpStatus.Enabled -> {
+                applyCollisionFilter(router, status)
+                log.info(
+                    "JetBrains MCP plugin detected and enabled — deferring " +
+                        "${CollidingToolNames.size} tools: $CollidingToolNames"
+                )
+            }
+            JetBrainsMcpStatus.Unknown -> {
+                log.warn(
+                    "ClawDEA MCP: JetBrains plugin detected; setting probe failed " +
+                        "(Unknown). Keeping ClawDEA tools registered."
+                )
+            }
+            JetBrainsMcpStatus.Disabled -> {
+                // no-op: ClawDEA registers its full surface as today.
+            }
+        }
     }
 
     /**

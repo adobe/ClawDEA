@@ -11,6 +11,8 @@
  */
 package com.adobe.clawdea.mcp.coexistence
 
+import com.adobe.clawdea.mcp.McpToolRouter
+
 /**
  * The exact ClawDEA tool names that must NOT be registered when the JetBrains
  * MCP server is detected as enabled. Each entry has a same-named or near-same
@@ -30,3 +32,15 @@ val CollidingToolNames: Set<String> = setOf(
     "resolve_symbol",
     "get_diagnostics",
 )
+
+/**
+ * Drops every tool name in [CollidingToolNames] from [router] when [status] is
+ * [JetBrainsMcpStatus.Enabled]. For [JetBrainsMcpStatus.Disabled] and
+ * [JetBrainsMcpStatus.Unknown] this is a no-op (fail-open).
+ *
+ * Idempotent: unregistering a name that wasn't registered is a no-op.
+ */
+fun applyCollisionFilter(router: McpToolRouter, status: JetBrainsMcpStatus) {
+    if (status != JetBrainsMcpStatus.Enabled) return
+    CollidingToolNames.forEach { router.unregister(it) }
+}
