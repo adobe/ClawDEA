@@ -97,4 +97,46 @@ class McpToolRouterTest {
         val result = router.dispatch("dup", emptyMap())
         assertEquals("v2", result.text)
     }
+
+    @Test
+    fun `unregister removes a tool from dispatch and from toolsListJson`() {
+        val router = McpToolRouter()
+        router.register(
+            name = "removable",
+            description = "Will be removed",
+            properties = emptyList(),
+            handler = { McpToolRouter.ToolResult("hi") },
+        )
+        router.register(
+            name = "kept",
+            description = "Stays",
+            properties = emptyList(),
+            handler = { McpToolRouter.ToolResult("hi") },
+        )
+
+        router.unregister("removable")
+
+        val dispatchResult = router.dispatch("removable", emptyMap())
+        assertTrue(dispatchResult.isError)
+        assertTrue(dispatchResult.text.contains("Unknown tool"))
+
+        val json = router.toolsListJson()
+        assertFalse(json.contains("removable"))
+        assertTrue(json.contains("kept"))
+    }
+
+    @Test
+    fun `unregister of an unknown tool is a no-op`() {
+        val router = McpToolRouter()
+        router.register(
+            name = "kept",
+            description = "Stays",
+            properties = emptyList(),
+            handler = { McpToolRouter.ToolResult("ok") },
+        )
+
+        router.unregister("never-registered")
+
+        assertEquals("ok", router.dispatch("kept", emptyMap()).text)
+    }
 }

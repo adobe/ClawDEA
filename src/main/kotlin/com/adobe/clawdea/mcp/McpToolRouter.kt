@@ -42,6 +42,10 @@ class McpToolRouter {
         tools[name] = ToolDef(name, description, properties, required, handler)
     }
 
+    fun unregister(name: String) {
+        tools.remove(name)
+    }
+
     fun dispatch(toolName: String, arguments: Map<String, String>): ToolResult {
         val tool = tools[toolName]
             ?: return ToolResult("Unknown tool: $toolName", isError = true)
