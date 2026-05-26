@@ -11,15 +11,21 @@
  */
 package com.adobe.clawdea.mcp.coexistence
 
+import com.intellij.openapi.application.ApplicationManager
+
 /**
  * Reads the JetBrains MCP plugin's "server enabled" setting via reflection.
  *
- * The exact settings class FQCN must be confirmed by inspecting the bundled
- * plugin jar at runtime. Until [Task 5] confirms it, this reader throws so the
- * probe returns [JetBrainsMcpStatus.Unknown] (fail-open) and ClawDEA keeps its
- * full surface registered.
+ * Throws on any failure (class not found, property missing, wrong type, security).
+ * The caller maps the throw to [JetBrainsMcpStatus.Unknown] so ClawDEA fails open.
  */
 object JetBrainsMcpSettingsReader {
+
+    // Confirmed in Task 5 step 1 against the bundled JetBrains MCP plugin.
+    // Update both constants together if the JetBrains team renames either.
+    private const val SETTINGS_CLASS_FQCN = "com.intellij.mcpserver.settings.McpServerSettings"
+    private const val STATE_CLASS_FQCN = "com.intellij.mcpserver.settings.McpServerSettings\$MyState"
+    private const val ENABLED_PROPERTY_NAME = "enableMcpServer"
 
     /**
      * @return true if the JetBrains MCP server is currently enabled.
@@ -27,6 +33,19 @@ object JetBrainsMcpSettingsReader {
      *   is expected to map the throw to [JetBrainsMcpStatus.Unknown].
      */
     fun isServerEnabled(): Boolean {
-        throw NotImplementedError("Settings class FQCN to be confirmed in Task 5")
+        val settingsClass = Class.forName(SETTINGS_CLASS_FQCN)
+        val stateClass = Class.forName(STATE_CLASS_FQCN)
+        val service = ApplicationManager.getApplication().getService(settingsClass)
+            ?: throw IllegalStateException("Service not registered: $SETTINGS_CLASS_FQCN")
+
+        // Get the state object: McpServerSettings extends SimplePersistentStateComponent<MyState>
+        val getStateMethod = settingsClass.getMethod("getState")
+        val stateObject = getStateMethod.invoke(service)
+            ?: throw IllegalStateException("getState() returned null")
+
+        // Read the enableMcpServer property from MyState
+        val getterName = "get" + ENABLED_PROPERTY_NAME.replaceFirstChar { it.uppercaseChar() }
+        val getter = stateClass.getMethod(getterName)
+        return getter.invoke(stateObject) as Boolean
     }
 }
