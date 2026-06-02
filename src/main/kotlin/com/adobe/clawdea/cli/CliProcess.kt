@@ -513,7 +513,7 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
             if (!enabled) return ""
             return try {
                 PromptResource.load("baseline-defaults")
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 ""
             }
         }
