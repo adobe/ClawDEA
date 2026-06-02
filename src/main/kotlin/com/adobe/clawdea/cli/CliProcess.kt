@@ -525,15 +525,26 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
 
         /**
          * Loads a static system-prompt resource, fail-soft to "" if the bundled
-         * resource is missing, and `.trim()`-ed so the result is byte-identical
-         * to the previous inline `trimIndent()` form (no leading/trailing blank
-         * lines). A missing resource is a packaging defect caught by the unit
-         * tests, not a runtime condition — same fail-soft posture as
-         * [buildBaselineDefaultsPrompt].
+         * resource cannot be loaded. Applies `.trim()` to drop the resource
+         * file's trailing newline, producing output byte-identical to the
+         * previous inline `trimIndent()` literal (which stripped the leading and
+         * trailing blank lines inside the `"""` block).
+         *
+         * Unlike [buildBaselineDefaultsPrompt] (a user-toggleable, additive
+         * block), these are always-on core routing prompts, so a load failure is
+         * logged at error level — it is a packaging defect, not a runtime
+         * condition, and the unit tests guard resource presence at build time —
+         * while still degrading soft rather than crashing CLI startup.
          */
         private fun loadStaticPrompt(name: String): String = try {
             PromptResource.load(name).trim()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Logger.getInstance("com.adobe.clawdea.cli.CliProcess").error(
+                "Failed to load static system-prompt resource '$name'; " +
+                    "continuing without it. This is a packaging defect — the resource " +
+                    "should ship in src/main/resources/prompts/$name.md.",
+                e,
+            )
             ""
         }
 
