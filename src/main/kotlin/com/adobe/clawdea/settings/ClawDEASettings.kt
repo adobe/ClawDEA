@@ -115,6 +115,12 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          */
         var workspaceManifestName: String = ".clawdea-workspace.md",
         var preloadSkillCatalog: Boolean = true,
+        // When true, a small always-on values-only behavioral block ("baseline
+        // working defaults") is appended to the CLI system prompt. Plugin-owned
+        // and model-tunable (text lives in resources/prompts/baseline-defaults.md);
+        // CLAUDE.md and installed workflow skills take precedence over it. The
+        // block is values-only so it cannot collide with procedural skills.
+        var enableBaselineDefaults: Boolean = true,
         // When true, the gateway (CLI fallback path) appends --bare to the
         // claude invocation, skipping hooks, LSP, plugin sync, auto-memory,
         // and CLAUDE.md auto-discovery. On by default; the runtime gate in
