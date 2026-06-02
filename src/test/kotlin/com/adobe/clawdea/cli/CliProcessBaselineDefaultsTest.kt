@@ -35,4 +35,17 @@ class CliProcessBaselineDefaultsTest {
         assertTrue(text.contains("Verify before claiming done"))
         assertTrue(text.contains("ask first. Otherwise, proceed"))
     }
+
+    @Test
+    fun `helper returns the block when enabled`() {
+        val result = CliProcess.buildBaselineDefaultsPrompt(enabled = true)
+        assertTrue(result.contains("your project's CLAUDE.md and any installed workflow skills take precedence"))
+        assertTrue(result.contains("Touch only what the task requires"))
+    }
+
+    @Test
+    fun `helper returns empty string when disabled`() {
+        val result = CliProcess.buildBaselineDefaultsPrompt(enabled = false)
+        assertEquals("", result)
+    }
 }

@@ -13,6 +13,7 @@ package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.knowledge.primer.PrimerService
+import com.adobe.clawdea.knowledge.prompts.PromptResource
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
@@ -497,6 +498,24 @@ $lines
 
 When a skill matches the user's task, suggest invoking it with /<skill-name>.
             """.trimIndent()
+        }
+
+        /**
+         * Returns the always-on baseline working-defaults block for the system
+         * prompt, or "" when [enabled] is false or the bundled resource cannot
+         * be loaded. Pure and side-effect-free (no logging) so it can be unit
+         * tested without launching a process — same shape as
+         * [buildSkillCatalogPrompt]. Fail-soft: a missing resource degrades to
+         * "feature off"; the packaging defect is caught by the unit test, not
+         * at runtime.
+         */
+        internal fun buildBaselineDefaultsPrompt(enabled: Boolean): String {
+            if (!enabled) return ""
+            return try {
+                PromptResource.load("baseline-defaults")
+            } catch (e: Exception) {
+                ""
+            }
         }
 
         private val MCP_SYSTEM_PROMPT = """
