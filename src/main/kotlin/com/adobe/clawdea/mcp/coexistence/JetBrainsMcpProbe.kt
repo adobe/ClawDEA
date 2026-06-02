@@ -50,16 +50,23 @@ class JetBrainsMcpProbe(
         private const val PLUGIN_ID = "com.intellij.mcpServer"
 
         /**
-         * Production factory. Looks up the plugin via [PluginManagerCore] and
+         * Production factory. Resolves plugin presence through the public
+         * [PluginManagerCore.isLoaded]/[PluginManagerCore.isDisabled] pair and
          * delegates the setting read to [JetBrainsMcpSettingsReader].
+         *
+         * Uses booleans rather than fetching the descriptor: descriptor lookups
+         * (`getPlugin` / `findPlugin`) are `@ApiStatus.Internal` and return the
+         * internal `IdeaPluginDescriptorImpl`, both of which fail the IntelliJ
+         * Plugin Verifier on publish. The boolean pair fully expresses the
+         * three-state [PluginPresence] without crossing into internal API.
          */
         fun forCurrentIde(): JetBrainsMcpProbe = JetBrainsMcpProbe(
             pluginPresence = {
-                val descriptor = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID))
+                val pluginId = PluginId.getId(PLUGIN_ID)
                 when {
-                    descriptor == null -> PluginPresence.NotInstalled
-                    !descriptor.isEnabled -> PluginPresence.InstalledDisabled
-                    else -> PluginPresence.InstalledEnabled
+                    PluginManagerCore.isLoaded(pluginId) -> PluginPresence.InstalledEnabled
+                    PluginManagerCore.isDisabled(pluginId) -> PluginPresence.InstalledDisabled
+                    else -> PluginPresence.NotInstalled
                 }
             },
             settingsReader = { JetBrainsMcpSettingsReader.isServerEnabled() },
