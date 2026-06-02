@@ -24,12 +24,22 @@
 
 When the JetBrains-bundled MCP plugin (`com.intellij.mcpServer`) is installed,
 enabled, and has its "Enable MCP Server" setting turned on, ClawDEA stops
-registering four tool names that collide with JetBrains' surface:
+registering four tools whose capability JetBrains already covers:
 
-- `search_text` — same name on both sides; JB delivers same semantics.
+- `search_text` — JB ships the same tool with the same semantics.
 - `find_files` — covered by JB's `find_files_by_glob` + `find_files_by_name_keyword`.
 - `resolve_symbol` — covered by JB's `get_symbol_info` (richer Quick-Doc-style info).
 - `get_diagnostics` — covered by JB's `get_file_problems` + `build_project`.
+
+**Why drop them — it is not about name collisions.** Claude Code namespaces MCP
+tools by server (`mcp__clawdea-intellij__search_text` vs `mcp__idea__search_text`),
+so the two surfaces never produce an ambiguous tool name — the CLI can always
+tell them apart. The reason to deregister is redundancy: shipping two tools with
+the same capability inflates the tool-list context Claude carries every turn and
+forces it to choose between equivalent options. When JetBrains already provides
+the capability, ClawDEA steps aside for those four and keeps only the tools that
+have no JetBrains equivalent (`find_usages`, `find_callers`, `find_implementations`,
+all `debug_*`, all `propose_*`, profiling, wiki, workspace).
 
 The drop list is the constant
 [`CollidingToolNames`](../../../src/main/kotlin/com/adobe/clawdea/mcp/coexistence/CollidingToolNames.kt).
