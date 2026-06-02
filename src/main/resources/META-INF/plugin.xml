@@ -115,6 +115,13 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.6.3</h3>
+<h4>Smarter by default</h4>
+<ul>
+  <li><b>Baseline working defaults.</b> ClawDEA now adds a small, always-on set of working defaults to Claude's instructions &mdash; stay surgical (don't refactor or reformat code you weren't asked to touch; surface worthwhile improvements as a separate suggestion instead of folding them in silently), prefer the simplest change that works, verify before claiming done, and ask only when a request is genuinely ambiguous <em>and</em> guessing wrong is costly. These are values, not a mandated procedure, and your project's <code>CLAUDE.md</code> and any installed workflow skills always take precedence &mdash; so they raise the floor without getting in the way of more capable tooling. Toggle them off any time via <b>Settings &rarr; Tools &rarr; ClawDEA</b> (&ldquo;Inject baseline working defaults into system prompt&rdquo;).</li>
+  <li><b>Tunable system prompts.</b> ClawDEA's core system prompts (MCP tool routing, wiki-librarian routing, edit-review) and the new baseline defaults now live in editable resource files rather than compiled into the plugin, so the prompt text can evolve with model generations.</li>
+</ul>
+
 <h3>1.6.2</h3>
 <h4>JetBrains MCP server coexistence</h4>
 <ul>
