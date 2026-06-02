@@ -11,6 +11,6 @@
     "diff": "node diff-and-file.mjs"
   },
   "dependencies": {
-    "js-yaml": "4.1.1"
+    "js-yaml": "4.2.0"
   }
 }
