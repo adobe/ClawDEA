@@ -1,5 +1,9 @@
 # ClawDEA User Guide
 
+ClawDEA is native [Claude Code](https://docs.anthropic.com/en/docs/claude-code) integration for IntelliJ IDEA. Its defining feature is a **self-maintaining project wiki** — a knowledge layer that stays in sync with your code via a commit-driven drift detector, ships an orientation primer with every turn, and is ready to share across a team through git. Alongside it, ClawDEA adds **JVM profiling as a diagnostic loop** (Claude reads JFR/heap analysis and proposes source-level fixes), plus IDE-grade code navigation, diff-gated edit review, and a live debugger.
+
+ClawDEA coexists with IntelliJ's own [bundled MCP server](https://www.jetbrains.com/help/idea/mcp-server.html): when you enable it, ClawDEA automatically stops serving the handful of tools the IDE already covers and keeps serving the ones with no IDE-native equivalent — see [Wiki team mode](#wiki-team-mode) and the feature list in the [README](../README.md#features).
+
 ## Getting Started
 
 ### Prerequisites

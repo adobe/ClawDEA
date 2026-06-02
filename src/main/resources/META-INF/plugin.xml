@@ -4,15 +4,15 @@
     <name>ClawDEA</name>
     <vendor url="https://github.com/adobe/ClawDEA" email="spopescu@adobe.com">ClawDEA</vendor>
     <description><![CDATA[
-<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>
-first-class access to everything IntelliJ already knows about your project</b> &mdash; the PSI index,
-the debugger, the profiler, compiler diagnostics &mdash; so Claude stops guessing with grep and starts
-reasoning with the same tools you do.</p>
+<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> a
+self-maintaining understanding of your project.</b> Its standout capability is a project wiki that
+stays in sync with your code, ships an orientation primer with every turn, and is ready to share across
+a team via git &mdash; so Claude starts every conversation already knowing how your codebase works.</p>
 
-<p>Most Claude plugins wrap the CLI in a chat window. ClawDEA goes further: a local MCP server exposes
-IntelliJ's indices, debugger, and JFR profiler as tools Claude can call. The result is an AI pair programmer
-that finds symbols by reference instead of regex, steps through a failing test to see the actual values,
-and proposes source-level fixes from a CPU or allocation profile.</p>
+<p>Most Claude plugins wrap the CLI in a chat window. ClawDEA goes further: a living knowledge layer plus
+JVM profiling as a diagnostic loop, on top of IDE-grade code navigation, edit review, and debugging.
+The result is an AI pair programmer that reasons from a maintained model of your project, profiles a slow
+test and proposes a source-level fix, and navigates by reference instead of regex.</p>
 
 <p><b>See it in action:</b> the <a href="https://github.com/adobe/ClawDEA#clawdea">README</a> has a live
 demo of Claude autonomously debugging a Java application &mdash; setting breakpoints, stepping, inspecting
@@ -21,27 +21,31 @@ variables, and mutating runtime state to verify hypotheses.</p>
 <h2>What makes ClawDEA different</h2>
 
 <ul>
-  <li><b>IntelliJ's PSI index as MCP tools.</b> <code>find_symbol</code>, <code>find_usages</code>,
-  <code>find_callers</code>, <code>find_implementations</code>, <code>find_supertypes</code>,
-  <code>resolve_symbol</code>, scoped <code>search_text</code>, and live compiler diagnostics.
-  Precise (no false hits in comments or strings), complete (finds aliased imports and renamed refs),
-  and faster than any grep-based plugin.</li>
+  <li><b>A self-maintaining project wiki.</b> A project-local wiki under <code>.claude/wiki/</code> plus an
+  auto-generated <code>REPO_STATE.md</code>. A commit-driven drift detector notices when a page's claims go
+  stale and a bundled <code>wiki-author</code> subagent drafts the fix &mdash; with auto-update enabled it
+  lands edits unattended. The primer ships with every turn so Claude starts each conversation oriented
+  &mdash; no "let me explore the codebase first". A <code>wiki-librarian</code> subagent answers design
+  questions in its own fresh context, citing pages and verifying against current source.</li>
 
-  <li><b>Live debugger over MCP &mdash; 21 tools.</b> Claude can launch run configurations, attach to
-  processes, set conditional and log breakpoints, step in/over/out, run to cursor, inspect frames, expand
-  composite variables, evaluate expressions, and mutate values at runtime to test fix ideas without
-  recompiling. Breakpoint ownership tracking means your breakpoints are never touched.</li>
+  <li><b>Team-ready knowledge sharing.</b> Run <code>/wiki-relocate docs/llm-wiki</code> to commit the wiki
+  path to <code>.clawdea/config.json</code>; teammates auto-discover the shared wiki on clone, with per-user
+  vs team-shared drift state split automatically. Cross-repo navigation for monorepos via
+  <code>.clawdea-workspace.md</code> and sibling-repo tools.</li>
 
   <li><b>JVM profiling as a diagnostic loop.</b> One-click profiling of tests and run configurations via
   JDK Flight Recorder. Claude analyzes CPU hotspots, allocation pressure, and memory leaks (.jfr and .hprof),
   then proposes source-level fixes. Entry points: <code>/profile</code> slash command, gutter icon on
   <code>@Test</code> methods, or imported recordings.</li>
 
-  <li><b>Project knowledge layer.</b> A project-local wiki under <code>.claude/wiki/</code> plus an
-  auto-generated <code>REPO_STATE.md</code>. The primer ships with every turn so Claude starts each
-  conversation oriented &mdash; no "let me explore the codebase first". Personal notes via <code>/note</code>
-  can be promoted to shared concept pages. Cross-repo navigation for monorepos via
-  <code>.clawdea-workspace.md</code> and sibling-repo tools.</li>
+  <li><b>IDE-grade code navigation, debugging &amp; edit review.</b> IntelliJ's PSI index as MCP tools
+  (<code>find_usages</code>, <code>find_callers</code>, <code>find_implementations</code>,
+  <code>find_supertypes</code>, <code>resolve_symbol</code> and more &mdash; precise and complete, not
+  grep), a 21-tool live debugger with breakpoint-ownership tracking, and diff-gated edit review.
+  <b>Coexists with IntelliJ's own bundled MCP server:</b> enable it and ClawDEA drops the few overlapping
+  tools, keeping everything the IDE has no equivalent for (the usage/caller/type-hierarchy graph,
+  ownership-tracked debugging, diff-gated edits, profiling, and the knowledge layer). Detection is
+  fail-open.</li>
 </ul>
 
 <h2>The rest of the toolkit</h2>
