@@ -143,6 +143,11 @@ class CliProcess(
                 append(MCP_SYSTEM_PROMPT)
                 append("\n\n")
                 append(EDIT_REVIEW_PROMPT)
+                val baselineDefaults = buildBaselineDefaultsPrompt(settings.enableBaselineDefaults)
+                if (baselineDefaults.isNotBlank()) {
+                    append("\n\n")
+                    append(baselineDefaults)
+                }
                 if (settings.preloadSkillCatalog && skills.isNotEmpty()) {
                     append("\n\n")
                     append(buildSkillCatalogPrompt(skills))
