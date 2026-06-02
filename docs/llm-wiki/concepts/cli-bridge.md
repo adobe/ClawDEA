@@ -30,6 +30,16 @@
 5. On `CliEvent.AuthFailure` it invokes `onAuthFailure`. On `CliEvent.Result` it captures `sessionId` for resume.
 6. Pause = `process.toHandle().destroy()` (SIGINT). Abort = `destroyForcibly()`. Restart calls `stop()` then `start()`, bumping the generation so the old reader's tail emissions are ignored.
 
+## System-prompt assembly
+
+The `--append-system-prompt-file` temp file is composed in `CliProcess` from several sources concatenated in a fixed order: `WIKI_LIBRARIAN_PROMPT` (only when `enableWikiLibrarian`) → `MCP_SYSTEM_PROMPT` → `EDIT_REVIEW_PROMPT` → baseline defaults → skill catalog → primer ([CliProcess.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt)).
+
+- The three core blocks — `WIKI_LIBRARIAN_PROMPT`, `MCP_SYSTEM_PROMPT`, `EDIT_REVIEW_PROMPT` — are **inline `private val` companion constants** (triple-quoted `trimIndent()` strings at the bottom of `CliProcess`), not external resources. They are stable, always-on framing text; keeping them inline avoids a resource round-trip on the hot start path.
+- Newer prompt blocks follow a different, **established extraction pattern**: the text lives under `src/main/resources/prompts/<name>.md` and is pulled at assembly time via `PromptResource.load("<name>")` ([PromptResource.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/prompts/PromptResource.kt)). `PromptResource` is a process-lifetime `ConcurrentHashMap` cache; a missing resource throws `IllegalArgumentException`. The baseline-defaults block is the reference example — `buildBaselineDefaultsPrompt(enabled)` loads `baseline-defaults`, **fail-soft**: a missing resource (packaging defect) degrades to `""` ("feature off") rather than crashing the turn, and the unit test catches the defect instead.
+- `WikiAgentsArg` extends the same pattern with **`{{placeholder}}` substitution**: agent bodies under `/agents/<name>.md` contain tokens like `{{wiki-page-invariant}}` / `{{wiki-page-navigation}}` that `substituteTemplates` rewrites via `PromptResource.load(<token>)` (regex `\{\{([a-z0-9-]+)\}\}`), again leaving the placeholder untouched if the resource is absent ([WikiAgentsArg.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/wiki/WikiAgentsArg.kt)).
+
+A refactor that extracts the three inline constants to resources must follow this seam: resource at `prompts/<name>.md`, load through `PromptResource`, and decide fail-soft (degrade to `""`, like baseline-defaults) vs. fail-hard (throw, surfacing a packaging bug) per block. Test contracts to mirror: `CliProcessBaselineDefaultsTest` asserts the resource loads, contains its keyword markers, and that the `enabled`/disabled helper returns the block or `""`; `PromptResourceTest` covers load, cache identity (`assertSame`), and the missing-resource throw ([CliProcessBaselineDefaultsTest.kt](../../../src/test/kotlin/com/adobe/clawdea/cli/CliProcessBaselineDefaultsTest.kt), [PromptResourceTest.kt](../../../src/test/kotlin/com/adobe/clawdea/knowledge/prompts/PromptResourceTest.kt)).
+
 ## Anti-patterns
 
 - **Inline system prompt or settings JSON** — Will silently break on Windows or for prompts >32 KB. Always write to a temp file marked `deleteOnExit()` and pass via `--*-file` / `--settings <path>`.

@@ -13,6 +13,7 @@ package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.knowledge.primer.PrimerService
+import com.adobe.clawdea.knowledge.prompts.PromptResource
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
@@ -142,6 +143,11 @@ class CliProcess(
                 append(MCP_SYSTEM_PROMPT)
                 append("\n\n")
                 append(EDIT_REVIEW_PROMPT)
+                val baselineDefaults = buildBaselineDefaultsPrompt(settings.enableBaselineDefaults)
+                if (baselineDefaults.isNotBlank()) {
+                    append("\n\n")
+                    append(baselineDefaults)
+                }
                 if (settings.preloadSkillCatalog && skills.isNotEmpty()) {
                     append("\n\n")
                     append(buildSkillCatalogPrompt(skills))
@@ -499,74 +505,54 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
             """.trimIndent()
         }
 
-        private val MCP_SYSTEM_PROMPT = """
-You're running inside IntelliJ. The clawdea-intellij MCP server exposes the IDE's indices, content search, and debugger; its tools are pre-loaded — prefer them over Bash grep/find/ls and the Glob/Grep built-ins for code search.
+        /**
+         * Returns the always-on baseline working-defaults block for the system
+         * prompt, or "" when [enabled] is false or the bundled resource cannot
+         * be loaded. Pure and side-effect-free (no logging) so it can be unit
+         * tested without launching a process — same shape as
+         * [buildSkillCatalogPrompt]. Fail-soft: a missing resource degrades to
+         * "feature off"; the packaging defect is caught by the unit test, not
+         * at runtime.
+         */
+        internal fun buildBaselineDefaultsPrompt(enabled: Boolean): String {
+            if (!enabled) return ""
+            return try {
+                PromptResource.load("baseline-defaults")
+            } catch (_: Exception) {
+                ""
+            }
+        }
 
-Code-search tool routing (USE THIS PRIORITY ORDER — higher wins):
-1. **Symbol navigation (ALWAYS prefer for code symbols):**
-   - `find_symbol` — **START HERE** when you know a symbol name but not its file/line. Resolves class, method, or field names to definition locations (file + line + context). Use this FIRST, then follow up with find_usages/find_callers on the returned location.
-   - `find_usages` — find all references to a symbol. Requires file + line (get these from find_symbol first).
-   - `find_callers` — find what calls a specific method. Requires file + line.
-   - `find_implementations` — find classes implementing an interface/abstract class.
-   - `find_supertypes` — find parent types in the hierarchy.
-   - `find_files` — locate files by name pattern (filename index).
-   - `resolve_symbol` — go to definition of a symbol at a specific location.
-   These tools use IntelliJ's PSI index — they are **precise** (no false positives from comments or strings) and **complete** (find all usages including renamed imports). They are ALWAYS better than text search for code navigation.
+        /**
+         * Loads a static system-prompt resource, fail-soft to "" if the bundled
+         * resource cannot be loaded. Applies `.trim()` to drop the resource
+         * file's trailing newline, producing output byte-identical to the
+         * previous inline `trimIndent()` literal (which stripped the leading and
+         * trailing blank lines inside the `"""` block).
+         *
+         * Unlike [buildBaselineDefaultsPrompt] (a user-toggleable, additive
+         * block), these are always-on core routing prompts, so a load failure is
+         * logged at error level — it is a packaging defect, not a runtime
+         * condition, and the unit tests guard resource presence at build time —
+         * while still degrading soft rather than crashing CLI startup.
+         */
+        private fun loadStaticPrompt(name: String): String = try {
+            PromptResource.load(name).trim()
+        } catch (e: Exception) {
+            Logger.getInstance("com.adobe.clawdea.cli.CliProcess").error(
+                "Failed to load static system-prompt resource '$name'; " +
+                    "continuing without it. This is a packaging defect — the resource " +
+                    "should ship in src/main/resources/prompts/$name.md.",
+                e,
+            )
+            ""
+        }
 
-2. **Content search (ONLY for non-symbol text):**
-   - `search_text` — literal or regex search across project source files. Use ONLY for: error messages, log strings, config keys, CLI flags, hardcoded URLs, or other literal text that is NOT a code symbol. NEVER use search_text to find where a class/method/field is defined or used.
+        private val MCP_SYSTEM_PROMPT = loadStaticPrompt("mcp-system-prompt")
 
-3. **NEVER use** `Bash grep`, `Bash find`, `Bash ls`, or the Glob/Grep built-in tools for code search. The MCP tools above replace all of these with better results.
+        private val WIKI_LIBRARIAN_PROMPT = loadStaticPrompt("wiki-librarian-prompt")
 
-Decision rule: know a symbol name? → `find_symbol`. Know file+line, want references? → `find_usages`/`find_callers`. Looking for a literal string that isn't a symbol? → `search_text`.
-
-When delegating to subagents, remind them: prefer the clawdea-intellij MCP tools over Bash grep/find/ls and the Glob/Grep built-ins.
-
-Debug tool guidelines:
-- Start a debug session before using stepping/inspection tools.
-- All stepping tools block until the program suspends and return the new position.
-- debug_resume returns the next suspend position or "running" if no breakpoint is hit within 10 seconds.
-- You can only remove breakpoints you created. User breakpoints can be temporarily disabled with debug_disable_breakpoint.
-- When done debugging, call debug_stop to clean up your breakpoints and restore any user breakpoints you disabled.
-- Use debug_evaluate to test hypotheses. Use debug_set_value to modify variables at runtime to verify fix ideas without recompiling.
-- When investigating runtime bugs, prefer setting a breakpoint and inspecting live state over guessing from static reads. Combine with code-index tools: indices to locate, debugger to observe.
-        """.trimIndent()
-
-        private val WIKI_LIBRARIAN_PROMPT = """
-Wiki-knowledge routing:
-For any non-trivial question whose answer depends on how THIS PROJECT works, your FIRST tool call MUST be:
-
-  Agent(description="<3-5 word task summary>", subagent_type="wiki-librarian", prompt="<the user's question, verbatim or paraphrased>")
-
-This covers — non-exhaustively:
-- "how does X work?", "where is Y?", "what is the contract of Z?"
-- architecture, contracts between subsystems, why one approach instead of another
-- **change-safety / validation questions**: "is this change safe?", "will this regress X?", "what would break if we did Y?", "is it OK to remove/rename/raise/lower Z?"
-- code review, design review, or any judgement call that depends on existing project invariants
-
-If you can imagine the answer starting with "well, in this project we do …" or "that would break the invariant that …", the librarian must go first.
-
-The wiki-librarian subagent holds this project's design knowledge (`.claude/wiki/`) in its own fresh context every call, reads the relevant concept pages, verifies against current source where it matters, and returns a synthesised answer with page citations. You then use that answer to drive any follow-up code work or validation.
-
-Not `Read`. Not `search_text`. Not `find_symbol`. Not `Bash`. One `Agent` call FIRST, then everything else is unrestricted.
-
-Two narrow exceptions where you may skip the librarian:
-1. You already have a specific wiki page slug from a previous turn — read it directly via `read_wiki_page(name='<slug>', kind='concept')`.
-2. Purely lexical edits where you already know the exact symbol or string to change (renames, formatting, lint, single-typo fixes on a known location).
-
-If the user's question is about the codebase as a project (not "fix this typo on line 42"), go through the librarian first. No exceptions beyond the two above.
-        """.trimIndent()
-
-        private val EDIT_REVIEW_PROMPT = """
-File-edit routing:
-For every file mutation, prefer the MCP propose_* tools — they open a diff dialog so the user can review (and reject) the change before it lands on disk:
-- propose_edit — preferred over the built-in Edit tool. Single old_string → new_string substitution.
-- propose_write — preferred over the built-in Write tool. Overwrites a file with new content.
-- propose_multi_edit — preferred over the built-in MultiEdit tool. Takes file_path and edits as a JSON-encoded array of {old_string, new_string} objects.
-- propose_notebook_edit — preferred over the built-in NotebookEdit tool. Same signature (notebook_path, cell_id, new_source, optional cell_type, optional edit_mode).
-
-The built-in Edit/Write/MultiEdit/NotebookEdit tools also work; ClawDEA captures their content for post-hoc diff review. Use the propose_* variants whenever the user might want to inspect or reject the change before it applies (the default for new files and any non-trivial edit).
-        """.trimIndent()
+        private val EDIT_REVIEW_PROMPT = loadStaticPrompt("edit-review-prompt")
 
     }
 }

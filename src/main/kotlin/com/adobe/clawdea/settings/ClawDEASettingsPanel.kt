@@ -140,6 +140,7 @@ class ClawDEASettingsPanel {
     val enablePsiCollectorCheckbox = JBCheckBox("Enable PSI semantic context", true)
     val enableGitCollectorCheckbox = JBCheckBox("Enable Git context", true)
     val preloadSkillCatalogCheckbox = JBCheckBox("Preload skill catalog into system prompt", true)
+    val enableBaselineDefaultsCheckbox = JBCheckBox("Inject baseline working defaults into system prompt", true)
     val gatewayBareModeCheckbox = JBCheckBox(
         "Use minimal-mode CLI for completions (--bare; requires API-key auth)",
         true,
@@ -236,6 +237,7 @@ class ClawDEASettingsPanel {
         .addComponent(enablePsiCollectorCheckbox, 1)
         .addComponent(enableGitCollectorCheckbox, 1)
         .addComponent(preloadSkillCatalogCheckbox, 1)
+        .addComponent(enableBaselineDefaultsCheckbox, 1)
         .addComponent(gatewayBareModeCheckbox, 1)
         .addComponentFillVertically(JPanel(), 0)
         .panel
@@ -415,6 +417,7 @@ class ClawDEASettingsPanel {
         enablePsiCollectorCheckbox.isSelected = state.enablePsiCollector
         enableGitCollectorCheckbox.isSelected = state.enableGitCollector
         preloadSkillCatalogCheckbox.isSelected = state.preloadSkillCatalog
+        enableBaselineDefaultsCheckbox.isSelected = state.enableBaselineDefaults
         gatewayBareModeCheckbox.isSelected = state.gatewayBareMode
         enableKnowledgeLayerCheckbox.isSelected = state.enableKnowledgeLayer
         enableWikiLibrarianCheckbox.isSelected = state.enableWikiLibrarian
@@ -456,6 +459,7 @@ class ClawDEASettingsPanel {
         state.enablePsiCollector = enablePsiCollectorCheckbox.isSelected
         state.enableGitCollector = enableGitCollectorCheckbox.isSelected
         state.preloadSkillCatalog = preloadSkillCatalogCheckbox.isSelected
+        state.enableBaselineDefaults = enableBaselineDefaultsCheckbox.isSelected
         state.gatewayBareMode = gatewayBareModeCheckbox.isSelected
         state.enableKnowledgeLayer = enableKnowledgeLayerCheckbox.isSelected
         state.enableWikiLibrarian = enableWikiLibrarianCheckbox.isSelected
@@ -494,6 +498,7 @@ class ClawDEASettingsPanel {
             enablePsiCollectorCheckbox.isSelected != state.enablePsiCollector ||
             enableGitCollectorCheckbox.isSelected != state.enableGitCollector ||
             preloadSkillCatalogCheckbox.isSelected != state.preloadSkillCatalog ||
+            enableBaselineDefaultsCheckbox.isSelected != state.enableBaselineDefaults ||
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
             enableKnowledgeLayerCheckbox.isSelected != state.enableKnowledgeLayer ||
             enableWikiLibrarianCheckbox.isSelected != state.enableWikiLibrarian ||
