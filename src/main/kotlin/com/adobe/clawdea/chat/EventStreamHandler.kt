@@ -155,7 +155,7 @@ class EventStreamHandler(
                 val parentCard = subAgentController.parentCardFor(event.parentToolUseId)
                 if (parentCard != null) {
                     // Inner content of a running sub-agent.
-                    if (messageBuffer.isNotEmpty()) messageBuffer.clear()  // sub-agent text comes via event.text
+                    if (messageBuffer.isNotEmpty()) messageBuffer.clear()  // guard: discard any buffered main-agent text before rendering inner content
                     if (event.text.isNotBlank()) {
                         browserRenderer.appendIntoSubAgent(parentCard, renderer.renderAssistantText(event.text))
                     }
@@ -247,7 +247,6 @@ class EventStreamHandler(
                     val status = if (event.isError) SubAgentController.Status.ERROR else SubAgentController.Status.DONE
                     val state = subAgentController.finalize(event.toolUseId, status)
                     if (state != null) {
-                        browserRenderer.hideStopButton(event.toolUseId)
                         browserRenderer.finalizeSubAgent(
                             event.toolUseId,
                             renderer.renderSubAgentSummary(status, state.stepCount, event.content),
@@ -256,6 +255,7 @@ class EventStreamHandler(
                     routableToolUses.remove(event.toolUseId)
                     toolNameById.remove(event.toolUseId)
                     toolInputById.remove(event.toolUseId)
+                    toolStartTime = 0
                     onContextLabelUpdate()
                     watchForToolResultStall(progressSequence)
                     return
