@@ -86,6 +86,8 @@ class ChatHtmlTemplate {
                 case 'turn-pause': bridgeTurnControl('pause'); break;
                 case 'turn-stop': bridgeTurnControl('stop'); break;
                 case 'toggle-tool-body': toggleToolBody(el); break;
+                case 'toggle-subagent': toggleSubAgent(el); break;
+                case 'toggle-subagent-step': toggleSubAgentStep(el); break;
                 case 'open-file': bridgeOpenFile(el.getAttribute('data-file-path') || ''); break;
                 case 'navigate': bridgeNavigate(el.getAttribute('data-ref') || ''); break;
                 case 'permission-allow': bridgePermissionDecision(permissionId + ':allow'); break;

@@ -197,6 +197,36 @@ class ChatBrowserRenderer(
         )
     }
 
+    /** Append [html] into the `.subagent-children` of the sub-agent card [parentId]. */
+    fun appendIntoSubAgent(parentId: String, html: String) {
+        if (!browserReady || html.isBlank()) return
+        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        browser.cefBrowser.executeJavaScript(
+            "appendIntoSubAgent(\"$safeId\", '${escapeForJs(html)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    /** Update the live status line (e.g. step counter) of sub-agent card [parentId]. */
+    fun updateSubAgentStatus(parentId: String, statusHtml: String) {
+        if (!browserReady) return
+        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        browser.cefBrowser.executeJavaScript(
+            "updateSubAgentStatus(\"$safeId\", '${escapeForJs(statusHtml)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    /** Collapse sub-agent card [parentId] and insert its final [summaryHtml]. */
+    fun finalizeSubAgent(parentId: String, summaryHtml: String) {
+        if (!browserReady) return
+        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        browser.cefBrowser.executeJavaScript(
+            "finalizeSubAgent(\"$safeId\", '${escapeForJs(summaryHtml)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
     fun updateEditLinkStatus(toolUseId: String, status: String, escapeHtml: (String) -> String) {
         if (!browserReady) return
         val safeId = toolUseId.replace("\\", "\\\\").replace("'", "\\'")

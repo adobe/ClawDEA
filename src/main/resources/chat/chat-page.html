@@ -857,6 +857,82 @@ em { color: var(--subtext0); }
     word-break: break-word;
 }
 
+/* Sub-agent cards (Task tool) */
+.subagent-block {
+    margin: 8px 0;
+    background: rgba(137, 180, 250, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(137, 180, 250, 0.18);
+    overflow: hidden;
+}
+.subagent-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(137, 180, 250, 0.08);
+    cursor: pointer;
+    user-select: none;
+}
+.subagent-icon { font-size: 13px; }
+.subagent-type { color: var(--blue); font-size: 12px; font-weight: 600; }
+.subagent-desc {
+    color: var(--subtext0);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.subagent-status {
+    margin-left: auto;
+    color: var(--overlay0);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+}
+.subagent-children {
+    border-top: 1px solid rgba(137, 180, 250, 0.1);
+    padding: 4px 8px 6px 8px;
+    margin-left: 6px;
+    border-left: 2px solid rgba(137, 180, 250, 0.25);
+}
+/* Collapsed: hide the inner steps, keep the header + summary visible */
+.subagent-block:not(.expanded) .subagent-children {
+    display: none;
+}
+.subagent-step { margin: 2px 0; }
+.subagent-step-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--subtext0);
+    padding: 1px 0;
+}
+.subagent-step-row:hover { color: var(--text); }
+.subagent-step-icon { color: var(--blue); }
+.subagent-step-name { color: var(--text); }
+.subagent-step-arg { color: var(--overlay0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Reuse the existing collapsible tool-body styling for an inner step's output;
+   it stays hidden until the row toggles it open. */
+.subagent-step .tool-body-collapsible { margin-left: 14px; }
+.subagent-summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 10px;
+    font-size: 11px;
+    border-top: 1px solid rgba(137, 180, 250, 0.1);
+}
+.subagent-summary-glyph { font-size: 12px; }
+.subagent-summary-done .subagent-summary-glyph { color: var(--green); }
+.subagent-summary-error .subagent-summary-glyph { color: var(--red); }
+.subagent-summary-aborted .subagent-summary-glyph { color: var(--overlay0); }
+.subagent-summary-meta { color: var(--overlay0); font-family: 'JetBrains Mono', monospace; }
+.subagent-summary-text { color: var(--subtext0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 </style>
 </head>
 <body>
@@ -883,6 +959,41 @@ function toggleToolBody(header) {
     if (chevron) {
         chevron.classList.toggle('open', isOpen);
     }
+}
+function subAgentEl(parentId) {
+    return document.querySelector('.subagent-block[data-tool-id="' + parentId + '"]');
+}
+function appendIntoSubAgent(parentId, html) {
+    var block = subAgentEl(parentId);
+    if (!block) { appendMessage(html); return; }   // fallback: never lose content
+    var children = block.querySelector('.subagent-children');
+    if (children) children.insertAdjacentHTML('beforeend', html);
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+function updateSubAgentStatus(parentId, statusText) {
+    var block = subAgentEl(parentId);
+    if (!block) return;
+    var status = block.querySelector('[data-subagent-status]');
+    if (status) status.innerHTML = statusText;
+}
+function finalizeSubAgent(parentId, summaryHtml) {
+    var block = subAgentEl(parentId);
+    if (!block) return;
+    var status = block.querySelector('[data-subagent-status]');
+    if (status) status.remove();
+    var header = block.querySelector('.subagent-header');
+    if (header) header.insertAdjacentHTML('afterend', summaryHtml);
+    block.classList.remove('expanded');   // auto-collapse on completion
+}
+function toggleSubAgent(header) {
+    var block = header.closest('.subagent-block');
+    if (block) block.classList.toggle('expanded');
+}
+function toggleSubAgentStep(row) {
+    var step = row.closest('.subagent-step');
+    if (!step) return;
+    var body = step.querySelector('.tool-body-collapsible');
+    if (body) body.classList.toggle('open');
 }
 function updateTaskWidget(html) {
     var existing = document.getElementById('task-widget');
