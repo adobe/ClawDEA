@@ -68,4 +68,16 @@ class SubAgentControllerTest {
         assertEquals(1, c.finalize("b", SubAgentController.Status.DONE)!!.stepCount)
         assertTrue(c.activeIds().isEmpty())
     }
+
+    @Test
+    fun `finalize with ABORTED stamps aborted status and removes the id`() {
+        val c = SubAgentController()
+        c.register("toolu_p", "agent", "desc", nowMs = 0)
+        c.recordStep("toolu_p")
+        c.recordStep("toolu_p")
+        val state = c.finalize("toolu_p", SubAgentController.Status.ABORTED)!!
+        assertEquals(SubAgentController.Status.ABORTED, state.status)
+        assertEquals(2, state.stepCount)
+        assertFalse(c.isActive("toolu_p"))
+    }
 }
