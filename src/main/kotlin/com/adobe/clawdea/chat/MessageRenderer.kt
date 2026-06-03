@@ -146,7 +146,7 @@ class MessageRenderer(
         val safeType = escapeHtml(agentType.ifBlank { "agent" })
         val safeDesc = escapeHtml(description)
         return """
-            <div class="subagent-block" data-expanded="true" data-tool-id="$safeId">
+            <div class="subagent-block expanded" data-tool-id="$safeId">
                 <div class="subagent-header" data-action="toggle-subagent">
                     <span class="subagent-icon">&#129302;</span>
                     <span class="subagent-type">$safeType</span>

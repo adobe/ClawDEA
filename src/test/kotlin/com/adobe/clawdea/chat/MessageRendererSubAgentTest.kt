@@ -14,7 +14,8 @@ class MessageRendererSubAgentTest {
     @Test
     fun `sub-agent card carries the card id, agent type, and children container`() {
         val html = renderer.renderSubAgentCard("wiki-librarian", "Research chat UI", "toolu_p")
-        assertTrue(html.contains("""class="subagent-block""""))
+        assertTrue(html.contains("subagent-block"))
+        assertTrue(html.contains("expanded"))
         assertTrue(html.contains("""data-tool-id="toolu_p""""))
         assertTrue(html.contains("wiki-librarian"))
         assertTrue(html.contains("Research chat UI"))
