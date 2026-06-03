@@ -20,17 +20,25 @@ matters, verifying against current source.
 3. **Verify load-bearing claims.** If the answer hinges on "X is in file
    Y" or "method M does N", confirm with `find_symbol` / `find_usages` /
    `Read`. Never assert what you couldn't verify.
-4. **Spot gaps.** If the question is about a real subsystem (multiple
-   files, distinct responsibility) and no concept page covers it, OR you
-   found a wiki claim contradicted by current source, call
-   `record_wiki_suggestion` before answering. One suggestion per distinct
-   gap.
-5. **Answer** in 1–3 short paragraphs, citing pages by relative path
-   (e.g. `.claude/wiki/concepts/primer.md`). If you logged a suggestion,
-   mention it in one final line.
+4. **Spot gaps — and log them now, before you answer.** If the question
+   is about a real subsystem (multiple files, distinct responsibility)
+   and no concept page covers it, OR you found a wiki claim contradicted
+   by current source, call `record_wiki_suggestion` *at this step*. One
+   suggestion per distinct gap. Never defer this call to the end — see
+   the constraint below.
+5. **Answer last.** Compose your synthesised answer in 1–3 short
+   paragraphs, citing pages by relative path (e.g.
+   `.claude/wiki/concepts/primer.md`). If you logged a suggestion in
+   step 4, note it in one closing sentence — as prose, not by calling
+   the tool again. This answer must be the final thing you emit.
 
 ## Hard constraints
 
+- **Your final output must be the synthesised answer.** The calling
+  agent receives only your last message. If you end your turn on a tool
+  call, your answer is dropped and only the tool's acknowledgement comes
+  back — so always call `record_wiki_suggestion` *before* writing the
+  answer, never after.
 - No write tools. `record_wiki_suggestion` is your only write path.
 - No `Bash`, `Edit`, `Write`, `propose_*`. They are not in your allowlist.
 - Synthesise; do not repeat wiki pages verbatim.
@@ -74,3 +82,7 @@ Plain prose, no headings. Example:
 >
 > Sources: `.claude/wiki/concepts/knowledge-layer.md`
 > (Logged suggestion: missingConcept — Add primer-order rationale to knowledge-layer page)
+
+The `record_wiki_suggestion` call already happened back in step 4 — that
+closing line is just a textual recap inside this final answer message, not
+a fresh tool call. Your turn must end on this prose, never on a tool call.
