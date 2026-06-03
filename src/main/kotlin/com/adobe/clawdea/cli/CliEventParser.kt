@@ -50,13 +50,14 @@ class CliEventParser {
             val deltaType = extractNestedString(json, "\"delta\"", "\"type\"")
             if (deltaType == "text_delta") {
                 val text = extractNestedString(json, "\"delta\"", "\"text\"") ?: ""
-                return CliEvent.TextDelta(text)
+                return CliEvent.TextDelta(text, extractString(json, "\"parent_tool_use_id\""))
             }
         }
         return CliEvent.Unknown(rawType = "stream_event", rawJson = json)
     }
 
     private fun parseAssistantMessage(json: String): CliEvent {
+        val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
         val contentArray = extractContentArray(json)
         var text = ""
         val toolUses = mutableListOf<CliEvent.ToolUse>()
@@ -77,10 +78,11 @@ class CliEventParser {
             }
         }
 
-        return CliEvent.AssistantMessage(text, toolUses)
+        return CliEvent.AssistantMessage(text, toolUses, parentToolUseId)
     }
 
     private fun parseUserMessage(json: String): CliEvent {
+        val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
         val contentArray = extractContentArray(json)
         for (block in contentArray) {
             val blockType = extractString(block, "\"type\"")
@@ -88,7 +90,7 @@ class CliEventParser {
                 val toolUseId = extractString(block, "\"tool_use_id\"") ?: ""
                 val content = extractToolResultContent(block)
                 val isError = block.contains("\"is_error\":true")
-                return CliEvent.ToolResult(toolUseId, content, isError)
+                return CliEvent.ToolResult(toolUseId, content, isError, parentToolUseId)
             }
         }
         return CliEvent.Unknown(rawType = "user", rawJson = json)

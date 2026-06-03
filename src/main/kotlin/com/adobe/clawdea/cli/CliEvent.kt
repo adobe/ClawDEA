@@ -20,11 +20,13 @@ sealed class CliEvent {
 
     data class TextDelta(
         val text: String,
+        val parentToolUseId: String? = null,
     ) : CliEvent()
 
     data class AssistantMessage(
         val text: String,
         val toolUses: List<ToolUse>,
+        val parentToolUseId: String? = null,
     ) : CliEvent()
 
     data class ToolUse(
@@ -37,6 +39,7 @@ sealed class CliEvent {
         val toolUseId: String,
         val content: String,
         val isError: Boolean = false,
+        val parentToolUseId: String? = null,
     ) : CliEvent()
 
     data class Result(
