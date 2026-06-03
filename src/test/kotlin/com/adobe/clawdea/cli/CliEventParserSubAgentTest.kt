@@ -49,4 +49,24 @@ class CliEventParserSubAgentTest {
         val event = parser.parse(json) as CliEvent.TextDelta
         assertNull(event.parentToolUseId)
     }
+
+    @Test
+    fun `real wire order - parent_tool_use_id after message is still captured`() {
+        // In the real CLI wire format (confirmed via latest.ndjson line 10) the envelope key order is:
+        // type → message → parent_tool_use_id → session_id → uuid
+        // This test proves the parser is field-order independent against that real shape.
+        val json = """{"type":"assistant","message":{"model":"claude-sonnet-4-6","id":"msg_abc","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"stop_reason":null},"parent_tool_use_id":"toolu_real_parent","session_id":"sess_1","uuid":"uuid_1"}"""
+        val event = parser.parse(json) as CliEvent.AssistantMessage
+        assertEquals("toolu_real_parent", event.parentToolUseId)
+        assertEquals("hello", event.text)
+    }
+
+    @Test
+    fun `absent parent_tool_use_id key yields null parentToolUseId`() {
+        // When the key is entirely omitted (not present as null), parentToolUseId must still be null.
+        val json = """{"type":"assistant","message":{"content":[{"type":"text","text":"standalone"}]}}"""
+        val event = parser.parse(json) as CliEvent.AssistantMessage
+        assertNull(event.parentToolUseId)
+        assertEquals("standalone", event.text)
+    }
 }
