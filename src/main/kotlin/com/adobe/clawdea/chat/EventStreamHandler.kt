@@ -334,6 +334,14 @@ class EventStreamHandler(
             }
             is CliEvent.Result -> {
                 browserRenderer.hideThinkingIndicator()
+                // Any sub-agent still active at turn end was aborted/interrupted —
+                // finalize its card into an aborted state (stays expanded).
+                for (id in subAgentController.activeIds()) {
+                    val state = subAgentController.finalize(id, SubAgentController.Status.ABORTED)
+                    if (state != null) {
+                        browserRenderer.updateSubAgentStatus(id, "&#9632; aborted")
+                    }
+                }
                 if (messageBuffer.isNotEmpty()) {
                     browserRenderer.appendHtml(renderer.renderAssistantText(messageBuffer.toString()))
                     messageBuffer.clear()
