@@ -136,6 +136,85 @@ class MessageRenderer(
     }
 
     /**
+     * Container card for a sub-agent ([SubAgentController]) dispatch. Rendered
+     * expanded + running on creation; [ChatBrowserRenderer.appendIntoSubAgent]
+     * appends inner steps into `.subagent-children`, and
+     * [ChatBrowserRenderer.finalizeSubAgent] collapses it to a summary on completion.
+     */
+    fun renderSubAgentCard(agentType: String, description: String, toolUseId: String): String {
+        val safeId = escapeHtml(toolUseId)
+        val safeType = escapeHtml(agentType.ifBlank { "agent" })
+        val safeDesc = escapeHtml(description)
+        return """
+            <div class="subagent-block" data-expanded="true" data-tool-id="$safeId">
+                <div class="subagent-header" data-action="toggle-subagent">
+                    <span class="subagent-icon">&#129302;</span>
+                    <span class="subagent-type">$safeType</span>
+                    <span class="subagent-desc">$safeDesc</span>
+                    <span class="subagent-status" data-subagent-status>&#9203; running</span>
+                </div>
+                <div class="subagent-children"></div>
+            </div>
+        """.trimIndent()
+    }
+
+    /**
+     * Compact, individually-expandable one-liner for a single inner tool call of
+     * a sub-agent. The step's output is injected later by the existing
+     * [ChatBrowserRenderer.injectToolOutput] (it selects by `data-tool-id`
+     * globally, so nesting needs no special handling); CSS hides it until the
+     * row is expanded via `toggle-subagent-step`.
+     */
+    fun renderInnerToolUse(toolName: String, input: String, toolUseId: String): String {
+        val parsed = parseToolInput(toolName, input)
+        val icon = when {
+            toolName.contains("Bash", ignoreCase = true) -> "&#9654;"
+            toolName.contains("Read", ignoreCase = true) -> "&#128196;"
+            toolName.contains("Edit", ignoreCase = true) || toolName.contains("Write", ignoreCase = true) -> "&#9999;"
+            toolName.contains("Grep", ignoreCase = true) || toolName.contains("Glob", ignoreCase = true) ||
+                toolName.startsWith("mcp__clawdea") -> "&#128269;"
+            else -> "&#9881;"
+        }
+        val safeId = escapeHtml(toolUseId)
+        val safeName = escapeHtml(toolName)
+        val titleSuffix = parsed.title.removePrefix(toolName).trim()
+        val argRaw = titleSuffix.ifEmpty { parsed.body }.take(80)
+        val arg = escapeHtml(argRaw)
+        return """
+            <div class="subagent-step" data-tool-id="$safeId">
+                <div class="subagent-step-row" data-action="toggle-subagent-step">
+                    <span class="subagent-step-icon">$icon</span>
+                    <span class="subagent-step-name">$safeName</span>
+                    <span class="subagent-step-arg">$arg</span>
+                </div>
+            </div>
+        """.trimIndent()
+    }
+
+    /** Final one-line summary that replaces the live status row when a sub-agent finishes. */
+    fun renderSubAgentSummary(
+        status: SubAgentController.Status,
+        stepCount: Int,
+        resultText: String,
+    ): String {
+        val (glyph, cls, word) = when (status) {
+            SubAgentController.Status.DONE -> Triple("&#10003;", "subagent-summary-done", "done")
+            SubAgentController.Status.ERROR -> Triple("&#10007;", "subagent-summary-error", "error")
+            SubAgentController.Status.ABORTED -> Triple("&#9632;", "subagent-summary-aborted", "aborted")
+            SubAgentController.Status.RUNNING -> Triple("&#9203;", "subagent-summary-done", "done")
+        }
+        val steps = if (stepCount == 1) "1 step" else "$stepCount steps"
+        val firstLine = escapeHtml(resultText.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "")
+        return """
+            <div class="subagent-summary $cls">
+                <span class="subagent-summary-glyph">$glyph</span>
+                <span class="subagent-summary-meta">$steps &middot; $word</span>
+                <span class="subagent-summary-text">$firstLine</span>
+            </div>
+        """.trimIndent()
+    }
+
+    /**
      * Back-compat replay shortcut used by [com.adobe.clawdea.chat.SessionManager].
      * Delegates to [renderToolUseEvent] with [ToolMode.Replay].
      */
