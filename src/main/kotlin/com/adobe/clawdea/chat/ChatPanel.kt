@@ -116,6 +116,7 @@ class ChatPanel(
 
     // Task widget
     private val taskWidget = TaskWidgetController()
+    private val subAgentController = SubAgentController()
 
     // JS→Kotlin bridge for opening diff editor from chat link
     private val openDiffQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
@@ -354,6 +355,7 @@ class ChatPanel(
             browserRenderer = browserRenderer,
             editReviewCoordinator = editReviewHandler.coordinator,
             taskWidget = taskWidget,
+            subAgentController = subAgentController,
             turnController = turnController,
             statusLabel = statusLabel,
             scope = scope,
