@@ -115,6 +115,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.6.4</h3>
+<h4>Wiki librarian no longer swallows its own answer</h4>
+<ul>
+  <li><b>Fixed: the librarian sometimes came back empty.</b> When the wiki librarian spotted a gap worth flagging for the next wiki refresh, its actual answer was getting dropped on the way back &mdash; you'd see only a terse &ldquo;logged a suggestion&rdquo; note instead of the explanation you asked for. The librarian now always returns its full answer, with the suggestion noted at the end.</li>
+</ul>
+
 <h3>1.6.3</h3>
 <h4>Smarter by default</h4>
 <ul>
