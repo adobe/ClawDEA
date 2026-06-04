@@ -1761,10 +1761,15 @@ class ChatPanel(
             val match = commandRegistry.resolve(text)
             if (match != null) {
                 val handler = match.handler
-                match.handler.execute(match.args, buildCommandContext())
                 if (handler.info.name == "/goal") {
+                    // /goal is fully owned by handleGoalCommand (banner state +
+                    // the forward/abort decision), so it must not also run
+                    // BridgeForwardHandler.execute or fall through to the verbatim
+                    // forward below.
                     handleGoalCommand(match.args)
+                    return
                 }
+                match.handler.execute(match.args, buildCommandContext())
                 when (handler) {
                     is BridgeForwardHandler -> { /* fall through; send `text` verbatim */ }
                     is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler -> {
@@ -1794,32 +1799,43 @@ class ChatPanel(
     }
 
     /**
-     * Drive the goal banner from the forwarded `/goal` command so it reacts
-     * instantly (the stream's first Stop-hook feedback only arrives after the
-     * first turn). The CLI still owns the actual goal logic.
+     * Fully handle a `/goal` command: update ClawDEA's banner state immediately,
+     * then get the command to the CLI. `/goal` does NOT go through
+     * BridgeForwardHandler's verbatim forward — this method owns the forwarding
+     * so it can interrupt a running goal correctly.
+     *
+     * A goal's auto-continue is one long streaming turn, so a `/goal` issued
+     * while streaming (the common case: stopping or replacing a running goal)
+     * must first interrupt that turn. We then forward the command on a brief
+     * delay: forwarding immediately after the SIGINT raced with the interrupt
+     * and left the thinking indicator stuck, whereas a deferred forward runs as
+     * a clean, settled turn whose result clears the indicator.
      */
     private fun handleGoalCommand(args: String) {
         val trimmed = args.trim()
-        val lower = trimmed.lowercase()
-        when {
-            trimmed.isEmpty() -> { /* status query — leave banner as-is */ }
-            lower in GOAL_CLEAR_ALIASES -> {
-                // Clearing a running goal means stopping its auto-continue loop.
-                // That loop is one long streaming turn, so interrupt it first;
-                // the verbatim `/goal clear` then forwards (from a clean idle
-                // state) to drop the CLI-side goal. Without the interrupt the
-                // command would be queued behind the loop and never take effect.
-                stopStreamingTurnQuietly()
-                goalController.onClear()
-                browserRenderer.hideGoalBanner()
-            }
-            else -> {
-                // Setting/replacing a goal mid-turn: stop the current turn so the
-                // CLI processes the new /goal from a clean state. No-op when idle.
-                stopStreamingTurnQuietly()
-                goalController.onSet(trimmed)
-                goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
-            }
+        val streaming = turnController.isStreaming || turnController.isPaused
+        val isClear = trimmed.lowercase() in GOAL_CLEAR_ALIASES
+
+        if (isClear) {
+            goalController.onClear()
+            browserRenderer.hideGoalBanner()
+        } else if (trimmed.isNotEmpty()) {
+            goalController.onSet(trimmed)
+            goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
+        }
+
+        val cliText = if (trimmed.isEmpty()) "/goal" else "/goal $trimmed"
+
+        if (streaming) {
+            // Stop the in-flight turn (halts a running goal's loop) the clean way.
+            stopStreamingTurnQuietly()
+            // Drop/replace the CLI-side goal on a fresh turn once the interrupt
+            // has settled. renderInChat=false: the stop is the visible feedback;
+            // we don't want a delayed phantom "/goal …" bubble.
+            javax.swing.Timer(700) { dispatchSendToBridge(cliText, renderInChat = false) }
+                .apply { isRepeats = false; start() }
+        } else {
+            dispatchSendToBridge(cliText)
         }
     }
 
