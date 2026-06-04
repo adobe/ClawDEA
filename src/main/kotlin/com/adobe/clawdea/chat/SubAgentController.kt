@@ -64,8 +64,12 @@ class SubAgentController {
     fun isEmpty(): Boolean = active.isEmpty()
 
     companion object {
-        /** Tool names the CLI uses to dispatch a sub-agent. Verify/extend against a captured fixture. */
-        val SUBAGENT_TOOLS = setOf("Task")
+        /**
+         * Tool names the CLI uses to dispatch a sub-agent. Confirmed against a
+         * captured sandbox session — the dispatch tool is named `Agent` (NOT
+         * `Task`, which is the TodoWrite todo widget in this codebase).
+         */
+        val SUBAGENT_TOOLS = setOf("Agent")
 
         fun isSubAgentTool(name: String): Boolean = name in SUBAGENT_TOOLS
     }

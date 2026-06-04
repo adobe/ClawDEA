@@ -13,8 +13,9 @@ import org.junit.Test
 class SubAgentControllerTest {
 
     @Test
-    fun `Task tool name is recognized as a sub-agent dispatch`() {
-        assertTrue(SubAgentController.isSubAgentTool("Task"))
+    fun `Agent tool name is recognized as a sub-agent dispatch`() {
+        assertTrue(SubAgentController.isSubAgentTool("Agent"))
+        assertFalse(SubAgentController.isSubAgentTool("Task"))
         assertFalse(SubAgentController.isSubAgentTool("TaskCreate"))
         assertFalse(SubAgentController.isSubAgentTool("Read"))
     }
