@@ -42,7 +42,10 @@ object HistoryReplayRenderer {
                     }
                 }
                 is HistoryEntry.ToolResult -> {
-                    // Inlined under its tool block / sub-agent card; nothing to emit here.
+                    // No-op: every tool_result is inlined under its tool block
+                    // (findToolResult lookahead) or folded into a sub-agent card.
+                    // Because this branch never emits, child/agent results don't
+                    // need to be tracked in `consumed` — only child tool_uses do.
                 }
             }
         }
@@ -64,7 +67,7 @@ object HistoryReplayRenderer {
         for (j in agentIdx + 1 until history.size) {
             val e = history[j]
             if (e is HistoryEntry.ToolUse && e.parentToolUseId == agent.id) {
-                consumed.add(j)
+                consumed.add(j)  // only child tool_uses need skipping; results are no-ops in render()
                 stepCount++
                 val (childResult, childIsError, _) = findToolResult(history, j, e.id)
                 val stepHtml = if (EditReviewCoordinator.isProposeTool(e.name) || EditReviewCoordinator.isEditTool(e.name)) {

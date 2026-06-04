@@ -6,6 +6,7 @@ package com.adobe.clawdea.chat.session
 
 import com.adobe.clawdea.chat.MessageRenderer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -94,5 +95,18 @@ class HistoryReplayRendererTest {
         assertTrue(cardB.contains("""data-tool-id="b1""""))
         assertTrue(cardB.contains("""data-tool-id="b2""""))
         assertTrue(cardB.contains("2 steps"))
+    }
+
+    @Test
+    fun `orphan child whose parent agent is absent renders as a flat top-level block`() {
+        val history = listOf(
+            HistoryEntry.ToolUse("c1", "Read", """{"file_path":"/a.kt"}""", parentToolUseId = "missing_agent"),
+            HistoryEntry.ToolResult("c1", "contents", false, parentToolUseId = "missing_agent"),
+        )
+        val out = HistoryReplayRenderer.render(history, renderer)
+        // Orphan child must not crash and must NOT be folded into a sub-agent card.
+        assertFalse("orphan must not produce a sub-agent card", out.joinToString("\n").contains("subagent-block"))
+        // The Read tool renders as a file link; one output entry must be present.
+        assertEquals("orphan renders as exactly one top-level block", 1, out.size)
     }
 }
