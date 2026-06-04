@@ -572,6 +572,56 @@ em { color: var(--subtext0); }
 .wiki-git-state-banner-action:hover { text-decoration: underline; }
 .wiki-git-state-banner-sep { color: var(--overlay0); }
 
+/* Goal banner: sticky strip shown while a /goal is active */
+.goal-banner {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    margin: 0 0 8px 0;
+    background: var(--surface0);
+    border: 1px solid var(--mauve);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12px;
+}
+.goal-banner-icon { color: var(--mauve); font-size: 13px; }
+.goal-banner-cond { color: var(--text); font-weight: 600; }
+.goal-banner-meta { color: var(--overlay0); font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.goal-banner-reason {
+    color: var(--subtext0);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+}
+.goal-banner-clear {
+    margin-left: auto;
+    color: var(--blue);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.goal-banner-clear:hover { text-decoration: underline; }
+.goal-progress {
+    margin: 4px 0;
+    color: var(--overlay0);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+}
+.goal-achieved {
+    margin: 8px 0;
+    padding: 6px 10px;
+    background: rgba(166, 227, 161, 0.08);
+    border: 1px solid rgba(166, 227, 161, 0.2);
+    border-radius: 6px;
+    color: var(--green);
+    font-size: 12px;
+}
+
 /* Permission approval card */
 .permission-card {
     margin: 8px 0;
@@ -938,6 +988,7 @@ em { color: var(--subtext0); }
 <body>
 <div id="wiki-git-state-banner" style="display:none;"></div>
 <div id="drift-banner" style="display:none;"></div>
+<div id="goal-banner" style="display:none;"></div>
 <div id="messages">{{INITIAL_CONTENT}}</div>
 <script>if (document.getElementById('messages').children.length > 0) window.scrollTo(0, document.body.scrollHeight);</script>
 <div id="paused-banner" class="paused-banner" style="display:none;">
@@ -1086,6 +1137,16 @@ function updateWikiGitStateBanner(html) {
     var el = document.getElementById('wiki-git-state-banner');
     if (!el) return;
     el.outerHTML = html;
+}
+function updateGoalBanner(html) {
+    var el = document.getElementById('goal-banner');
+    if (!el) return;
+    el.outerHTML = html;
+}
+function hideGoalBanner() {
+    var el = document.getElementById('goal-banner');
+    if (!el) return;
+    el.outerHTML = '<div id="goal-banner" style="display:none;"></div>';
 }
 </script>
 </body>

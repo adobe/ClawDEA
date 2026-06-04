@@ -299,6 +299,22 @@ class ChatBrowserRenderer(
         )
     }
 
+    fun updateGoalBanner(html: String) {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript(
+            "updateGoalBanner('${escapeForJs(html)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    fun hideGoalBanner() {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript(
+            "hideGoalBanner();",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
     fun updateWikiGitStateBanner(html: String) {
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript(
