@@ -73,6 +73,16 @@ sealed class CliEvent {
         val reason: String,
     ) : CliEvent()
 
+    /**
+     * A `/goal` Stop-hook evaluation surfaced by the CLI between auto-continued
+     * turns. The CLI injects these as `type:"user"` text messages of the form
+     * `Stop hook feedback:\n[<condition>]: <reason>`.
+     */
+    data class GoalFeedback(
+        val condition: String,
+        val reason: String,
+    ) : CliEvent()
+
     sealed class TaskEvent : CliEvent() {
         data class TaskCreated(
             val id: String,

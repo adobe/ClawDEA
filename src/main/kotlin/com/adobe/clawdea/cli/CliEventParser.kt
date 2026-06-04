@@ -84,6 +84,7 @@ class CliEventParser {
     private fun parseUserMessage(json: String): CliEvent {
         val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
         val contentArray = extractContentArray(json)
+        val textParts = mutableListOf<String>()
         for (block in contentArray) {
             val blockType = extractString(block, "\"type\"")
             if (blockType == "tool_result") {
@@ -92,8 +93,28 @@ class CliEventParser {
                 val isError = block.contains("\"is_error\":true")
                 return CliEvent.ToolResult(toolUseId, content, isError, parentToolUseId)
             }
+            if (blockType == "text") {
+                extractString(block, "\"text\"")?.let { textParts.add(it) }
+            }
+        }
+        val text = textParts.joinToString("\n").trim()
+        if (text.startsWith(GOAL_FEEDBACK_PREFIX)) {
+            return parseGoalFeedback(text)
         }
         return CliEvent.Unknown(rawType = "user", rawJson = json)
+    }
+
+    /** Parse `Stop hook feedback:\n[<condition>]: <reason>` into a [CliEvent.GoalFeedback]. */
+    private fun parseGoalFeedback(text: String): CliEvent.GoalFeedback {
+        val body = text.removePrefix(GOAL_FEEDBACK_PREFIX).trim()
+        val open = body.indexOf('[')
+        val close = body.indexOf(']')
+        if (open == 0 && close > open) {
+            val condition = body.substring(open + 1, close)
+            val reason = body.substring(close + 1).removePrefix(":").trim()
+            return CliEvent.GoalFeedback(condition, reason)
+        }
+        return CliEvent.GoalFeedback("", body)
     }
 
     /**
@@ -270,6 +291,8 @@ class CliEventParser {
     }
 
     companion object {
+        private const val GOAL_FEEDBACK_PREFIX = "Stop hook feedback:"
+
         private val AUTH_ERROR_TYPES = listOf(
             "authentication_error",
             "invalid_api_key",

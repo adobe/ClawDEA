@@ -461,6 +461,9 @@ class EventStreamHandler(
             // ToolResult branch above, not dispatched through the event flow.
             // These branches exist only for sealed-class exhaustiveness.
             is CliEvent.TaskEvent -> {}
+            // /goal Stop-hook feedback: no UI action needed here; higher-level
+            // goal orchestration (next turn dispatch) will handle it separately.
+            is CliEvent.GoalFeedback -> {}
         }
     }
 
@@ -560,6 +563,7 @@ class EventStreamHandler(
                 is CliEvent.AuthFailure -> true
                 is CliEvent.SystemInit,
                 is CliEvent.TaskEvent,
+                is CliEvent.GoalFeedback,
                 is CliEvent.Unknown -> false
             }
 
