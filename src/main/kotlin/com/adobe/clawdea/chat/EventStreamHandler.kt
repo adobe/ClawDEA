@@ -29,6 +29,7 @@ class EventStreamHandler(
     private val editReviewCoordinator: EditReviewCoordinator,
     private val taskWidget: TaskWidgetController,
     private val subAgentController: SubAgentController,
+    private val goalController: GoalController,
     private val turnController: TurnController,
     private val statusLabel: JLabel,
     private val scope: CoroutineScope,
@@ -355,6 +356,12 @@ class EventStreamHandler(
             }
             is CliEvent.Result -> {
                 browserRenderer.hideThinkingIndicator()
+                // A `/goal` loop ends with a single trailing result — if a goal
+                // was active, its condition was met. Clear the banner and note it.
+                goalController.onResult()?.let { achieved ->
+                    browserRenderer.hideGoalBanner()
+                    browserRenderer.appendHtml(renderer.renderGoalAchieved(achieved))
+                }
                 // Any sub-agent still active at turn end was aborted/interrupted —
                 // finalize its card into an aborted state (stays expanded).
                 for (id in subAgentController.activeIds()) {
@@ -461,9 +468,13 @@ class EventStreamHandler(
             // ToolResult branch above, not dispatched through the event flow.
             // These branches exist only for sealed-class exhaustiveness.
             is CliEvent.TaskEvent -> {}
-            // /goal Stop-hook feedback: no UI action needed here; higher-level
-            // goal orchestration (next turn dispatch) will handle it separately.
-            is CliEvent.GoalFeedback -> {}
+            is CliEvent.GoalFeedback -> {
+                goalController.onFeedback(event.condition, event.reason, System.currentTimeMillis())
+                goalController.current()?.let { state ->
+                    browserRenderer.updateGoalBanner(renderer.renderGoalBanner(state))
+                }
+                browserRenderer.appendHtml(renderer.renderGoalProgress(event.reason))
+            }
         }
     }
 
@@ -559,11 +570,11 @@ class EventStreamHandler(
                 is CliEvent.TextDelta,
                 is CliEvent.AssistantMessage,
                 is CliEvent.ToolResult,
+                is CliEvent.GoalFeedback,
                 is CliEvent.Result,
                 is CliEvent.AuthFailure -> true
                 is CliEvent.SystemInit,
                 is CliEvent.TaskEvent,
-                is CliEvent.GoalFeedback,
                 is CliEvent.Unknown -> false
             }
 

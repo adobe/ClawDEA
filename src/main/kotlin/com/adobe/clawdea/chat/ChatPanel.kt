@@ -117,6 +117,7 @@ class ChatPanel(
     // Task widget
     private val taskWidget = TaskWidgetController()
     private val subAgentController = SubAgentController()
+    private val goalController = GoalController()
 
     // JS→Kotlin bridge for opening diff editor from chat link
     private val openDiffQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
@@ -356,6 +357,7 @@ class ChatPanel(
             editReviewCoordinator = editReviewHandler.coordinator,
             taskWidget = taskWidget,
             subAgentController = subAgentController,
+            goalController = goalController,
             turnController = turnController,
             statusLabel = statusLabel,
             scope = scope,
@@ -1145,6 +1147,10 @@ class ChatPanel(
             CommandInfo("/init", "Initialize CLAUDE.md for this project", CommandCategory.BRIDGE),
         ))
 
+        commandRegistry.register("/goal", BridgeForwardHandler(
+            CommandInfo("/goal", "Set a completion condition Claude works toward across turns", CommandCategory.BRIDGE),
+        ))
+
         commandRegistry.register("/note", com.adobe.clawdea.commands.handlers.NoteAppendHandler(project, scope))
 
         commandRegistry.register("/promote-to-wiki", com.adobe.clawdea.commands.handlers.PromoteToWikiHandler.create(project))
@@ -1746,6 +1752,9 @@ class ChatPanel(
             if (match != null) {
                 val handler = match.handler
                 match.handler.execute(match.args, buildCommandContext())
+                if (handler.info.name == "/goal") {
+                    handleGoalCommand(match.args)
+                }
                 when (handler) {
                     is BridgeForwardHandler -> { /* fall through; send `text` verbatim */ }
                     is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler -> {
@@ -1772,6 +1781,27 @@ class ChatPanel(
         }
 
         dispatchSendToBridge(text)
+    }
+
+    /**
+     * Drive the goal banner from the forwarded `/goal` command so it reacts
+     * instantly (the stream's first Stop-hook feedback only arrives after the
+     * first turn). The CLI still owns the actual goal logic.
+     */
+    private fun handleGoalCommand(args: String) {
+        val trimmed = args.trim()
+        val lower = trimmed.lowercase()
+        when {
+            trimmed.isEmpty() -> { /* status query — leave banner as-is */ }
+            lower in GOAL_CLEAR_ALIASES -> {
+                goalController.onClear()
+                browserRenderer.hideGoalBanner()
+            }
+            else -> {
+                goalController.onSet(trimmed, System.currentTimeMillis())
+                goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
+            }
+        }
     }
 
     private fun queueCurrentComposerText(): Boolean {
@@ -2111,6 +2141,8 @@ class ChatPanel(
         // value (200K Sonnet vs 1M Opus 4.7). The CLI's auto-compaction kicks in
         // around ~80% of the actual window.
         private const val DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
+
+        private val GOAL_CLEAR_ALIASES = setOf("clear", "stop", "off", "reset", "none", "cancel")
 
         // Resume on the first prompt-start stall (transient slow-first-byte / network blip).
         // Escalate to a fresh restart on the second consecutive stall — at that point the
