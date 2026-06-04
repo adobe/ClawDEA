@@ -122,6 +122,11 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
   <li><b>Parallel sub-agents stay separate.</b> When several sub-agents run at once, each gets its own card and its own steps &mdash; no more interleaved confusion.</li>
   <li><b>Resumed sessions look right too.</b> Reopening a past conversation reconstructs the sub-agent cards and the to-do checklist, rather than leaving a row of empty tool badges.</li>
 </ul>
+<h4>Keep Claude working toward a goal</h4>
+<ul>
+  <li><b><code>/goal</code> support.</b> Set a completion condition with <code>/goal &lt;condition&gt;</code> and Claude keeps working across turns until a fast model judges it met &mdash; no need to prompt each step. A sticky <b>goal banner</b> shows the condition, how many turns it has run, and the evaluator's latest reason, updating after every turn; each evaluation also leaves a short inline note in the transcript.</li>
+  <li><b>Stop it any time.</b> Click <b>Clear</b> in the banner (or run <code>/goal clear</code> / <code>/goal stop</code>) to halt a running goal immediately; the banner clears and a <code>&#10003; Goal achieved</code> note appears when the condition is met on its own.</li>
+</ul>
 
 <h3>1.6.4</h3>
 <h4>Wiki librarian no longer swallows its own answer</h4>
