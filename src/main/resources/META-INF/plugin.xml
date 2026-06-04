@@ -115,6 +115,14 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.7.0</h3>
+<h4>Sub-agents are now first-class in the chat</h4>
+<ul>
+  <li><b>Sub-agents render as collapsible cards.</b> When Claude dispatches a sub-agent (the <code>Agent</code> tool), its work now appears as a single card titled by what the sub-agent was asked to do, instead of the sub-agent's tool calls flooding the transcript. The card auto-expands while the sub-agent runs &mdash; so you can watch its steps stream in &mdash; then collapses to a one-line summary when it finishes. Click the header to expand it again; click any inner step to see that step's output.</li>
+  <li><b>Parallel sub-agents stay separate.</b> When several sub-agents run at once, each gets its own card and its own steps &mdash; no more interleaved confusion.</li>
+  <li><b>Resumed sessions look right too.</b> Reopening a past conversation reconstructs the sub-agent cards and the to-do checklist, rather than leaving a row of empty tool badges.</li>
+</ul>
+
 <h3>1.6.4</h3>
 <h4>Wiki librarian no longer swallows its own answer</h4>
 <ul>
