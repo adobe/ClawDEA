@@ -1716,6 +1716,16 @@ class ChatPanel(
 
             val match = commandRegistry.resolve(text)
             val handler = match?.handler
+            // /goal must act immediately — especially `/goal clear`/`/goal stop`.
+            // Queuing it behind a long-running goal turn would defer it (and join
+            // it with other queued text), which is how a malformed
+            // "clear\n/goal clear" goal gets created. Route it now; the clear
+            // path interrupts the loop, the set path replaces it cleanly.
+            if (handler?.info?.name == "/goal") {
+                inputArea.text = ""
+                sendTextThroughNormalRouting(text)
+                return
+            }
             if (handler?.info?.name == "/refresh-wiki") {
                 val refreshArgs = RefreshWikiArgs.parse(match.args)
                 val localOnly = refreshArgs.statusOnly ||
@@ -1794,14 +1804,41 @@ class ChatPanel(
         when {
             trimmed.isEmpty() -> { /* status query — leave banner as-is */ }
             lower in GOAL_CLEAR_ALIASES -> {
+                // Clearing a running goal means stopping its auto-continue loop.
+                // That loop is one long streaming turn, so interrupt it first;
+                // the verbatim `/goal clear` then forwards (from a clean idle
+                // state) to drop the CLI-side goal. Without the interrupt the
+                // command would be queued behind the loop and never take effect.
+                stopStreamingTurnQuietly()
                 goalController.onClear()
                 browserRenderer.hideGoalBanner()
             }
             else -> {
+                // Setting/replacing a goal mid-turn: stop the current turn so the
+                // CLI processes the new /goal from a clean state. No-op when idle.
+                stopStreamingTurnQuietly()
                 goalController.onSet(trimmed)
                 goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
             }
         }
+    }
+
+    /**
+     * Interrupt a streaming turn the way [abort] does, but without the
+     * "Response aborted by user" notice — used when a `/goal` command needs a
+     * clean idle state to act (especially stopping a running goal's loop). The
+     * caller forwards the `/goal …` text afterward, which starts a fresh turn.
+     */
+    private fun stopStreamingTurnQuietly() {
+        if (!turnController.isStreaming && !turnController.isPaused) return
+        bridge.abort()
+        turnController.resetTurnState()
+        clearQueuedPrompt()
+        syncStreamingUi()
+        browserRenderer.hidePausedBanner()
+        browserRenderer.hideThinkingIndicator()
+        browserRenderer.hideAllStopButtons()
+        statusLabel.text = " "
     }
 
     private fun queueCurrentComposerText(): Boolean {
