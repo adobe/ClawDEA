@@ -6,8 +6,11 @@ package com.adobe.clawdea.chat.session
 
 import com.adobe.clawdea.chat.MessageRenderer
 import com.adobe.clawdea.chat.SubAgentController
+import com.adobe.clawdea.chat.TaskWidgetController
 import com.adobe.clawdea.chat.ToolMode
 import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
+import com.adobe.clawdea.cli.CliEvent
+import com.adobe.clawdea.cli.TaskEventExtractor
 
 /**
  * Pure translation of parsed [HistoryEntry] list into the HTML fragments the
@@ -21,8 +24,23 @@ object HistoryReplayRenderer {
     fun render(history: List<HistoryEntry>, renderer: MessageRenderer): List<String> {
         val out = mutableListOf<String>()
         val consumed = mutableSetOf<Int>()  // child tool_use indices folded into a card
+
+        // Reconstruct the todo widget from top-level TaskCreate/TaskUpdate calls,
+        // so a resumed session shows the final checklist once instead of a row of
+        // empty per-call badges. Mirrors the live model (a single widget that
+        // updates in place); we emit the final state at the first task-tool spot.
+        val taskToolIndices = mutableSetOf<Int>()
+        val taskWidgetHtml = buildTaskWidget(history, taskToolIndices)
+        val firstTaskToolIdx = taskToolIndices.minOrNull() ?: -1
+
         for ((i, entry) in history.withIndex()) {
             if (i in consumed) continue
+            if (i in taskToolIndices) {
+                // Suppress the individual badge; emit the reconstructed widget
+                // once, at the position the live widget would have first appeared.
+                if (i == firstTaskToolIdx && taskWidgetHtml.isNotBlank()) out.add(taskWidgetHtml)
+                continue
+            }
             when (entry) {
                 is HistoryEntry.UserMessage -> out.add(renderer.renderUserMessage(entry.text))
                 is HistoryEntry.AssistantText -> out.add(renderer.renderAssistantText(entry.text))
@@ -50,6 +68,31 @@ object HistoryReplayRenderer {
             }
         }
         return out
+    }
+
+    /**
+     * Replay the top-level task-widget tool calls (TaskCreate/TaskUpdate, etc.)
+     * into a [TaskWidgetController] and return the final widget HTML (or "" when
+     * there were none). Records the index of every such top-level entry in
+     * [taskToolIndices] so the caller can suppress the per-call badges. Sub-agent
+     * inner task tools (non-null parent) are left to the sub-agent card grouping.
+     */
+    private fun buildTaskWidget(history: List<HistoryEntry>, taskToolIndices: MutableSet<Int>): String {
+        val widget = TaskWidgetController()
+        val extractor = TaskEventExtractor()
+        for ((i, entry) in history.withIndex()) {
+            if (entry !is HistoryEntry.ToolUse) continue
+            if (entry.parentToolUseId != null) continue
+            if (entry.name !in MessageRenderer.TASK_TOOLS) continue
+            taskToolIndices.add(i)
+            val (resultContent, resultIsError, _) = findToolResult(history, i, entry.id)
+            val event = extractor.extract(
+                CliEvent.ToolUse(entry.id, entry.name, entry.input),
+                CliEvent.ToolResult(entry.id, resultContent ?: "", resultIsError),
+            )
+            if (event != null) widget.onTaskEvent(event)
+        }
+        return widget.renderWidget()
     }
 
     private fun renderSubAgentCard(

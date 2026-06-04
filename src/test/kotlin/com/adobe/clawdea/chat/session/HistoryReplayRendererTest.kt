@@ -109,4 +109,25 @@ class HistoryReplayRendererTest {
         // The Read tool renders as a file link; one output entry must be present.
         assertEquals("orphan renders as exactly one top-level block", 1, out.size)
     }
+
+    @Test
+    fun `top-level task tool calls reconstruct one todo widget instead of empty badges`() {
+        val history = listOf(
+            HistoryEntry.UserMessage("do stuff"),
+            HistoryEntry.ToolUse("t1", "TaskCreate", """{"subject":"First task"}"""),
+            HistoryEntry.ToolResult("t1", "Task #1 created successfully: First task", false),
+            HistoryEntry.ToolUse("t2", "TaskCreate", """{"subject":"Second task"}"""),
+            HistoryEntry.ToolResult("t2", "Task #2 created successfully: Second task", false),
+            HistoryEntry.ToolUse("t3", "TaskUpdate", """{"taskId":"1","status":"completed"}"""),
+            HistoryEntry.ToolResult("t3", "Updated task #1 status", false),
+        )
+        val out = HistoryReplayRenderer.render(history, renderer)
+        val joined = out.joinToString("\n")
+        // One user message + exactly one reconstructed widget (no per-call badges).
+        assertEquals(2, out.size)
+        assertTrue("widget reconstructed", joined.contains("task-widget"))
+        assertTrue(joined.contains("First task"))
+        assertTrue(joined.contains("Second task"))
+        assertFalse("no empty per-call collapsed badges", joined.contains("tool-block-collapsed"))
+    }
 }
