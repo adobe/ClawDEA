@@ -68,7 +68,20 @@
 
 - id: stream-json-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
-  match: '\b(stream-json|tool_use|tool_result|text_delta|message_start|message_stop|partial)\b'
+  match: '\b(stream-json|tool_use|tool_result|text_delta|message_start|message_stop|partial|deep-research|workflow)\b'
+  triage: issue
+
+# Issue #125: dynamic workflows (/deep-research, /workflows, the `ultracode`
+# keyword) are interactive-client-only today and unreachable from the headless
+# `-p --input-format stream-json` mode ClawDEA wraps — confirmed empirically in
+# docs/superpowers/specs/2026-06-04-workflows-feasibility-spike.md. Watch the
+# workflows doc so we're flagged if/when headless / stream-json / Agent-SDK
+# support changes; that's the signal to re-run the capture spike and revisit
+# ClawDEA support. NOTE: as a new source, the first scheduled run files a
+# one-time baseline issue with the current matching lines — close it as the seed.
+- id: workflows-availability
+  source: { type: url, url: 'https://code.claude.com/docs/en/workflows' }
+  match: 'stream-json|--output-format|--print|\bheadless\b|Agent SDK|non-interactive|programmatic'
   triage: issue
 
 - id: mcp-config-schema
