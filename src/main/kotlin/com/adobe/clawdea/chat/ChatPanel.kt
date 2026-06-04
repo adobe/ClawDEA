@@ -1799,23 +1799,39 @@ class ChatPanel(
     }
 
     /**
-     * Fully handle a `/goal` command: update ClawDEA's banner state immediately,
-     * then get the command to the CLI. `/goal` does NOT go through
-     * BridgeForwardHandler's verbatim forward — this method owns the forwarding
-     * so it can interrupt a running goal correctly.
+     * Fully handle a `/goal` command: update ClawDEA's banner state, then get the
+     * command to the CLI. `/goal` does NOT go through BridgeForwardHandler's
+     * verbatim forward — this method owns it so a running goal is stopped correctly.
      *
-     * A goal's auto-continue is one long streaming turn, so a `/goal` issued
-     * while streaming (the common case: stopping or replacing a running goal)
-     * must first interrupt that turn. We then forward the command on a brief
-     * delay: forwarding immediately after the SIGINT raced with the interrupt
-     * and left the thinking indicator stuck, whereas a deferred forward runs as
-     * a clean, settled turn whose result clears the indicator.
+     * A goal's auto-continue is one long streaming turn. The only reliable way to
+     * stop it is to interrupt that turn — exactly what Esc→Stop ([abort]) does.
+     * Crucially we must NOT start any follow-up turn afterward: a message sent
+     * right after the interrupt never returns a result in this CLI mode, which
+     * left the thinking indicator stuck. So a `/goal` issued mid-stream simply
+     * interrupts (and, for a replace, asks the user to re-issue once idle).
+     * Idle `/goal …` is forwarded normally.
      */
     private fun handleGoalCommand(args: String) {
         val trimmed = args.trim()
         val streaming = turnController.isStreaming || turnController.isPaused
         val isClear = trimmed.lowercase() in GOAL_CLEAR_ALIASES
 
+        if (streaming) {
+            // A bare `/goal` status query mid-loop shouldn't stop anything.
+            if (trimmed.isEmpty()) return
+            // Stop the running goal's loop the proven clean way. No follow-up turn.
+            goalController.onClear()
+            browserRenderer.hideGoalBanner()
+            stopStreamingTurnQuietly()
+            if (!isClear) {
+                appendHtml(renderer.renderInfoMessage(
+                    "Stopped the active goal. Send `/goal <condition>` again to set a new one.",
+                ))
+            }
+            return
+        }
+
+        // Idle: forward to the CLI (set / clear / status) — clean, no interrupt.
         if (isClear) {
             goalController.onClear()
             browserRenderer.hideGoalBanner()
@@ -1823,27 +1839,13 @@ class ChatPanel(
             goalController.onSet(trimmed)
             goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
         }
-
-        val cliText = if (trimmed.isEmpty()) "/goal" else "/goal $trimmed"
-
-        if (streaming) {
-            // Stop the in-flight turn (halts a running goal's loop) the clean way.
-            stopStreamingTurnQuietly()
-            // Drop/replace the CLI-side goal on a fresh turn once the interrupt
-            // has settled. renderInChat=false: the stop is the visible feedback;
-            // we don't want a delayed phantom "/goal …" bubble.
-            javax.swing.Timer(700) { dispatchSendToBridge(cliText, renderInChat = false) }
-                .apply { isRepeats = false; start() }
-        } else {
-            dispatchSendToBridge(cliText)
-        }
+        dispatchSendToBridge(if (trimmed.isEmpty()) "/goal" else "/goal $trimmed")
     }
 
     /**
      * Interrupt a streaming turn the way [abort] does, but without the
-     * "Response aborted by user" notice — used when a `/goal` command needs a
-     * clean idle state to act (especially stopping a running goal's loop). The
-     * caller forwards the `/goal …` text afterward, which starts a fresh turn.
+     * "Response aborted by user" notice — used to stop a running goal's
+     * auto-continue loop when the user clears it. No follow-up turn is started.
      */
     private fun stopStreamingTurnQuietly() {
         if (!turnController.isStreaming && !turnController.isPaused) return
