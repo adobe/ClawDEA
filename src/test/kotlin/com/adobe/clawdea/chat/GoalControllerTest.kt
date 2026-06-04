@@ -14,19 +14,18 @@ class GoalControllerTest {
     @Test
     fun `onSet activates a goal with zero turns`() {
         val c = GoalController()
-        c.onSet("all tests pass", nowMs = 1000)
+        c.onSet("all tests pass")
         val s = c.current()!!
         assertEquals("all tests pass", s.condition)
         assertEquals(0, s.turnCount)
-        assertEquals(1000, s.startMs)
     }
 
     @Test
     fun `onFeedback increments turns and records the latest reason`() {
         val c = GoalController()
-        c.onSet("cond", nowMs = 0)
-        c.onFeedback("cond", "still two failures", nowMs = 5)
-        c.onFeedback("cond", "one failure left", nowMs = 9)
+        c.onSet("cond")
+        c.onFeedback("cond", "still two failures")
+        c.onFeedback("cond", "one failure left")
         val s = c.current()!!
         assertEquals(2, s.turnCount)
         assertEquals("one failure left", s.latestReason)
@@ -35,7 +34,7 @@ class GoalControllerTest {
     @Test
     fun `onFeedback self-activates when no goal was set (resume case)`() {
         val c = GoalController()
-        c.onFeedback("restored condition", "working", nowMs = 3)
+        c.onFeedback("restored condition", "working")
         val s = c.current()!!
         assertEquals("restored condition", s.condition)
         assertEquals(1, s.turnCount)
@@ -44,8 +43,8 @@ class GoalControllerTest {
     @Test
     fun `onResult marks achieved once then deactivates`() {
         val c = GoalController()
-        c.onSet("cond", nowMs = 0)
-        c.onFeedback("cond", "r", nowMs = 1)
+        c.onSet("cond")
+        c.onFeedback("cond", "r")
         val achieved = c.onResult()!!
         assertTrue(achieved.achieved)
         assertEquals("cond", achieved.condition)
@@ -56,7 +55,7 @@ class GoalControllerTest {
     @Test
     fun `onClear deactivates`() {
         val c = GoalController()
-        c.onSet("cond", nowMs = 0)
+        c.onSet("cond")
         c.onClear()
         assertNull(c.current())
         assertNull("result after clear is a no-op", c.onResult())

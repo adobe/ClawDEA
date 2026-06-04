@@ -36,7 +36,7 @@ class GoalLiveStreamTest {
             when (val event = parser.parse(line)) {
                 is CliEvent.GoalFeedback -> {
                     feedbackCount++
-                    controller.onFeedback(event.condition, event.reason, nowMs = 0)
+                    controller.onFeedback(event.condition, event.reason)
                 }
                 is CliEvent.Result -> {
                     achieved = controller.onResult()

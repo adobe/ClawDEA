@@ -475,7 +475,7 @@ class EventStreamHandler(
             // These branches exist only for sealed-class exhaustiveness.
             is CliEvent.TaskEvent -> {}
             is CliEvent.GoalFeedback -> {
-                goalController.onFeedback(event.condition, event.reason, System.currentTimeMillis())
+                goalController.onFeedback(event.condition, event.reason)
                 goalController.current()?.let { state ->
                     browserRenderer.updateGoalBanner(renderer.renderGoalBanner(state))
                 }

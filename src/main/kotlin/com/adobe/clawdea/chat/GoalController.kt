@@ -14,7 +14,6 @@ class GoalController {
 
     data class GoalState(
         val condition: String,
-        val startMs: Long,
         val turnCount: Int = 0,
         val latestReason: String = "",
         val achieved: Boolean = false,
@@ -23,8 +22,8 @@ class GoalController {
     private var state: GoalState? = null
 
     /** A `/goal <condition>` was issued — begin (or replace) the active goal. */
-    fun onSet(condition: String, nowMs: Long) {
-        state = GoalState(condition = condition, startMs = nowMs)
+    fun onSet(condition: String) {
+        state = GoalState(condition = condition)
     }
 
     /**
@@ -32,10 +31,10 @@ class GoalController {
      * reason. Self-activates if no goal was set locally (e.g. a goal restored on
      * `--resume`, where ClawDEA never saw the original `/goal` command).
      */
-    fun onFeedback(condition: String, reason: String, nowMs: Long) {
+    fun onFeedback(condition: String, reason: String) {
         val cur = state
         state = if (cur == null) {
-            GoalState(condition = condition, startMs = nowMs, turnCount = 1, latestReason = reason)
+            GoalState(condition = condition, turnCount = 1, latestReason = reason)
         } else {
             cur.copy(
                 condition = cur.condition.ifBlank { condition },

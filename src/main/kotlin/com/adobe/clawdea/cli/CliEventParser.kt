@@ -107,6 +107,8 @@ class CliEventParser {
     /** Parse `Stop hook feedback:\n[<condition>]: <reason>` into a [CliEvent.GoalFeedback]. */
     private fun parseGoalFeedback(text: String): CliEvent.GoalFeedback {
         val body = text.removePrefix(GOAL_FEEDBACK_PREFIX).trim()
+        // Assumes the CC format `[<condition>]: <reason>`; a literal ']' inside
+        // the condition would split early — acceptable for this wire format.
         val open = body.indexOf('[')
         val close = body.indexOf(']')
         if (open == 0 && close > open) {

@@ -1798,7 +1798,7 @@ class ChatPanel(
                 browserRenderer.hideGoalBanner()
             }
             else -> {
-                goalController.onSet(trimmed, System.currentTimeMillis())
+                goalController.onSet(trimmed)
                 goalController.current()?.let { browserRenderer.updateGoalBanner(renderer.renderGoalBanner(it)) }
             }
         }
