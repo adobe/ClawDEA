@@ -213,6 +213,24 @@ class SessionScannerTest {
     }
 
     @Test
+    fun `loadHistory captures parent_tool_use_id on inner tool_use and tool_result`() {
+        val file = writeSessionFile(
+            tmpDir.root, "subagent",
+            """{"type":"assistant","parent_tool_use_id":"agent_1","message":{"role":"assistant","content":[{"type":"tool_use","id":"c1","name":"Read","input":{"file_path":"/a.kt"}}]},"uuid":"u1"}""",
+            """{"type":"user","parent_tool_use_id":"agent_1","message":{"role":"user","content":[{"tool_use_id":"c1","type":"tool_result","content":"contents"}]},"uuid":"u2"}""",
+            """{"type":"assistant","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"tool_use","id":"main1","name":"Grep","input":{"pattern":"x"}}]},"uuid":"u3"}""",
+        )
+        val entries = SessionScanner.loadHistoryFromFile(file)
+        assertEquals(3, entries.size)
+        val innerUse = entries[0] as HistoryEntry.ToolUse
+        assertEquals("agent_1", innerUse.parentToolUseId)
+        val innerResult = entries[1] as HistoryEntry.ToolResult
+        assertEquals("agent_1", innerResult.parentToolUseId)
+        val mainUse = entries[2] as HistoryEntry.ToolUse
+        assertNull("main-agent tool_use must have null parentToolUseId", mainUse.parentToolUseId)
+    }
+
+    @Test
     fun `loadHistory reconstructs slash command from command envelope`() {
         // CC wraps slash command invocations as
         //   <command-message>name</command-message>

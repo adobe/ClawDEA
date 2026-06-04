@@ -52,4 +52,37 @@ class MessageRendererSubAgentTest {
         val html = renderer.renderSubAgentSummary(SubAgentController.Status.ERROR, stepCount = 3, resultText = "boom")
         assertTrue(html.contains("subagent-summary-error"))
     }
+
+    @Test
+    fun `inner tool use inlines result when result content supplied`() {
+        val html = renderer.renderInnerToolUse("Read", """{"file_path":"/a.kt"}""", "toolu_child", "the file contents")
+        assertTrue(html.contains("tool-body-collapsible"))
+        assertTrue(html.contains("the file contents"))
+    }
+
+    @Test
+    fun `inner tool use omits result block when no result content`() {
+        val html = renderer.renderInnerToolUse("Read", """{"file_path":"/a.kt"}""", "toolu_child")
+        assertTrue(!html.contains("tool-body-collapsible"))
+    }
+
+    @Test
+    fun `history card is collapsed and carries summary, type, steps, and children`() {
+        val children = """<div class="subagent-step" data-tool-id="c1"></div>"""
+        val html = renderer.renderSubAgentCardFromHistory(
+            agentType = "wiki-librarian",
+            description = "Research chat UI",
+            toolUseId = "agent_1",
+            status = SubAgentController.Status.DONE,
+            stepCount = 2,
+            resultText = "final summary",
+            childrenHtml = children,
+        )
+        assertTrue(html.contains("subagent-block"))
+        assertTrue("history card must NOT be expanded", !html.contains("expanded"))
+        assertTrue(html.contains("wiki-librarian"))
+        assertTrue(html.contains("subagent-summary"))
+        assertTrue(html.contains("2 steps"))
+        assertTrue(html.contains(children))
+    }
 }

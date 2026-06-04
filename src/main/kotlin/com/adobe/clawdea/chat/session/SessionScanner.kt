@@ -34,8 +34,8 @@ data class SessionInfo(
 sealed class HistoryEntry {
     data class UserMessage(val text: String) : HistoryEntry()
     data class AssistantText(val text: String) : HistoryEntry()
-    data class ToolUse(val id: String, val name: String, val input: String) : HistoryEntry()
-    data class ToolResult(val toolUseId: String, val content: String, val isError: Boolean) : HistoryEntry()
+    data class ToolUse(val id: String, val name: String, val input: String, val parentToolUseId: String? = null) : HistoryEntry()
+    data class ToolResult(val toolUseId: String, val content: String, val isError: Boolean, val parentToolUseId: String? = null) : HistoryEntry()
 }
 
 /**
@@ -103,6 +103,9 @@ object SessionScanner {
 
     private fun parseAssistantBlocks(json: String, entries: MutableList<HistoryEntry>) {
         val blocks = extractMessageContentBlocks(json) ?: return
+        // Top-level envelope field linking inner events to their dispatching
+        // sub-agent (`Agent`) tool_use. Absent / null on main-agent lines.
+        val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
         for (block in blocks) {
             when (extractString(block, "\"type\"")) {
                 "text" -> {
@@ -115,7 +118,7 @@ object SessionScanner {
                     val id = extractString(block, "\"id\"") ?: ""
                     val name = extractString(block, "\"name\"") ?: ""
                     val input = extractObject(block, "\"input\"") ?: "{}"
-                    entries.add(HistoryEntry.ToolUse(id, name, input))
+                    entries.add(HistoryEntry.ToolUse(id, name, input, parentToolUseId))
                 }
             }
             // Skip "thinking" blocks and anything else.
@@ -159,6 +162,7 @@ object SessionScanner {
 
         // Array content — walk blocks and classify by type.
         val blocks = extractMessageContentBlocks(json) ?: return
+        val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
         val userTextParts = mutableListOf<String>()
         for (block in blocks) {
             when (extractString(block, "\"type\"")) {
@@ -166,7 +170,7 @@ object SessionScanner {
                     val id = extractString(block, "\"tool_use_id\"") ?: ""
                     val content = extractToolResultContent(block)
                     val isError = block.contains("\"is_error\":true")
-                    entries.add(HistoryEntry.ToolResult(id, content, isError))
+                    entries.add(HistoryEntry.ToolResult(id, content, isError, parentToolUseId))
                 }
                 "text" -> {
                     extractString(block, "\"text\"")?.let { userTextParts.add(it) }

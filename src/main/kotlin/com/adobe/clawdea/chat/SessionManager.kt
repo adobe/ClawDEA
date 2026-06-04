@@ -146,61 +146,12 @@ class SessionManager(
 
     /**
      * Translate parsed history entries into the HTML fragments the chat
-     * browser expects, pairing each `ToolUse` with its eventual `ToolResult`
-     * so the resumed view matches what the live event stream produced when
-     * the conversation originally happened.
-     *
-     * Iteration is index-based because `ToolResult` entries come AFTER the
-     * matching `ToolUse` in the JSONL — we look ahead for the first match
-     * and skip orphan results (CC sometimes writes tool_result envelopes
-     * for tools that were silently cancelled).
+     * browser expects. Delegates to the pure [HistoryReplayRenderer], which
+     * pairs each `ToolUse` with its eventual `ToolResult` and reconstructs
+     * sub-agent (`Agent`) dispatches as collapsed cards.
      */
-    internal fun renderHistory(history: List<HistoryEntry>): List<String> {
-        val out = mutableListOf<String>()
-        val consumedResults = mutableSetOf<Int>()
-        for ((i, entry) in history.withIndex()) {
-            when (entry) {
-                is HistoryEntry.UserMessage -> out.add(renderer.renderUserMessage(entry.text))
-                is HistoryEntry.AssistantText -> out.add(renderer.renderAssistantText(entry.text))
-                is HistoryEntry.ToolUse -> {
-                    val (resultContent, resultIsError, resultIdx) = findToolResult(history, i, entry.id)
-                    if (resultIdx != -1) consumedResults.add(resultIdx)
-                    val html = renderer.renderToolUseFromHistory(
-                        toolName = entry.name,
-                        input = entry.input,
-                        toolUseId = entry.id,
-                        resultContent = resultContent,
-                        isError = resultIsError,
-                    )
-                    if (html.isNotBlank()) out.add(html)
-                }
-                is HistoryEntry.ToolResult -> {
-                    // Already inlined under its tool block; otherwise drop —
-                    // orphan results are noise (no matching tool_use to anchor to).
-                }
-            }
-        }
-        // Defensive sanity check; keeps unused-but-set warnings quiet.
-        if (consumedResults.isEmpty() && history.any { it is HistoryEntry.ToolResult }) {
-            log.debug("renderHistory: ${history.count { it is HistoryEntry.ToolResult }} tool_results had no matching tool_use")
-        }
-        return out
-    }
-
-    private fun findToolResult(
-        history: List<HistoryEntry>,
-        startIdx: Int,
-        toolUseId: String,
-    ): Triple<String?, Boolean, Int> {
-        if (toolUseId.isBlank()) return Triple(null, false, -1)
-        for (j in startIdx + 1 until history.size) {
-            val candidate = history[j]
-            if (candidate is HistoryEntry.ToolResult && candidate.toolUseId == toolUseId) {
-                return Triple(candidate.content, candidate.isError, j)
-            }
-        }
-        return Triple(null, false, -1)
-    }
+    internal fun renderHistory(history: List<HistoryEntry>): List<String> =
+        com.adobe.clawdea.chat.session.HistoryReplayRenderer.render(history, renderer)
 
     /**
      * Called when the heartbeat detects a wall-clock gap big enough to indicate

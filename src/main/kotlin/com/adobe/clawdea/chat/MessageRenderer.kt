@@ -165,7 +165,7 @@ class MessageRenderer(
      * globally, so nesting needs no special handling); CSS hides it until the
      * row is expanded via `toggle-subagent-step`.
      */
-    fun renderInnerToolUse(toolName: String, input: String, toolUseId: String): String {
+    fun renderInnerToolUse(toolName: String, input: String, toolUseId: String, resultContent: String? = null): String {
         val parsed = parseToolInput(toolName, input)
         val icon = when {
             toolName.contains("Bash", ignoreCase = true) -> "&#9654;"
@@ -180,6 +180,10 @@ class MessageRenderer(
         val titleSuffix = parsed.title.removePrefix(toolName).trim()
         val argRaw = titleSuffix.ifEmpty { parsed.body }.take(80)
         val arg = escapeHtml(argRaw)
+        // On replay the result is known up front, so inline it the same way
+        // injectToolOutput does live — the step row stays the toggle, the body
+        // is hidden until expanded.
+        val resultHtml = if (!resultContent.isNullOrBlank()) renderToolResult(resultContent) else ""
         return """
             <div class="subagent-step" data-tool-id="$safeId">
                 <div class="subagent-step-row" data-action="toggle-subagent-step">
@@ -187,6 +191,7 @@ class MessageRenderer(
                     <span class="subagent-step-name">$safeName</span>
                     <span class="subagent-step-arg">$arg</span>
                 </div>
+                $resultHtml
             </div>
         """.trimIndent()
     }
@@ -210,6 +215,38 @@ class MessageRenderer(
                 <span class="subagent-summary-glyph">$glyph</span>
                 <span class="subagent-summary-meta">$steps &middot; $word</span>
                 <span class="subagent-summary-text">$firstLine</span>
+            </div>
+        """.trimIndent()
+    }
+
+    /**
+     * Reconstruct a finished sub-agent card for session replay: collapsed,
+     * header + summary + the already-rendered inner steps. Mirrors the DOM the
+     * live path ends with after finalizeSubAgent (status span removed, summary
+     * inserted after header, `expanded` class dropped).
+     */
+    fun renderSubAgentCardFromHistory(
+        agentType: String,
+        description: String,
+        toolUseId: String,
+        status: SubAgentController.Status,
+        stepCount: Int,
+        resultText: String,
+        childrenHtml: String,
+    ): String {
+        val safeId = escapeHtml(toolUseId)
+        val safeType = escapeHtml(agentType.ifBlank { "agent" })
+        val safeDesc = escapeHtml(description)
+        val summary = renderSubAgentSummary(status, stepCount, resultText)
+        return """
+            <div class="subagent-block" data-tool-id="$safeId">
+                <div class="subagent-header" data-action="toggle-subagent">
+                    <span class="subagent-icon">&#129302;</span>
+                    <span class="subagent-type">$safeType</span>
+                    <span class="subagent-desc">$safeDesc</span>
+                </div>
+                $summary
+                <div class="subagent-children">$childrenHtml</div>
             </div>
         """.trimIndent()
     }
