@@ -144,8 +144,11 @@ class MessageRenderer(
      * indistinguishable name of every card.
      */
     private fun subAgentLabels(agentType: String, description: String): Pair<String, String> {
-        val name = description.ifBlank { agentType.ifBlank { "Task" } }
-        val secondary = if (description.isNotBlank() && agentType.isNotBlank()) agentType else ""
+        // The CLI's default subagent_type "general-purpose" is generic and
+        // uninformative as a card label — surface it as "Task" instead.
+        val displayType = if (agentType.equals("general-purpose", ignoreCase = true)) "Task" else agentType
+        val name = description.ifBlank { displayType.ifBlank { "Task" } }
+        val secondary = if (description.isNotBlank() && displayType.isNotBlank()) displayType else ""
         return name to secondary
     }
 

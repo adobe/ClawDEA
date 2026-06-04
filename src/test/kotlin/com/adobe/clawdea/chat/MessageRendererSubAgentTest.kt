@@ -89,11 +89,25 @@ class MessageRendererSubAgentTest {
 
     @Test
     fun `card leads with description as the prominent label, type as secondary`() {
-        val html = renderer.renderSubAgentCard("general-purpose", "Implement Task 1", "toolu_p")
+        val html = renderer.renderSubAgentCard("wiki-librarian", "Research chat UI", "toolu_p")
         // The per-task description is the prominent name (.subagent-type span).
-        assertTrue(html.contains("""<span class="subagent-type">Implement Task 1</span>"""))
+        assertTrue(html.contains("""<span class="subagent-type">Research chat UI</span>"""))
         // The agent type becomes the muted secondary tag.
-        assertTrue(html.contains("""<span class="subagent-desc">general-purpose</span>"""))
+        assertTrue(html.contains("""<span class="subagent-desc">wiki-librarian</span>"""))
+    }
+
+    @Test
+    fun `generic general-purpose type is relabeled Task`() {
+        // With a description, the generic type shows as the "Task" secondary tag.
+        val withDesc = renderer.renderSubAgentCard("general-purpose", "Implement Task 1", "toolu_p")
+        assertTrue(withDesc.contains("""<span class="subagent-type">Implement Task 1</span>"""))
+        assertTrue(withDesc.contains("""<span class="subagent-desc">Task</span>"""))
+        assertFalse(withDesc.contains("general-purpose"))
+
+        // Without a description, the name itself falls back to "Task".
+        val noDesc = renderer.renderSubAgentCard("general-purpose", "", "toolu_p")
+        assertTrue(noDesc.contains("""<span class="subagent-type">Task</span>"""))
+        assertFalse(noDesc.contains("general-purpose"))
     }
 
     @Test
