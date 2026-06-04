@@ -650,6 +650,36 @@ class MessageRenderer(
         return """<div class="error-block">$escaped</div>"""
     }
 
+    /** Sticky banner shown while a `/goal` is active. */
+    fun renderGoalBanner(state: GoalController.GoalState): String {
+        val cond = escapeHtml(state.condition.ifBlank { "(active goal)" })
+        val turns = if (state.turnCount == 1) "1 turn" else "${state.turnCount} turns"
+        val reasonHtml = if (state.latestReason.isNotBlank()) {
+            """<span class="goal-banner-reason">${escapeHtml(state.latestReason)}</span>"""
+        } else ""
+        return """
+            <div id="goal-banner" class="goal-banner">
+                <span class="goal-banner-icon">&#9678;</span>
+                <span class="goal-banner-cond">$cond</span>
+                <span class="goal-banner-meta">$turns</span>
+                $reasonHtml
+                <span class="goal-banner-clear" data-action="run-slash-command" data-slash="/goal clear">Clear</span>
+            </div>
+        """.trimIndent()
+    }
+
+    /** Inline, muted note rendered for each goal evaluation (matches CC's transcript reason). */
+    fun renderGoalProgress(reason: String): String {
+        val safe = escapeHtml(reason)
+        return """<div class="goal-progress">&#8635; goal: $safe</div>"""
+    }
+
+    /** Inline note rendered when a goal's condition is met. */
+    fun renderGoalAchieved(state: GoalController.GoalState): String {
+        val cond = escapeHtml(state.condition.ifBlank { "goal" })
+        return """<div class="goal-achieved">&#10003; Goal achieved: $cond</div>"""
+    }
+
     fun renderCostInfo(costUsd: Double, totalElapsedMs: Long = 0): String {
         val parts = mutableListOf<String>()
         if (totalElapsedMs > 0) {
