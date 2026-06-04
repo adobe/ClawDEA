@@ -356,11 +356,17 @@ class EventStreamHandler(
             }
             is CliEvent.Result -> {
                 browserRenderer.hideThinkingIndicator()
-                // A `/goal` loop ends with a single trailing result — if a goal
-                // was active, its condition was met. Clear the banner and note it.
-                goalController.onResult()?.let { achieved ->
+                // A `/goal` loop ends with a single trailing result. On success
+                // the condition was met → show "achieved". On an error result
+                // (CLI crash/abort), just clear the banner without claiming success.
+                if (!event.isError) {
+                    goalController.onResult()?.let { achieved ->
+                        browserRenderer.hideGoalBanner()
+                        browserRenderer.appendHtml(renderer.renderGoalAchieved(achieved))
+                    }
+                } else if (goalController.current() != null) {
+                    goalController.onClear()
                     browserRenderer.hideGoalBanner()
-                    browserRenderer.appendHtml(renderer.renderGoalAchieved(achieved))
                 }
                 // Any sub-agent still active at turn end was aborted/interrupted —
                 // finalize its card into an aborted state (stays expanded).

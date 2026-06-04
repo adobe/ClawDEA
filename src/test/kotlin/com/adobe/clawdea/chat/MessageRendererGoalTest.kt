@@ -4,6 +4,7 @@
  */
 package com.adobe.clawdea.chat
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,5 +51,13 @@ class MessageRendererGoalTest {
         val html = renderer.renderGoalAchieved(state)
         assertTrue(html.contains("ship it"))
         assertTrue(html.contains("goal-achieved"))
+    }
+
+    @Test
+    fun `goal banner shows starting before the first evaluation`() {
+        val state = GoalController.GoalState(condition = "cond", startMs = 0, turnCount = 0)
+        val html = renderer.renderGoalBanner(state)
+        assertTrue(html.contains("starting"))
+        assertFalse(html.contains("0 turn"))
     }
 }

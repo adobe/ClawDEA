@@ -653,7 +653,11 @@ class MessageRenderer(
     /** Sticky banner shown while a `/goal` is active. */
     fun renderGoalBanner(state: GoalController.GoalState): String {
         val cond = escapeHtml(state.condition.ifBlank { "(active goal)" })
-        val turns = if (state.turnCount == 1) "1 turn" else "${state.turnCount} turns"
+        val turns = when {
+            state.turnCount <= 0 -> "starting&#8230;"   // before the first evaluation
+            state.turnCount == 1 -> "1 turn"
+            else -> "${state.turnCount} turns"
+        }
         val reasonHtml = if (state.latestReason.isNotBlank()) {
             """<span class="goal-banner-reason">${escapeHtml(state.latestReason)}</span>"""
         } else ""

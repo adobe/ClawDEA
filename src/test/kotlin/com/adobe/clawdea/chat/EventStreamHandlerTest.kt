@@ -40,6 +40,11 @@ class EventStreamHandlerTest {
     }
 
     @Test
+    fun `goal feedback counts as turn progress`() {
+        assertTrue(EventStreamHandler.isTurnProgressEvent(CliEvent.GoalFeedback("cond", "reason")))
+    }
+
+    @Test
     fun `tool result stall recovery waits for streaming running bridge and no newer progress`() {
         assertTrue(EventStreamHandler.shouldRecoverToolResultStall(
             isStreaming = true,
