@@ -165,10 +165,31 @@ class EventStreamHandler(
                         routableToolUses[toolUse.id] = toolUse.name + " " + toolUse.input
                         toolStartTime = System.currentTimeMillis()
                         val count = subAgentController.recordStep(parentCard)
-                        browserRenderer.appendIntoSubAgent(
-                            parentCard,
-                            renderer.renderInnerToolUse(toolUse.name, toolUse.input, toolUse.id),
-                        )
+
+                        // Inner edit/propose tools: capture content so the diff and
+                        // filesystem refresh work, and render a clickable edit-link
+                        // (renderToolUseEvent) rather than a bare step row. All the
+                        // result-time hooks (resolveEditOutcome, getCapturedFilePath,
+                        // updateEditLinkStatus) key off data-tool-id globally, so they
+                        // operate correctly on the nested link.
+                        val isEditOrPropose = EditReviewCoordinator.isProposeTool(toolUse.name) ||
+                            EditReviewCoordinator.isEditTool(toolUse.name)
+                        val stepHtml = if (isEditOrPropose) {
+                            val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
+                            val file = java.io.File(filePath)
+                            val originalContent = if (file.exists()) file.readText() else ""
+                            val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
+                            editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
+                            renderer.renderToolUseEvent(
+                                toolName = toolUse.name,
+                                input = toolUse.input,
+                                toolUseId = toolUse.id,
+                                mode = ToolMode.Live(autoAcceptEdits = renderer.autoAcceptEdits),
+                            )
+                        } else {
+                            renderer.renderInnerToolUse(toolUse.name, toolUse.input, toolUse.id)
+                        }
+                        if (stepHtml.isNotBlank()) browserRenderer.appendIntoSubAgent(parentCard, stepHtml)
                         browserRenderer.updateSubAgentStatus(parentCard, "&#9203; running &middot; $count steps")
                     }
                     onContextLabelUpdate()
