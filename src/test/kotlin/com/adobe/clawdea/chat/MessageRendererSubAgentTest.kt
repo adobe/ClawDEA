@@ -4,6 +4,7 @@
  */
 package com.adobe.clawdea.chat
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -84,5 +85,31 @@ class MessageRendererSubAgentTest {
         assertTrue(html.contains("subagent-summary"))
         assertTrue(html.contains("2 steps"))
         assertTrue(html.contains(children))
+    }
+
+    @Test
+    fun `card leads with description as the prominent label, type as secondary`() {
+        val html = renderer.renderSubAgentCard("general-purpose", "Implement Task 1", "toolu_p")
+        // The per-task description is the prominent name (.subagent-type span).
+        assertTrue(html.contains("""<span class="subagent-type">Implement Task 1</span>"""))
+        // The agent type becomes the muted secondary tag.
+        assertTrue(html.contains("""<span class="subagent-desc">general-purpose</span>"""))
+    }
+
+    @Test
+    fun `card falls back to Task when type and description are blank`() {
+        val html = renderer.renderSubAgentCard("", "", "toolu_p")
+        assertTrue(html.contains("""<span class="subagent-type">Task</span>"""))
+        // No secondary tag when there was nothing to fall back from.
+        assertFalse(html.contains("""class="subagent-desc""""))
+    }
+
+    @Test
+    fun `summary omits step count when zero (replayed card with no captured steps)`() {
+        val html = renderer.renderSubAgentSummary(SubAgentController.Status.DONE, stepCount = 0, resultText = "result")
+        assertFalse("must not show a misleading 0-step count", html.contains("0 step"))
+        assertFalse(html.contains(" step"))
+        assertTrue(html.contains("done"))
+        assertTrue(html.contains("result"))
     }
 }

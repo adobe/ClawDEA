@@ -136,6 +136,20 @@ class MessageRenderer(
     }
 
     /**
+     * Header label for a sub-agent card. Leads with the per-dispatch
+     * [description] (the task — distinct per sub-agent); falls back to the
+     * [agentType], then to "Task" when neither is present. The agent type is
+     * returned as a secondary tag only when a description was used as the
+     * primary name, so the type ("general-purpose", etc.) doesn't become the
+     * indistinguishable name of every card.
+     */
+    private fun subAgentLabels(agentType: String, description: String): Pair<String, String> {
+        val name = description.ifBlank { agentType.ifBlank { "Task" } }
+        val secondary = if (description.isNotBlank() && agentType.isNotBlank()) agentType else ""
+        return name to secondary
+    }
+
+    /**
      * Container card for a sub-agent ([SubAgentController]) dispatch. Rendered
      * expanded + running on creation; [ChatBrowserRenderer.appendIntoSubAgent]
      * appends inner steps into `.subagent-children`, and
@@ -143,14 +157,15 @@ class MessageRenderer(
      */
     fun renderSubAgentCard(agentType: String, description: String, toolUseId: String): String {
         val safeId = escapeHtml(toolUseId)
-        val safeType = escapeHtml(agentType.ifBlank { "agent" })
-        val safeDesc = escapeHtml(description)
+        val (name, secondary) = subAgentLabels(agentType, description)
+        val safeName = escapeHtml(name)
+        val secondaryHtml = if (secondary.isNotBlank()) """<span class="subagent-desc">${escapeHtml(secondary)}</span>""" else ""
         return """
             <div class="subagent-block expanded" data-tool-id="$safeId">
                 <div class="subagent-header" data-action="toggle-subagent">
                     <span class="subagent-icon">&#129302;</span>
-                    <span class="subagent-type">$safeType</span>
-                    <span class="subagent-desc">$safeDesc</span>
+                    <span class="subagent-type">$safeName</span>
+                    $secondaryHtml
                     <span class="subagent-status" data-subagent-status>&#9203; running</span>
                 </div>
                 <div class="subagent-children"></div>
@@ -208,12 +223,21 @@ class MessageRenderer(
             SubAgentController.Status.ABORTED -> Triple("&#9632;", "subagent-summary-aborted", "aborted")
             SubAgentController.Status.RUNNING -> Triple("&#9203;", "subagent-summary-done", "done")
         }
-        val steps = if (stepCount == 1) "1 step" else "$stepCount steps"
+        // Step counts are only known for the live stream; the persisted session
+        // jsonl carries no sub-agent inner events, so a replayed card has
+        // stepCount 0. Omit the count entirely in that case rather than show a
+        // misleading "0 steps".
+        val meta = if (stepCount >= 1) {
+            val steps = if (stepCount == 1) "1 step" else "$stepCount steps"
+            "$steps &middot; $word"
+        } else {
+            word
+        }
         val firstLine = escapeHtml(resultText.lineSequence().firstOrNull { it.isNotBlank() }?.take(160) ?: "")
         return """
             <div class="subagent-summary $cls">
                 <span class="subagent-summary-glyph">$glyph</span>
-                <span class="subagent-summary-meta">$steps &middot; $word</span>
+                <span class="subagent-summary-meta">$meta</span>
                 <span class="subagent-summary-text">$firstLine</span>
             </div>
         """.trimIndent()
@@ -235,15 +259,16 @@ class MessageRenderer(
         childrenHtml: String,
     ): String {
         val safeId = escapeHtml(toolUseId)
-        val safeType = escapeHtml(agentType.ifBlank { "agent" })
-        val safeDesc = escapeHtml(description)
+        val (name, secondary) = subAgentLabels(agentType, description)
+        val safeName = escapeHtml(name)
+        val secondaryHtml = if (secondary.isNotBlank()) """<span class="subagent-desc">${escapeHtml(secondary)}</span>""" else ""
         val summary = renderSubAgentSummary(status, stepCount, resultText)
         return """
             <div class="subagent-block" data-tool-id="$safeId">
                 <div class="subagent-header" data-action="toggle-subagent">
                     <span class="subagent-icon">&#129302;</span>
-                    <span class="subagent-type">$safeType</span>
-                    <span class="subagent-desc">$safeDesc</span>
+                    <span class="subagent-type">$safeName</span>
+                    $secondaryHtml
                 </div>
                 $summary
                 <div class="subagent-children">$childrenHtml</div>
