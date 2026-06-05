@@ -45,8 +45,9 @@ The Dream path never edits source files. When **Auto-update wiki on drift** is e
 scripts/drift/
   watchlist.yaml              source of truth: surfaces, sources, regexes, triage
   fetch-sources.sh            captures `claude --help`, npm version, docs URLs into JSON
-  diff-and-file.mjs           Node script: diffs prev vs current, files issues / drift-noise comments
-  package.json + lock         pins js-yaml@4.1.0 (only Node dep)
+  diff-and-file.mjs           Node script: diffs prev vs current, finds-or-updates evergreen issues / drift-noise comments
+  diff-and-file.test.mjs      Node unit tests (`npm test`): diffing, relevance gating, surface dedup
+  package.json + lock         pins js-yaml@4.2.0 (only Node dep)
 
 src/test/resources/cli-fixtures/
   latest.ndjson               recorded NDJSON turn against the latest CLI
@@ -80,11 +81,20 @@ Each entry describes one Claude Code surface. Format:
   - `{ type: url, url: '<https url>' }` — fetches via curl, runs through `strip_html` (drops `<script>`/`<style>` blocks, normalizes prose, filters bundle hashes / deploy IDs).
   - `{ type: npm, package: '<name>' }` — runs `npm view <name> version`.
 - `match` — JavaScript-flavored regex (compiled with the `m` flag). When a line in the *new* snapshot matches and was *not* present in the previous snapshot, the entry fires.
-- `triage` — `issue` files a new GitHub issue; `noise` appends a comment to the rolling drift-noise issue (#33).
+- `triage` — `issue` finds-or-updates a single **evergreen issue per surface** (deduped by a hidden `<!-- drift-surface: <id> -->` marker, with a legacy version-stamped-title fallback). The first detection creates `[drift] <id>: review needed`; later detections append a comment instead of opening a version-stamped duplicate. `noise` appends a comment to the rolling drift-noise issue (#33).
+- `affects` *(optional)* — a relevance allowlist of tokens. When set, a matched change escalates to an `issue` only if at least one changed line contains one of the tokens; otherwise it is downgraded to `noise`. Use it where most churn is irrelevant — e.g. `cli-flags-deprecation` carries the list of flags ClawDEA actually passes (a YAML alias of `cli-flags-passed`'s list), so a `[DEPRECATED]` notice for a flag ClawDEA never uses (like `--mcp-debug`) becomes noise, not a ticket.
+- `clawdea` *(optional)* — the ClawDEA code that owns the surface. Surfaced in the filed issue so triage starts with context instead of a blank slate.
 
 **Adding a new entry.** Edit `watchlist.yaml`, push. The next scheduled run picks it up. There's nothing else to wire — `fetch-sources.sh` iterates entries dynamically.
 
 **Tightening regexes.** If an entry produces too many false positives, narrow the match. If it misses legitimate drift, broaden it (and risk noise). The four URL-sourced entries (`stream-json-schema`, `mcp-config-schema`, `hooks-schema`, `settings-json-schema`) are the most prone to noise; the strengthened `strip_html` in `fetch-sources.sh` defangs the worst offenders (Next.js bundle hashes), but be conservative when adding more.
+
+**Triage hygiene (why tickets stay rare).** A few rules keep the digest from producing spurious issues — learned from the 2026-06 backlog cleanup, when ~88% of open drift issues were either pure noise or cross-version duplicates:
+
+1. **A `.*` matcher must be `triage: noise`.** It fires on every release and carries no standalone signal (`cli-version`, `mcp-subcommand`, `auth-*`, `settings-json-schema`, `plugin-subcommand`).
+2. **One evergreen issue per surface.** The watcher dedups by surface, so a surface that drifts every release appends comments instead of stacking version-stamped duplicates.
+3. **Opt-out surfaces stay `noise`.** `hooks-schema` is `noise` because ClawDEA deliberately doesn't consume hook events (`--include-hook-events` omitted, enforced by `CliProcessHookEventsOmissionTest`); flip it back to `issue` only if that decision is revisited.
+4. **Relevance-gate the broad flag surfaces** with `affects` so changes to flags ClawDEA doesn't use don't escalate.
 
 ---
 
@@ -141,23 +151,26 @@ The Saturday workflow (when #119 lands) and the Monday workflow both move the ta
 
 ## Triaging an auto-filed issue
 
-When the Monday cron fires, you'll see new issues with titles like:
+When the Monday cron fires, you'll see one evergreen issue per surface with a stable title:
 
 ```
-[claude-code v2.1.124] cli-flags-new: drift detected
+[drift] cli-flags-new: review needed
 ```
 
-Every such issue contains:
+Each issue carries a hidden `<!-- drift-surface: <id> -->` marker and contains:
 - The watchlist `id` that matched
-- The CLI version detected
+- The CLI version detected (refreshed in an appended comment on each later detection)
 - The regex that fired
+- The owning ClawDEA code (when the entry sets `clawdea`)
 - Up to 20 changed/new lines from the relevant snapshot section
 
 **Triage protocol:**
 
 1. **Read the changed lines.** Is it real signal (new flag, renamed field, deprecated flag), or noise (CDN deploy ID that survived the cleaner, whitespace-only churn)?
-2. **If noise:** close as `not planned` with a brief explanation, and tighten the regex or add a filter to `strip_html` (in `scripts/drift/fetch-sources.sh`) to prevent recurrence.
+2. **If noise:** close as `not planned` with a brief explanation, and either re-tier the entry to `triage: noise`, add an `affects` allowlist, tighten the regex, or add a filter to `strip_html` (in `scripts/drift/fetch-sources.sh`) to prevent recurrence.
 3. **If signal:** convert it into a real implementation issue with the right tier label (`tier-1-hardening` / `tier-2-ux` / `tier-3-surfaces`), or close as `wontfix` if ClawDEA explicitly chooses not to adopt.
+
+Because issues are evergreen, you won't see a fresh ticket each release for the same surface — re-detections append a dated `## Update — Claude Code vX` comment to the existing issue. A surface only re-creates an issue after a previous one was closed.
 
 The rolling drift-noise issue (#33) gets one comment per `triage: noise` watchlist hit. Scan it monthly. If a comment looks substantive, file a real follow-up.
 
@@ -241,8 +254,11 @@ node scripts/drift/diff-and-file.mjs \
   --watchlist scripts/drift/watchlist.yaml \
   --owner adobe --repo ClawDEA \
   --dry-run
-# → [dry-run] would create issue: ...
+# → [dry-run] would create evergreen issue: [drift] cli-flags-passed: review needed
+#   (or "would comment on #N" when an open issue for the surface already exists)
 ```
+
+Run the unit tests for the diff filer with `npm test` in `scripts/drift/` (Node's built-in test runner; covers diffing, relevance gating, and surface dedup).
 
 ### Add a new source to the watchlist
 

@@ -8,7 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "diff": "node diff-and-file.mjs"
+    "diff": "node diff-and-file.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "js-yaml": "4.2.0"
