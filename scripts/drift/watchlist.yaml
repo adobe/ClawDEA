@@ -4,60 +4,111 @@
 # benefit from). The drift workflow (.github/workflows/claude-code-drift.yml)
 # diffs the captured snapshot against the previous one (stored in the moving
 # git tag `drift-snapshot`); when a regex below matches a line that changed
-# since the previous snapshot, an issue is filed (triage: issue) or a comment
-# is appended to a single rolling drift-noise issue (triage: noise).
+# since the previous snapshot, it is routed by `triage`.
 #
 # Sources:
 #   { type: command, cmd: '<shell command>' }   - output captured as text
 #   { type: url, url: '<https url>' }           - fetched, HTML stripped to text
 #   { type: npm, package: '<name>' }            - `npm view <name> version`
 #
-# All issues are labelled `claude-code-drift`. The id field is the taxonomy
-# (cli-flags-deprecation, mcp-config-schema, etc.); the issue title encodes
-# it. Avoid sub-category labels — they don't add filterability beyond what
-# `gh issue list --label claude-code-drift --search 'cli-flags' ...` provides.
+# Per-entry fields:
+#   id      - taxonomy / surface name (also the issue-dedup key).
+#   source  - where the snapshot text comes from (see above).
+#   match   - regex (multiline) applied to lines that changed since last run.
+#   triage  - 'issue' → find-or-update a single evergreen issue per surface;
+#             'noise' → append a comment to the rolling drift-noise issue.
+#   affects - (optional) relevance allowlist. When set, a matched change only
+#             escalates to an `issue` if at least one changed line mentions one
+#             of these tokens; otherwise it is downgraded to noise. Use for
+#             surfaces where most churn is irrelevant to ClawDEA (e.g. a flag
+#             deprecation only matters if it is a flag ClawDEA actually passes).
+#   clawdea - (optional) the ClawDEA code that owns this surface; surfaced in
+#             the filed issue so triage starts with context, not a blank slate.
+#
+# Triage hygiene rules (learned from the 2026-06 backlog cleanup):
+#   * A `.*` matcher must be `triage: noise` — it fires on every release and
+#     produces no actionable signal as a standalone issue.
+#   * Surfaces ClawDEA has deliberately opted out of stay `noise` until that
+#     decision is revisited.
+#   * Dedup is handled by the watcher (one evergreen issue per `id`), so a
+#     surface that drifts every release no longer piles up version-stamped
+#     duplicates — new detections append as comments.
+#
+# All issues are labelled `claude-code-drift`.
 #
 # See docs/superpowers/specs/2026-04-29-claude-code-drift-monitoring-design.md
 # and umbrella issue #11.
 
+# `.*` over the npm version — fires on every release with no actionable
+# content. Noise: it already annotates every other finding's title.
 - id: cli-version
   source: { type: npm, package: '@anthropic-ai/claude-code' }
   match: '.*'
-  triage: issue
+  triage: noise
 
+# Flags ClawDEA itself passes. Relevance-gated against the same flag list so a
+# help-text reword for a flag we don't use doesn't escalate.
 - id: cli-flags-passed
   source: { type: command, cmd: 'claude --help' }
   match: 'output-format|input-format|include-partial-messages|mcp-config|permission-prompt-tool|disallowedTools|append-system-prompt|--resume|--print|--verbose'
   triage: issue
+  clawdea: 'CliProcess.kt (buildBaseArgs / buildPermissionArgs), ClaudeGateway.kt'
+  # Anchor: the flags ClawDEA actually passes to the CLI. Single source of
+  # truth for relevance gating; keep in sync with CliProcess.kt / ClaudeGateway.kt.
+  affects: &clawdea_flags
+    - '--output-format'
+    - '--input-format'
+    - '--include-partial-messages'
+    - '--mcp-config'
+    - '--strict-mcp-config'
+    - '--permission-prompt-tool'
+    - '--permission-mode'
+    - '--disallowedTools'
+    - '--append-system-prompt'
+    - '--resume'
+    - '--continue'
+    - '--print'
+    - '--verbose'
+    - '--agents'
 
+# Intake funnel for brand-new top-level flags. Stays `issue` (we want to see
+# every new flag once) but dedups into a single evergreen issue.
 - id: cli-flags-new
   source: { type: command, cmd: 'claude --help' }
   match: '^\s*--[a-zA-Z][a-zA-Z0-9-]+'
   triage: issue
+  clawdea: 'CliProcess.kt (decide adopt vs ignore per flag)'
 
-# Issue #95: catch [DEPRECATED] annotations on any flag — motivating example
-# was --mcp-debug being marked deprecated in v2.1.123 in favor of --debug.
-# Fires on any line containing the bracketed marker so future deprecations
-# of flags ClawDEA passes (or could adopt) surface as a Tier-1 issue.
+# Catch [DEPRECATED] annotations — but only escalate when the deprecated flag
+# is one ClawDEA passes (aliased from cli-flags-passed). The motivating case
+# (--mcp-debug deprecated) is NOT a flag ClawDEA uses, so it correctly routes
+# to noise instead of filing a ticket.
 - id: cli-flags-deprecation
   source: { type: command, cmd: 'claude --help' }
   match: '\[DEPRECATED'
   triage: issue
+  clawdea: 'CliProcess.kt (migrate any deprecated flag ClawDEA passes)'
+  affects: *clawdea_flags
 
+# `.*` over `claude auth --help` — noise.
 - id: auth-subcommand
   source: { type: command, cmd: 'claude auth --help' }
   match: '.*'
-  triage: issue
+  triage: noise
 
+# `.*` over `claude auth login --help` — noise.
 - id: auth-login-flags
   source: { type: command, cmd: 'claude auth login --help' }
   match: '.*'
-  triage: issue
+  triage: noise
 
+# `.*` over `claude mcp --help` — noise. ClawDEA writes its MCP config file
+# directly and never shells out to `claude mcp add/list/...`. The one relevant
+# item (`claude mcp serve` interop) is tracked in #27.
 - id: mcp-subcommand
   source: { type: command, cmd: 'claude mcp --help' }
   match: '.*'
-  triage: issue
+  triage: noise
 
 # Docs URLs are kept but pass through fetch-sources.sh's strip_html(), which
 # (a) drops <script>/<style> blocks entirely so Next.js __next_f.push blobs
@@ -68,31 +119,23 @@
 
 - id: stream-json-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
-  match: '\b(stream-json|tool_use|tool_result|text_delta|message_start|message_stop|partial|deep-research|workflow)\b'
+  match: '\b(stream-json|tool_use|tool_result|text_delta|message_start|message_stop|partial)\b'
   triage: issue
-
-# Issue #125: dynamic workflows (/deep-research, /workflows, the `ultracode`
-# keyword) are interactive-client-only today and unreachable from the headless
-# `-p --input-format stream-json` mode ClawDEA wraps — confirmed empirically in
-# docs/superpowers/specs/2026-06-04-workflows-feasibility-spike.md. Watch the
-# workflows doc so we're flagged if/when headless / stream-json / Agent-SDK
-# support changes; that's the signal to re-run the capture spike and revisit
-# ClawDEA support. NOTE: as a new source, the first scheduled run files a
-# one-time baseline issue with the current matching lines — close it as the seed.
-- id: workflows-availability
-  source: { type: url, url: 'https://code.claude.com/docs/en/workflows' }
-  match: 'stream-json|--output-format|--print|\bheadless\b|Agent SDK|non-interactive|programmatic'
-  triage: issue
+  clawdea: 'CliEventParser.kt (manual NDJSON parsing of the stream-json schema)'
 
 - id: mcp-config-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/mcp' }
   match: 'mcpServers|alwaysLoad|"command"|"url"|"type"|"transport"|"headers"'
   triage: issue
+  clawdea: 'CliProcess.kt (temp MCP config writer), McpServer'
 
+# ClawDEA deliberately does NOT consume hook events (--include-hook-events is
+# omitted; enforced by CliProcessHookEventsOmissionTest). Until that opt-out is
+# revisited, hooks-schema drift is informational → noise, not a ticket.
 - id: hooks-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/hooks' }
   match: 'PreToolUse|PostToolUse|Stop|SessionStart|SessionEnd|UserPromptSubmit|PreCompact|Notification|--include-hook-events'
-  triage: issue
+  triage: noise
 
 - id: settings-json-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/settings' }
@@ -104,10 +147,11 @@
   match: '.*'
   triage: noise
 
-# Issue #112: fires only when one of the six tools ClawDEA's denylist
-# redirects (Grep, Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed,
-# removed, or annotated [DEPRECATED] in `claude --help`.
+# Fires only when one of the six tools ClawDEA's denylist redirects (Grep,
+# Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed, removed, or annotated
+# [DEPRECATED] in `claude --help`. Narrow by construction, so it stays `issue`.
 - id: builtin-tool-redirect-watcher
   source: { type: command, cmd: 'claude --help' }
   match: '\b(Grep|Glob|Edit|Write|MultiEdit|NotebookEdit)\b.*\[DEPRECATED'
   triage: issue
+  clawdea: 'CliProcess.kt (buildDisallowedTools — routing redirect to MCP tools)'

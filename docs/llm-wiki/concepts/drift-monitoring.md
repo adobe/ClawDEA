@@ -14,8 +14,9 @@ This is separate from the in-plugin [drift detection](drift-detection.md) layer,
 ### Weekly digest
 - [.github/workflows/claude-code-drift.yml](../../../.github/workflows/claude-code-drift.yml) — scheduled workflow definition
 - [scripts/drift/fetch-sources.sh](../../../scripts/drift/fetch-sources.sh) — fetches `claude --help`, sub-command help, npm version metadata, and selected docs URLs
-- [scripts/drift/diff-and-file.mjs](../../../scripts/drift/diff-and-file.mjs) — diffs against the `drift-snapshot` git tag and files an issue when a watchlisted regex matches a changed line
-- [scripts/drift/watchlist.yaml](../../../scripts/drift/watchlist.yaml) — patterns that trigger an auto-filed issue (one entry per drift-sensitive contract)
+- [scripts/drift/diff-and-file.mjs](../../../scripts/drift/diff-and-file.mjs) — diffs against the `drift-snapshot` git tag and finds-or-updates a single evergreen issue per surface when a watchlisted regex matches a changed line (relevance-gated via each entry's optional `affects` allowlist)
+- [scripts/drift/diff-and-file.test.mjs](../../../scripts/drift/diff-and-file.test.mjs) — Node unit tests (`npm test` in `scripts/drift/`) for diffing, relevance gating, and surface dedup
+- [scripts/drift/watchlist.yaml](../../../scripts/drift/watchlist.yaml) — patterns that trigger an auto-filed issue (one entry per drift-sensitive contract); `triage`/`affects`/`clawdea` fields control routing
 
 ### PR-time fixture replay
 - `CliFixtureReplayTest` in `src/test/kotlin/com/adobe/clawdea/cli/` — replays the recorded NDJSON fixture and goes red if any line parses to `CliEvent.Unknown`
@@ -23,7 +24,7 @@ This is separate from the in-plugin [drift detection](drift-detection.md) layer,
 
 ## Gotchas
 
-- The weekly workflow compares against a **moving git tag** (`drift-snapshot`), not against `main`. After triaging an auto-filed issue you must reseed the snapshot (force-push the tag to the latest commit on `drift-snapshot-source`) or the next run will re-file the same issue.
+- The weekly workflow compares against a **moving git tag** (`drift-snapshot`), not against `main`. The workflow force-pushes the tag to the latest snapshot at the end of every successful run, so a change is reported once and then becomes the new baseline. Re-detections of the same surface append a dated comment to its single evergreen issue rather than filing a duplicate — you only get a fresh issue after the previous one is closed, so manual reseeding is rarely needed.
 - `watchlist.yaml` regexes are matched against the **diff lines**, not the full file. A new flag added in a renamed section won't trigger unless its regex matches the literal `+ ...` line.
 - The fixture replay test only covers event **shapes**, not semantics. A field whose value range changes (e.g. a new `tool_use_id` format) will not fail the test — only a brand-new top-level event type will.
 - See [`docs/drift-monitoring.md`](../../../docs/drift-monitoring.md) for the full operator guide: adding watchlist entries, triaging auto-filed issues, refreshing the fixture, reseeding the snapshot tag.
