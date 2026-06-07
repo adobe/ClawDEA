@@ -114,13 +114,30 @@ class McpWorkspaceTools(private val project: Project) {
 
         val state = ClawDEASettings.getInstance().state
         val repoRoot = repo.resolvedPath(manifestDir)
-        val wikiDir = repoRoot.resolve(state.claudeDirName).resolve(state.wikiSubdir)
+        // Honor the sibling repo's own .clawdea/config.json: a teammate may have
+        // relocated that repo's wiki (team mode) to e.g. docs/llm-wiki/, which
+        // differs from this project's wiki location. Falls back to the default
+        // .clawdea/<wikiSubdir> when the sibling has no config.
+        val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator
+            .resolveForRepo(repoRoot, state.wikiSubdir).wikiDir
 
-        val pageFile = if (pageName == "index" || pageName == "index.md") {
-            wikiDir.resolve("index.md")
-        } else {
-            val safe = if (pageName.endsWith(".md")) pageName else "$pageName.md"
-            wikiDir.resolve("concepts").resolve(safe)
+        fun pageIn(dir: Path): Path =
+            if (pageName == "index" || pageName == "index.md") {
+                dir.resolve("index.md")
+            } else {
+                val safe = if (pageName.endsWith(".md")) pageName else "$pageName.md"
+                dir.resolve("concepts").resolve(safe)
+            }
+
+        // Prefer the resolved (default `.clawdea/wiki` or team-mode) location;
+        // fall back to the legacy `.claude/<wikiSubdir>` for siblings that
+        // haven't been opened (and thus migrated) in the IDE yet.
+        val resolvedPage = pageIn(wikiDir)
+        val legacyPage = pageIn(repoRoot.resolve(state.claudeDirName).resolve(state.wikiSubdir))
+        val pageFile = when {
+            Files.isRegularFile(resolvedPage) -> resolvedPage
+            Files.isRegularFile(legacyPage) -> legacyPage
+            else -> resolvedPage
         }
 
         if (!Files.isRegularFile(pageFile)) {
@@ -144,7 +161,17 @@ class McpWorkspaceTools(private val project: Project) {
             ?: return McpToolRouter.ToolResult("(no repo '$repoKey' in workspace manifest)")
 
         val state = ClawDEASettings.getInstance().state
-        val stateFile = repo.resolvedPath(manifestDir).resolve(state.claudeDirName).resolve("REPO_STATE.md")
+        val repoRoot = repo.resolvedPath(manifestDir)
+        // Preferred new location is the sibling's .clawdea/; fall back to the
+        // legacy .claude/<claudeDirName> location for siblings that haven't been
+        // opened (and thus migrated) in the IDE yet.
+        val clawdeaFile = repoRoot.resolve(com.adobe.clawdea.CLAWDEA_DIR).resolve("REPO_STATE.md")
+        val legacyFile = repoRoot.resolve(state.claudeDirName).resolve("REPO_STATE.md")
+        val stateFile = when {
+            Files.isRegularFile(clawdeaFile) -> clawdeaFile
+            Files.isRegularFile(legacyFile) -> legacyFile
+            else -> clawdeaFile
+        }
         if (!Files.isRegularFile(stateFile)) {
             return McpToolRouter.ToolResult(
                 "(no REPO_STATE.md in repo '$repoKey' at $stateFile — sibling may not be onboarded yet)"

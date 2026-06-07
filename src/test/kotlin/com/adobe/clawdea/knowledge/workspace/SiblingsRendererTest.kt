@@ -45,7 +45,7 @@ class SiblingsRendererTest {
         assertTrue(text.contains("**frontend**"))
         assertTrue(text.contains("Core frontend"))
         // Wiki path hint is included so Claude knows where to look.
-        assertTrue(text.contains("/tmp/frontend/.claude/wiki/"))
+        assertTrue(text.contains("/tmp/frontend/.clawdea/wiki/"))
     }
 
     @Test
@@ -104,6 +104,37 @@ class SiblingsRendererTest {
         ), discoveredAt = tmp)
         val out = SiblingsRenderer.render(m, currentRepoKey = "modules", currentGroupName = "acme-app")
         assertTrue(out.contains("**runtime-engine**") && out.contains("(via acme-app → runtime)"))
+    }
+
+    @Test
+    fun `sibling wiki path honors the sibling's own team config`() {
+        val tmp = Files.createTempDirectory("siblings-team")
+        // Sibling repo lives at <tmp>/frontend and opted into team mode with a
+        // relocated wiki at docs/llm-wiki/.
+        val frontend = Files.createDirectories(tmp.resolve("frontend"))
+        Files.createDirectories(frontend.resolve(".clawdea"))
+        Files.writeString(frontend.resolve(".clawdea").resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+        val m = WorkspaceManifest(
+            "ws",
+            listOf(
+                RepoGroup(
+                    RepoGroup.DEFAULT_NAME,
+                    listOf(
+                        RepoEntry("modules", "modules", "Modules"),
+                        RepoEntry("frontend", "frontend", "Frontend"),
+                    ),
+                ),
+            ),
+            discoveredAt = tmp,
+        )
+        val out = SiblingsRenderer.render(m, currentRepoKey = "modules")
+        assertTrue(
+            "frontend wiki should resolve to its team-mode docs/llm-wiki dir",
+            out.contains(frontend.resolve("docs").resolve("llm-wiki").toString()),
+        )
+        // modules has no config → default .clawdea/wiki.
+        assertTrue(out.contains(tmp.resolve("modules").resolve(".clawdea").resolve("wiki").toString()))
     }
 
     @Test

@@ -130,6 +130,9 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                 gitMove = { src, dst -> tryGitMove(project, src, dst) },
             )
             writeConfig(projectBase, newPath)
+            // Drop any now-empty default-mode wiki dir left behind (e.g. an
+            // empty .clawdea/wiki) so it doesn't dangle beside the team wiki.
+            removeEmptyDefaultWikiTrees(projectBase, safeWikiSubdir(), newWikiDir)
             appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
             // Repoint the `## Wiki` link in CLAUDE.md (added by /seed-wiki) at
             // the new location so collaborators don't follow a stale path.
@@ -142,7 +145,12 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
                 project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
                     ?.onMassFileChange()
             }
-            project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.rescan()
+            // This runs on the application thread pool (executeOnPooledThread),
+            // not the coroutine dispatcher, so bridging the suspend rescan with
+            // runBlocking here blocks only this one-shot command's pool thread.
+            project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)?.let { service ->
+                kotlinx.coroutines.runBlocking { service.rescan() }
+            }
 
             val actionMsg = when (action) {
                 Action.NOTHING -> "left existing wiki contents in place"
@@ -279,6 +287,51 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             val normalized = trimmed.replace('\\', '/')
             if (normalized.split('/').any { it == ".." }) return "path must not traverse outside the project root"
             return null
+        }
+
+        /**
+         * Configured wiki subdirectory name, defaulting to `"wiki"` when no
+         * IntelliJ Application is registered (unit tests / early init) so the
+         * relocation flow stays headless-safe.
+         */
+        fun safeWikiSubdir(): String = try {
+            com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.wikiSubdir
+        } catch (_: Throwable) {
+            "wiki"
+        }
+
+        /**
+         * Removes leftover **empty** default-mode wiki trees after a project
+         * enters team mode, so the old location (`.clawdea/<wikiSubdir>` and the
+         * historical `.claude/<wikiSubdir>`) doesn't dangle next to the new
+         * team-mode wiki. Only deletes directories with no regular files — a
+         * populated legacy tree (e.g. a Copy that intentionally kept its source)
+         * is preserved. The new team path [keep] is never touched.
+         */
+        fun removeEmptyDefaultWikiTrees(projectBase: Path, wikiSubdir: String, keep: Path) {
+            val keepNorm = keep.toAbsolutePath().normalize()
+            val candidates = listOf(
+                projectBase.resolve(com.adobe.clawdea.CLAWDEA_DIR).resolve(wikiSubdir),
+                projectBase.resolve(com.adobe.clawdea.CLAUDE_DIR).resolve(wikiSubdir),
+            )
+            for (dir in candidates) {
+                if (!Files.isDirectory(dir)) continue
+                if (dir.toAbsolutePath().normalize() == keepNorm) continue
+                val hasFiles = try {
+                    Files.walk(dir).use { s -> s.anyMatch { Files.isRegularFile(it) } }
+                } catch (_: Throwable) { true }
+                if (hasFiles) continue
+                // Bottom-up empty-dir delete.
+                val dirs = try {
+                    Files.walk(dir).use { s -> s.filter { Files.isDirectory(it) }.toList() }
+                } catch (_: Throwable) { emptyList() }
+                for (d in dirs.sortedByDescending { it.nameCount }) {
+                    try {
+                        val empty = Files.list(d).use { !it.findAny().isPresent }
+                        if (empty) Files.deleteIfExists(d)
+                    } catch (_: Exception) { /* best-effort */ }
+                }
+            }
         }
 
         /** Writes `.clawdea/config.json` with `{"wikiPath":"<value>"}`. Atomic via temp+rename. */

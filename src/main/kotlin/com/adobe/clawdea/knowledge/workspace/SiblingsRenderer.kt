@@ -12,9 +12,10 @@
 package com.adobe.clawdea.knowledge.workspace
 
 /**
- * Renders the per-project SIBLINGS.md text from a WorkspaceManifest.
- * Annotates the current repo (if known) so Claude does not redundantly
- * call read_sibling_wiki against the local repo it is already in.
+ * Renders the per-project siblings primer text from a WorkspaceManifest.
+ * The output is consumed in-memory by SiblingsSource (the primer) — it is not
+ * persisted to disk. Annotates the current repo (if known) so Claude does not
+ * redundantly call read_sibling_wiki against the local repo it is already in.
  *
  * Group filtering is the caller's responsibility — pass an already-filtered
  * manifest. SiblingsSource handles this.
@@ -25,6 +26,7 @@ object SiblingsRenderer {
         manifest: WorkspaceManifest,
         currentRepoKey: String?,
         currentGroupName: String? = null,
+        wikiSubdir: String = "wiki",
     ): String {
         val sb = StringBuilder()
         sb.appendLine("# Workspace: ${manifest.name.ifBlank { "(unnamed)" }}")
@@ -48,7 +50,12 @@ object SiblingsRenderer {
             val dir = manifest.discoveredAt
             if (dir != null) {
                 val resolved = repo.resolvedPath(dir)
-                sb.appendLine("  - Wiki: `$resolved/.claude/wiki/`")
+                // Honor each sibling's own .clawdea/config.json (team mode may
+                // relocate its wiki, e.g. docs/llm-wiki/); fall back to the
+                // default .clawdea/<wikiSubdir> when it has no config.
+                val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator
+                    .resolveForRepo(resolved, wikiSubdir).wikiDir
+                sb.appendLine("  - Wiki: `$wikiDir/`")
             }
         }
 

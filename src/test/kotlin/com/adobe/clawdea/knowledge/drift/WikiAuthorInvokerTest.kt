@@ -66,6 +66,44 @@ class WikiAuthorInvokerTest {
         assertTrue("prompt starts with @wiki-author", cmd.last().startsWith("@wiki-author"))
     }
 
+    @Test fun `exit 0 but missing target page is withheld, not dismissed`() = runBlocking {
+        val wikiDir = java.nio.file.Files.createTempDirectory("wiki-author-verify")
+        val runner = StubProcessRunner(exitCode = 0, stdout = "claimed I wrote it", stderr = "")
+        val invoker = DefaultWikiAuthorInvoker(
+            runner = runner, claudeCliPath = "/fake/claude", projectRoot = Paths.get("/tmp/proj"),
+            wikiDir = wikiDir,
+        )
+        val suggestion = DriftEvent.WikiSuggestion(
+            kind = SuggestionKind.missingConcept,
+            title = "t", rationale = "rationale text",
+            targetFiles = listOf(".claude/wiki/concepts/never-written.md"),
+            sourcePage = null, recordedAt = "2026-05-17T16:30:00Z",
+        )
+        val result = invoker.invoke(listOf(suggestion))
+        assertTrue("nothing acked when page absent", result.actedOnSignatures.isEmpty())
+        assertEquals(setOf(suggestion.signature), result.skippedSignatures)
+    }
+
+    @Test fun `exit 0 with target page present is dismissed`() = runBlocking {
+        val wikiDir = java.nio.file.Files.createTempDirectory("wiki-author-verify")
+        java.nio.file.Files.createDirectories(wikiDir.resolve("concepts"))
+        java.nio.file.Files.writeString(wikiDir.resolve("concepts/written.md"), "# page\n")
+        val runner = StubProcessRunner(exitCode = 0, stdout = "wrote it", stderr = "")
+        val invoker = DefaultWikiAuthorInvoker(
+            runner = runner, claudeCliPath = "/fake/claude", projectRoot = Paths.get("/tmp/proj"),
+            wikiDir = wikiDir,
+        )
+        val suggestion = DriftEvent.WikiSuggestion(
+            kind = SuggestionKind.missingConcept,
+            title = "t", rationale = "rationale text",
+            targetFiles = listOf(".claude/wiki/concepts/written.md"),
+            sourcePage = null, recordedAt = "2026-05-17T16:30:00Z",
+        )
+        val result = invoker.invoke(listOf(suggestion))
+        assertEquals(setOf(suggestion.signature), result.actedOnSignatures)
+        assertTrue(result.skippedSignatures.isEmpty())
+    }
+
     @Test fun `timeout dismisses nothing and reports the timeout`() = runBlocking {
         val runner = StubProcessRunner(exitCode = -1, stdout = "", stderr = "", timedOut = true)
         val invoker = DefaultWikiAuthorInvoker(runner = runner, claudeCliPath = "/fake/claude", projectRoot = Paths.get("/tmp/proj"))

@@ -13,12 +13,10 @@ package com.adobe.clawdea.knowledge.primer.sources
 
 import com.adobe.clawdea.knowledge.primer.PrimerSource
 import com.adobe.clawdea.knowledge.workspace.SiblingsRenderer
-import com.adobe.clawdea.knowledge.workspace.SiblingsWriter
 import com.adobe.clawdea.knowledge.workspace.WorkspaceDiscovery
 import com.adobe.clawdea.knowledge.workspace.WorkspaceManifest
 import com.adobe.clawdea.knowledge.workspace.WorkspaceManifestFilter
 import com.adobe.clawdea.settings.ClawDEASettings
-import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -33,22 +31,27 @@ class SiblingsSource : PrimerSource {
         val basePath = project.basePath ?: return null
         return loadFor(
             projectBasePath = Paths.get(basePath),
-            claudeDirName = state.claudeDirName,
             manifestName = state.workspaceManifestName,
+            wikiSubdir = state.wikiSubdir,
         )
     }
 
     companion object {
-        private val LOG = Logger.getInstance(SiblingsSource::class.java)
 
         /**
          * Pure path-based entry point so the renderer + discovery flow can
          * be tested without an IntelliJ Project fixture. Walks up to find
-         * the manifest, renders SIBLINGS.md text, writes it to the
-         * project's .claude/ dir, and returns the same text. Returns null
-         * when no manifest is found above projectBasePath.
+         * the manifest, renders the siblings text, and returns it. Returns
+         * null when no manifest is found above projectBasePath.
+         *
+         * The rendered text is consumed in-memory by the primer only — it is
+         * not persisted to disk (nothing reads a `SIBLINGS.md` file back).
          */
-        fun loadFor(projectBasePath: Path, claudeDirName: String, manifestName: String): String? {
+        fun loadFor(
+            projectBasePath: Path,
+            manifestName: String,
+            wikiSubdir: String = "wiki",
+        ): String? {
             val manifestPath = WorkspaceDiscovery.discover(projectBasePath, manifestName) ?: return null
             val rawManifest = WorkspaceDiscovery.parseManifest(manifestPath) ?: return null
             val manifest = WorkspaceManifestFilter.filterToCurrentGroup(
@@ -61,13 +64,12 @@ class SiblingsSource : PrimerSource {
             val currentGroupName = manifest.groups.firstOrNull { group ->
                 group.repos.any { it.key == currentRepoKey }
             }?.name
-            val rendered = SiblingsRenderer.render(manifest, currentRepoKey, currentGroupName)
-
-            try {
-                SiblingsWriter.write(projectRoot = projectBasePath, claudeDirName = claudeDirName, content = rendered)
-            } catch (e: Throwable) {
-                LOG.warn("SiblingsWriter failed for $projectBasePath", e)
-            }
+            val rendered = SiblingsRenderer.render(
+                manifest,
+                currentRepoKey,
+                currentGroupName,
+                wikiSubdir = wikiSubdir,
+            )
 
             return rendered.trim().takeIf { it.isNotEmpty() }
         }

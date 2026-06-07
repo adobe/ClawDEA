@@ -16,8 +16,14 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.util.Alarm
-import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Periodically calls [DriftDetectionService.rescan] so persisted wiki suggestions
@@ -26,49 +32,47 @@ import java.util.concurrent.atomic.AtomicBoolean
  * `autoUpdateWiki` is enabled — the flag is checked on every tick so toggling
  * it on takes effect within one interval.
  *
- * Skips overlapping ticks: a slow rescan (wiki-author subprocess can take up
- * to 5 minutes) does not stack additional rescans behind the synchronized
- * mutex on `DriftDetectionService.rescan`.
+ * Runs as a single sequential coroutine loop on the service's intrinsic scope:
+ * each tick awaits the previous rescan before the next interval starts, so a
+ * slow rescan (wiki-author subprocess can take up to 5 minutes) never stacks
+ * overlapping rescans. `rescan` is a suspend function, so the loop never blocks
+ * a thread while the subprocess runs.
  */
 @Service(Service.Level.PROJECT)
-class DriftPeriodicScanner(private val project: Project) {
+class DriftPeriodicScanner(private val project: Project, private val scope: CoroutineScope) {
 
-    private val alarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, project)
-    private val running = AtomicBoolean(false)
+    @Volatile private var loop: Job? = null
 
+    @Synchronized
     fun start() {
-        scheduleNext()
+        if (loop?.isActive == true) return
+        loop = scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(INTERVAL_MS)
+                tick()
+            }
+        }
     }
 
-    private fun scheduleNext() {
-        if (project.isDisposed) return
-        alarm.cancelAllRequests()
-        alarm.addRequest({ tick() }, INTERVAL_MS)
-    }
-
-    private fun tick() {
+    private suspend fun tick() {
         try {
             if (project.isDisposed) return
             if (!ClawDEASettings.getInstance().state.autoUpdateWiki) return
-            if (!running.compareAndSet(false, true)) {
-                LOG.debug("periodic rescan skipped: previous tick still running")
-                return
-            }
-            try {
+            // Run the rescan NonCancellable so a scope cancellation (or any future
+            // canceller) can't abort a rescan that has already launched the
+            // wiki-author subprocess and leave the suggestion half-authored. The
+            // surrounding loop still stops on cancellation at the next `delay`.
+            withContext(NonCancellable) {
                 project.getService(DriftDetectionService::class.java).rescan()
-            } finally {
-                running.set(false)
             }
         } catch (e: Throwable) {
             LOG.warn("periodic drift rescan failed: ${e.message}")
-        } finally {
-            scheduleNext()
         }
     }
 
     companion object {
         private val LOG = Logger.getInstance(DriftPeriodicScanner::class.java)
-        const val INTERVAL_MS = 60_000
+        const val INTERVAL_MS = 60_000L
     }
 }
 

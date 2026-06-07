@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.wiki
 
+import com.adobe.clawdea.CLAWDEA_DIR
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
@@ -21,8 +22,8 @@ import java.nio.file.Paths
  * Single source of truth for the wiki directory and the current operating mode.
  *
  * Two modes, detected by file presence:
- *  - **Default**: `.clawdea/config.json` absent → wiki at `<base>/<claudeDirName>/<wikiSubdir>`
- *    (default `.claude/wiki/`), honoring [ClawDEASettings] overrides.
+ *  - **Default**: `.clawdea/config.json` absent → wiki at `<base>/.clawdea/<wikiSubdir>`
+ *    (default `.clawdea/wiki/`), honoring the [ClawDEASettings] `wikiSubdir` override.
  *  - **Team**: `.clawdea/config.json` present with a non-blank `wikiPath` → wiki at
  *    `<base>/<wikiPath>`. Auto-activated when cloning a repo that already has the
  *    config file. Malformed JSON or a missing/blank `wikiPath` silently falls back
@@ -33,13 +34,12 @@ class WikiLocator(private val project: Project) {
 
     /** Resolved wiki directory for this project. Recomputed on every call (cheap). */
     fun wikiDir(): Path {
-        val basePath = project.basePath ?: return Paths.get(".claude", "wiki")
+        val basePath = project.basePath ?: return Paths.get(CLAWDEA_DIR, "wiki")
         val state = ClawDEASettings.getInstance().state
         return resolve(
             projectBase = Paths.get(basePath),
-            claudeDirName = state.claudeDirName,
             wikiSubdir = state.wikiSubdir,
-            configReader = { readConfigJson(Paths.get(basePath)) },
+            configReader = { readConfigJsonAt(Paths.get(basePath)) },
         ).wikiDir
     }
 
@@ -49,28 +49,37 @@ class WikiLocator(private val project: Project) {
         val state = ClawDEASettings.getInstance().state
         return resolve(
             projectBase = Paths.get(basePath),
-            claudeDirName = state.claudeDirName,
             wikiSubdir = state.wikiSubdir,
-            configReader = { readConfigJson(Paths.get(basePath)) },
+            configReader = { readConfigJsonAt(Paths.get(basePath)) },
         ).teamMode
-    }
-
-    private fun readConfigJson(projectBase: Path): String? {
-        val file = projectBase.resolve(".clawdea").resolve("config.json")
-        if (!java.nio.file.Files.isRegularFile(file)) return null
-        return try {
-            java.nio.file.Files.readString(file)
-        } catch (_: Throwable) {
-            null
-        }
     }
 
     companion object {
 
+        /**
+         * Resolve the wiki directory for an arbitrary repo root — typically a
+         * sibling repo in a workspace manifest — honoring **that repo's own**
+         * `.clawdea/config.json` team-mode override rather than the current
+         * project's. `wikiSubdir` supplies the default-mode fallback (the
+         * sibling's default is assumed to match the user's, which is the
+         * existing behavior when no config is present).
+         */
+        fun resolveForRepo(repoRoot: Path, wikiSubdir: String): Resolved =
+            resolve(repoRoot, wikiSubdir) { readConfigJsonAt(repoRoot) }
+
+        private fun readConfigJsonAt(repoRoot: Path): String? {
+            val file = repoRoot.resolve(CLAWDEA_DIR).resolve("config.json")
+            if (!java.nio.file.Files.isRegularFile(file)) return null
+            return try {
+                java.nio.file.Files.readString(file)
+            } catch (_: Throwable) {
+                null
+            }
+        }
+
         /** Pure resolution function, easy to unit-test without a Project. */
         fun resolve(
             projectBase: Path,
-            claudeDirName: String,
             wikiSubdir: String,
             configReader: () -> String?,
         ): Resolved {
@@ -78,7 +87,7 @@ class WikiLocator(private val project: Project) {
             return if (configWikiPath != null) {
                 Resolved(projectBase.resolve(configWikiPath), teamMode = true)
             } else {
-                Resolved(projectBase.resolve(claudeDirName).resolve(wikiSubdir), teamMode = false)
+                Resolved(projectBase.resolve(CLAWDEA_DIR).resolve(wikiSubdir), teamMode = false)
             }
         }
 

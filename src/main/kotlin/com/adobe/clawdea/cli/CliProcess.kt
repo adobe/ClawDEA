@@ -209,6 +209,10 @@ class CliProcess(
         processEnv.putAll(env)
 
         process = pb.start()
+        // Track in the process-global registry so the safety-net reaper can kill
+        // this persistent CLI on plugin unload / IDE close even if the normal
+        // Disposable chain doesn't run. stop() unregisters it.
+        CliProcessRegistry.register(process!!)
         stdoutReader = BufferedReader(InputStreamReader(process!!.inputStream, StandardCharsets.UTF_8))
         stdinWriter = BufferedWriter(OutputStreamWriter(process!!.outputStream, StandardCharsets.UTF_8))
 
@@ -283,6 +287,7 @@ class CliProcess(
             log.warn("Error stopping CLI process", e)
             proc.destroyForcibly()
         } finally {
+            CliProcessRegistry.unregister(proc)
             try { stdoutReader?.close() } catch (_: Exception) {}
             try { mcpConfigFile?.delete() } catch (_: Exception) {}
             try { systemPromptFile?.delete() } catch (_: Exception) {}

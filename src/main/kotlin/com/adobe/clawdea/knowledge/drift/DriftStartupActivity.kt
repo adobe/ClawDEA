@@ -17,8 +17,9 @@ import com.intellij.openapi.startup.ProjectActivity
 
 /**
  * Runs `DriftDetectionService.rescan()` once per project open. The detectors
- * read `.claude/wiki/` and the workspace manifest directly from disk; no
- * ordering dependency on `PrimerService` or other startup activities.
+ * read the resolved wiki directory (via `WikiLocator`) and the workspace
+ * manifest directly from disk; no ordering dependency on `PrimerService` or
+ * other startup activities.
  */
 class DriftStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {

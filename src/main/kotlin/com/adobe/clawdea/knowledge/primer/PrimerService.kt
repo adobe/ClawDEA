@@ -69,7 +69,6 @@ class PrimerService(private val project: Project) {
             try {
                 RepoStateWriter.write(
                     projectRoot = Paths.get(basePath),
-                    claudeDirName = settings.claudeDirName,
                     content = repoStateText,
                 )
             } catch (e: Throwable) {

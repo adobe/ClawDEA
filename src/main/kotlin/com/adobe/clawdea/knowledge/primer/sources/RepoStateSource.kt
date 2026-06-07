@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.knowledge.primer.sources
 
+import com.adobe.clawdea.CLAWDEA_DIR
 import com.adobe.clawdea.knowledge.primer.PrimerSource
-import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.project.Project
 import java.io.File
 
@@ -22,8 +22,7 @@ class RepoStateSource : PrimerSource {
 
     override fun load(project: Project): String? {
         val basePath = project.basePath ?: return null
-        val claudeDirName = ClawDEASettings.getInstance().state.claudeDirName
-        val file = File(basePath, "$claudeDirName/REPO_STATE.md")
+        val file = File(basePath, "$CLAWDEA_DIR/REPO_STATE.md")
         if (!file.exists() || !file.canRead()) return null
         val text = file.readText().trim()
         return text.takeIf { it.isNotEmpty() }

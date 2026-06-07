@@ -43,6 +43,49 @@ class DriftStateStoreTest {
         assertEquals(listOf("a", "b"), DriftStateStore.read(wikiDir = wikiDir).dismissed)
     }
 
+    @Test fun `mutate returns transform result and persists new state`() {
+        val tmp = Files.createTempDirectory("drift")
+        val wikiDir = tmp.resolve("wiki")
+        DriftStateStore.write(wikiDir = wikiDir, state = DriftState(dismissed = listOf("a")))
+        val added = DriftStateStore.mutate(wikiDir = wikiDir, projectBase = null) { s ->
+            s.copy(dismissed = s.dismissed + "b") to s.dismissed.size
+        }
+        assertEquals(1, added)
+        assertEquals(listOf("a", "b"), DriftStateStore.read(wikiDir = wikiDir).dismissed)
+    }
+
+    @Test fun `concurrent mutate and update do not lose each other's writes`() {
+        val tmp = Files.createTempDirectory("drift-race")
+        try {
+            val wikiDir = tmp.resolve("wiki")
+            DriftStateStore.write(wikiDir = wikiDir, state = DriftState())
+            val threads = (0 until 8).map { t ->
+                Thread {
+                    repeat(25) { i ->
+                        // Half the writers append "suggestions" (via dismissed strings
+                        // as a stand-in), the other half append to a different slot, so
+                        // a lost update would drop entries from the final union.
+                        if (t % 2 == 0) {
+                            DriftStateStore.update(wikiDir = wikiDir) { s ->
+                                s.copy(dismissed = s.dismissed + "d-$t-$i")
+                            }
+                        } else {
+                            DriftStateStore.mutate(wikiDir = wikiDir, projectBase = null) { s ->
+                                s.copy(dismissed = s.dismissed + "m-$t-$i") to Unit
+                            }
+                        }
+                    }
+                }
+            }
+            threads.forEach { it.start() }
+            threads.forEach { it.join() }
+            // 8 threads * 25 appends = 200 distinct entries, none lost.
+            assertEquals(200, DriftStateStore.read(wikiDir = wikiDir).dismissed.toSet().size)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test fun `read tolerates malformed JSON by returning empty state`() {
         val tmp = Files.createTempDirectory("drift")
         val wikiDir = Files.createDirectories(tmp.resolve("wiki"))
