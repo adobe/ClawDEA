@@ -17,6 +17,7 @@ import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Reads/writes `DriftState`. Mode-aware:
@@ -35,6 +36,20 @@ object DriftStateStore {
 
     private val LOG = Logger.getInstance(DriftStateStore::class.java)
     private val GSON = Gson()
+
+    // One lock per logical state (keyed by wikiDir + projectBase) so all
+    // read-modify-write cycles on the same `.wiki-state.json` / `.drift-state.json`
+    // serialize. Without this, concurrent writers (the periodic rescan and the
+    // chat-session wiki-librarian both mutate `suggestions`) can lose each other's
+    // updates between their separate read and write. Interned so every caller
+    // targeting the same files shares the same monitor.
+    private val locks = ConcurrentHashMap<String, Any>()
+
+    private fun lockFor(wikiDir: Path, projectBase: Path?): Any {
+        val key = wikiDir.toAbsolutePath().normalize().toString() +
+            "\u0000" + (projectBase?.toAbsolutePath()?.normalize()?.toString() ?: "")
+        return locks.computeIfAbsent(key) { Any() }
+    }
     private const val LEGACY_FILE = ".drift-state.json"
     private const val TEAM_FILE = ".wiki-state.json"
     private const val PER_USER_FILE = "wiki-state.local.json"
@@ -63,13 +78,28 @@ object DriftStateStore {
     }
 
     fun update(wikiDir: Path, projectBase: Path?, transform: (DriftState) -> DriftState) {
-        write(wikiDir, projectBase, transform(read(wikiDir, projectBase)))
+        mutate(wikiDir, projectBase) { transform(it) to Unit }
     }
 
     /** Legacy single-arg update kept for unmodified callers. */
     fun update(wikiDir: Path, transform: (DriftState) -> DriftState) {
         update(wikiDir = wikiDir, projectBase = null, transform = transform)
     }
+
+    /**
+     * Atomic read-modify-write under the per-state lock: reads the current state,
+     * applies [transform] (which returns the new state plus a caller result), and
+     * persists it — all while holding [lockFor], so no concurrent writer can slip
+     * a write between this read and write. Use for any mutation whose decision
+     * depends on the current on-disk state (e.g. recording a suggestion, dismissing
+     * a signature, advancing the synced commit).
+     */
+    fun <T> mutate(wikiDir: Path, projectBase: Path?, transform: (DriftState) -> Pair<DriftState, T>): T =
+        synchronized(lockFor(wikiDir, projectBase)) {
+            val (newState, result) = transform(read(wikiDir, projectBase))
+            write(wikiDir, projectBase, newState)
+            result
+        }
 
     // ---- Default mode (single file) ----
 

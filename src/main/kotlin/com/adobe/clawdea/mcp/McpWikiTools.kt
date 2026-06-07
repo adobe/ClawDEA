@@ -109,8 +109,17 @@ class McpWikiTools(private val project: Project) {
             sourcePage = args["source_page"],
         )
         return when (result) {
-            is WikiSuggestionWriter.Result.Recorded ->
+            is WikiSuggestionWriter.Result.Recorded -> {
+                // Kick a rescan now so the wiki-author picks up this freshly
+                // recorded suggestion immediately instead of waiting for the
+                // next periodic tick. Without this the page can sit unwritten
+                // for a full scan interval (or indefinitely if the periodic
+                // loop is wedged on a prior rescan).
+                if (result.isNew) {
+                    project.getService(DriftDetectionService::class.java).requestRescan()
+                }
                 McpToolRouter.ToolResult("""{"status":"recorded","signature":"${result.signature}","isNew":${result.isNew}}""")
+            }
             is WikiSuggestionWriter.Result.Dismissed ->
                 McpToolRouter.ToolResult("""{"status":"dismissed","signature":"${result.signature}"}""")
             is WikiSuggestionWriter.Result.Invalid ->

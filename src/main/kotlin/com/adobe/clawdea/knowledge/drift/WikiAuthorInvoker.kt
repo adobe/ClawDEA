@@ -44,7 +44,14 @@ class DefaultWikiAuthorInvoker(
     private val projectRoot: Path,
     private val mcpPort: Int = 0,
     private val modelId: String = "",
-    private val timeoutSeconds: Long = 300,
+    // Authoring a brand-new concept page (missingConcept) involves reading the
+    // index, several concept pages, and multiple find_symbol/find_files
+    // verification round-trips through the IDE MCP server before the final
+    // Write. 300s was not enough — the process was force-killed mid-run before
+    // it ever wrote the page, every cycle. Give heavy authoring room to finish.
+    private val timeoutSeconds: Long = 600,
+    /** Actual wiki directory; rewrites librarian `.claude/wiki/...` paths in the digest. */
+    private val wikiDir: Path? = null,
 ) : WikiAuthorInvoker {
 
     override suspend fun invoke(events: List<DriftEvent>): WikiAuthorInvoker.Result {
@@ -60,7 +67,7 @@ class DefaultWikiAuthorInvoker(
             return WikiAuthorInvoker.Result(emptySet(), signatures,
                 "Failed to build wiki-author --agents arg: ${e.message}")
         }
-        val digest = WikiAuthorDigestBuilder.build(events)
+        val digest = WikiAuthorDigestBuilder.build(events, wikiDir)
         val mcpConfigFile = if (mcpPort > 0) {
             try {
                 val tmp = java.io.File.createTempFile("clawdea-mcp-wiki-author-", ".json")
@@ -104,20 +111,54 @@ class DefaultWikiAuthorInvoker(
         }
         return when {
             result.timedOut -> {
-                LOG.warn("wiki-author subprocess timed out after ${timeoutSeconds}s for ${signatures.size} events")
+                LOG.warn("wiki-author subprocess timed out after ${timeoutSeconds}s for ${signatures.size} events; " +
+                    "stdout chars=${result.stdout.length} tail: ${result.stdout.takeLast(800)}; " +
+                    "stderr chars=${result.stderr.length} tail: ${result.stderr.takeLast(500)}")
                 WikiAuthorInvoker.Result(emptySet(), signatures,
                     "wiki-author subprocess timed out after ${timeoutSeconds}s")
             }
             result.exitCode != 0 -> {
-                LOG.warn("wiki-author subprocess exit=${result.exitCode} for ${signatures.size} events; stderr tail: ${result.stderr.takeLast(500)}")
+                LOG.warn("wiki-author subprocess exit=${result.exitCode} for ${signatures.size} events; " +
+                    "stderr tail: ${result.stderr.takeLast(500)}; stdout tail: ${result.stdout.takeLast(500)}")
                 WikiAuthorInvoker.Result(emptySet(), signatures,
                     "wiki-author subprocess exit code ${result.exitCode}: ${result.stderr.takeLast(500)}")
             }
             else -> {
-                LOG.info("wiki-author dismissed ${signatures.size} events (strategy-b)")
-                WikiAuthorInvoker.Result(signatures, emptySet(), null)
+                // Strategy-b: exit 0 means "handled". But the author can exit 0
+                // while claiming success without actually creating the page (the
+                // "it said it did, but it didn't" failure). For a missingConcept
+                // the proof is on disk: only ack signatures whose target page now
+                // exists. Unverifiable events (no wikiDir, or kinds that edit an
+                // existing page) keep the exit-0 contract.
+                val (acked, unverified) = events.partition { isAuthored(it) }
+                val ackedSignatures = acked.map { it.signature }.toSet()
+                val unverifiedSignatures = unverified.map { it.signature }.toSet()
+                if (unverifiedSignatures.isNotEmpty()) {
+                    LOG.warn("wiki-author exited 0 but ${unverifiedSignatures.size} event(s) left no file on disk; " +
+                        "not dismissing so they retry: $unverifiedSignatures")
+                }
+                LOG.info("wiki-author dismissed ${ackedSignatures.size} events (strategy-b); " +
+                    "withheld ${unverifiedSignatures.size} unverified")
+                WikiAuthorInvoker.Result(ackedSignatures, unverifiedSignatures, null)
             }
         }
+    }
+
+    /**
+     * Whether [event] can be treated as authored after an exit-0 run. A
+     * `missingConcept` suggestion is only authored if its target page now exists
+     * on disk; this is the verification that closes the "claimed but did not
+     * write" gap. Other events can't be cheaply verified by existence (they edit
+     * an already-present page), so they keep the exit-0 contract.
+     */
+    private fun isAuthored(event: DriftEvent): Boolean {
+        if (event !is DriftEvent.WikiSuggestion) return true
+        if (event.kind != SuggestionKind.missingConcept) return true
+        val dir = wikiDir ?: return true
+        val target = DriftEvent.WikiSuggestion.primaryTarget(event.targetFiles)
+        if (target.isBlank()) return true
+        val rel = target.removePrefix(".claude/wiki/")
+        return java.nio.file.Files.exists(dir.resolve(rel))
     }
 
     interface ProcessRunner {

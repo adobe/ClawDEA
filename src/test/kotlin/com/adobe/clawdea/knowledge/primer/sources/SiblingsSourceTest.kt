@@ -12,7 +12,7 @@
 package com.adobe.clawdea.knowledge.primer.sources
 
 import org.junit.After
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,7 +35,6 @@ class SiblingsSourceTest {
 
         val text = SiblingsSource.loadFor(
             projectBasePath = repoDir,
-            claudeDirName = ".claude",
             manifestName = ".clawdea-workspace.md",
         )
 
@@ -43,7 +42,7 @@ class SiblingsSourceTest {
     }
 
     @Test
-    fun `loadFor renders SIBLINGS and writes to project claude dir`() {
+    fun `loadFor renders SIBLINGS in-memory without writing a file`() {
         val workspaceRoot = tmp.resolve("workspace")
         val repoDir = workspaceRoot.resolve("modules")
         Files.createDirectories(repoDir)
@@ -61,7 +60,6 @@ class SiblingsSourceTest {
 
         val text = SiblingsSource.loadFor(
             projectBasePath = repoDir,
-            claudeDirName = ".claude",
             manifestName = ".clawdea-workspace.md",
         )
 
@@ -70,9 +68,9 @@ class SiblingsSourceTest {
         assertTrue(text.contains("**modules** (this repo)"))
         assertTrue(text.contains("**frontend**"))
 
-        val siblingsFile = repoDir.resolve(".claude/SIBLINGS.md")
-        assertTrue(Files.exists(siblingsFile))
-        assertEquals(text.trim(), Files.readString(siblingsFile).trim())
+        // The siblings view is primer-only — nothing is persisted to disk.
+        assertFalse(Files.exists(repoDir.resolve(".clawdea/SIBLINGS.md")))
+        assertFalse(Files.exists(repoDir.resolve(".claude/SIBLINGS.md")))
     }
 
     @Test
@@ -93,7 +91,6 @@ class SiblingsSourceTest {
 
         val text = SiblingsSource.loadFor(
             projectBasePath = repoDir,
-            claudeDirName = ".claude",
             manifestName = ".clawdea-workspace.md",
         )
 

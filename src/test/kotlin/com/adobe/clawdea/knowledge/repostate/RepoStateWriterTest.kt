@@ -35,11 +35,11 @@ class RepoStateWriterTest {
     }
 
     @Test
-    fun `write creates the configured dir and file`() {
-        val target = tmp.resolve(".claude/REPO_STATE.md")
+    fun `write creates the clawdea dir and file`() {
+        val target = tmp.resolve(".clawdea/REPO_STATE.md")
         assertFalse(Files.exists(target))
 
-        RepoStateWriter.write(projectRoot = tmp, claudeDirName = ".claude", content = "# Hello\n")
+        RepoStateWriter.write(projectRoot = tmp, content = "# Hello\n")
 
         assertTrue(Files.exists(target))
         assertEquals("# Hello\n", Files.readString(target))
@@ -47,29 +47,23 @@ class RepoStateWriterTest {
 
     @Test
     fun `write overwrites existing file`() {
-        val target = tmp.resolve(".claude/REPO_STATE.md")
+        val target = tmp.resolve(".clawdea/REPO_STATE.md")
         Files.createDirectories(target.parent)
         Files.writeString(target, "# Old\n")
 
-        RepoStateWriter.write(projectRoot = tmp, claudeDirName = ".claude", content = "# New\n")
+        RepoStateWriter.write(projectRoot = tmp, content = "# New\n")
 
         assertEquals("# New\n", Files.readString(target))
     }
 
     @Test
     fun `write does not leave temp file on success`() {
-        RepoStateWriter.write(projectRoot = tmp, claudeDirName = ".claude", content = "# X\n")
+        RepoStateWriter.write(projectRoot = tmp, content = "# X\n")
 
-        val claudeDir = tmp.resolve(".claude")
-        val tempFiles = Files.list(claudeDir).use { stream ->
+        val clawdeaDir = tmp.resolve(".clawdea")
+        val tempFiles = Files.list(clawdeaDir).use { stream ->
             stream.filter { it.fileName.toString().startsWith("REPO_STATE.md.tmp") }.toList()
         }
         assertTrue("expected no leftover temp files, found: $tempFiles", tempFiles.isEmpty())
-    }
-
-    @Test
-    fun `write to a custom dir name works`() {
-        RepoStateWriter.write(projectRoot = tmp, claudeDirName = ".clawdea", content = "# X\n")
-        assertTrue(Files.exists(tmp.resolve(".clawdea/REPO_STATE.md")))
     }
 }

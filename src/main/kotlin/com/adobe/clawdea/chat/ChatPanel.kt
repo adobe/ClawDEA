@@ -505,8 +505,20 @@ class ChatPanel(
                 // Skip when nothing was applied or the auto-update setting is off.
                 if (applied.isNotEmpty() && ClawDEASettings.getInstance().state.autoUpdateWiki) {
                     val acted = applied.size
+                    // Reference the actual wiki location; team mode moves the wiki
+                    // (and its drift-state file) out of .clawdea/wiki/.
+                    val wikiRel = run {
+                        val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+                        val base = project.basePath
+                        if (base != null) {
+                            runCatching { java.nio.file.Paths.get(base).relativize(wikiDir).toString() }
+                                .getOrDefault(".clawdea/wiki")
+                        } else {
+                            ".clawdea/wiki"
+                        }
+                    }
                     val msg = "Auto-applied wiki updates from drift events: $acted acted on. " +
-                        "See `.claude/wiki/.drift-state.json` for details."
+                        "See the drift-state file under `$wikiRel/` for details."
                     appendHtml(renderer.renderInfoMessage(msg))
                 }
             }
@@ -1166,7 +1178,21 @@ class ChatPanel(
             } else {
                 "Draft a wiki page about \"$topic\" based on our recent conversation."
             }
-            val targetPath = if (topic.isEmpty()) ".claude/wiki/concepts/<kebab-case-name>.md" else ".claude/wiki/concepts/$topic.md"
+            // Resolve the actual wiki location (team mode moves it out of
+            // .clawdea/wiki/, e.g. docs/llm-wiki/). Hardcoding .clawdea/wiki/ here
+            // would send propose_write to a path that doesn't exist in team-mode
+            // repos and the page would never appear in the real wiki.
+            val wikiRel = run {
+                val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+                val base = project.basePath
+                if (base != null) {
+                    runCatching { java.nio.file.Paths.get(base).relativize(wikiDir).toString() }
+                        .getOrDefault(".clawdea/wiki")
+                } else {
+                    ".clawdea/wiki"
+                }
+            }
+            val targetPath = if (topic.isEmpty()) "$wikiRel/concepts/<kebab-case-name>.md" else "$wikiRel/concepts/$topic.md"
             val linkTarget = if (topic.isEmpty()) {
                 "[Concept](concepts/<kebab-case-name>.md)"
             } else {
@@ -1209,7 +1235,7 @@ class ChatPanel(
             Use propose_write to create $targetPath using the template you picked. Fill in every section;
             for `pipeline` or `runtime-behavior` pages, produce 3–7 invariants, each citing the file that makes it true.
 
-            Then use propose_edit (NOT the built-in Edit tool) to update .claude/wiki/index.md so it links $linkTarget,
+            Then use propose_edit (NOT the built-in Edit tool) to update $wikiRel/index.md so it links $linkTarget,
             unless that link is already there.
             """.trimIndent()
         })
@@ -1453,7 +1479,7 @@ class ChatPanel(
         }
     }
 
-    private fun refreshWiki(args: RefreshWikiArgs): RefreshWikiResult {
+    private suspend fun refreshWiki(args: RefreshWikiArgs): RefreshWikiResult {
         if (args.applyLowRisk && !ClawDEASettings.getInstance().state.autoUpdateWiki) {
             return RefreshWikiResult.Local("Applying low-risk wiki drift fixes requires enabling Auto-update wiki on drift.")
         }
@@ -1470,7 +1496,8 @@ class ChatPanel(
         }
 
         val prompt = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
-            com.adobe.clawdea.knowledge.drift.WikiAuthorDigestBuilder.build(events)
+            val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
+            com.adobe.clawdea.knowledge.drift.WikiAuthorDigestBuilder.build(events, wikiDir)
         } else {
             buildLegacyRefreshWikiPrompt(events)
         }

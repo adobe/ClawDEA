@@ -87,6 +87,54 @@ class WikiAuthorDigestBuilderTest {
         assertTrue(out.contains("rationale: WikiAuthor subagent has no page covering it."))
     }
 
+    @Test fun `WikiSuggestion paths are rewritten to the actual team-mode wiki dir`() {
+        val wikiDir = Paths.get("/repo/docs/llm-wiki")
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.WikiSuggestion(
+                    kind = SuggestionKind.missingConcept,
+                    title = "Add component authoring layout page",
+                    rationale = "No page covers the authoring side of a new component.",
+                    targetFiles = listOf(
+                        ".claude/wiki/concepts/component-authoring-layout.md",
+                        ".claude/wiki/index.md",
+                    ),
+                    sourcePage = ".claude/wiki/concepts/htl-components-and-amp.md",
+                    recordedAt = "2026-06-07T18:56:05Z",
+                ),
+            ),
+            wikiDir = wikiDir,
+        )
+        assertTrue(
+            "expected target files resolved under the team wiki dir, got:\n$out",
+            out.contains("target files: /repo/docs/llm-wiki/concepts/component-authoring-layout.md, /repo/docs/llm-wiki/index.md"),
+        )
+        assertTrue(
+            "expected source page resolved under the team wiki dir, got:\n$out",
+            out.contains("observed while reading: /repo/docs/llm-wiki/concepts/htl-components-and-amp.md"),
+        )
+        assertTrue(
+            "logical .claude/wiki prefix should not leak into the digest, got:\n$out",
+            !out.contains(".claude/wiki/"),
+        )
+    }
+
+    @Test fun `WikiSuggestion paths are left as-is when no wiki dir is given`() {
+        val out = WikiAuthorDigestBuilder.build(
+            listOf(
+                DriftEvent.WikiSuggestion(
+                    kind = SuggestionKind.missingConcept,
+                    title = "Add concept page",
+                    rationale = "A real subsystem has no page covering it yet.",
+                    targetFiles = listOf(".claude/wiki/concepts/foo.md"),
+                    sourcePage = null,
+                    recordedAt = "2026-06-07T18:56:05Z",
+                ),
+            ),
+        )
+        assertTrue(out.contains("target files: .claude/wiki/concepts/foo.md"))
+    }
+
     @Test fun `digest ends with a summarise-after instruction`() {
         val out = WikiAuthorDigestBuilder.build(
             listOf(

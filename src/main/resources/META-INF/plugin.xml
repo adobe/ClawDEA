@@ -340,6 +340,8 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
             implementation="com.adobe.clawdea.knowledge.drift.DriftPeriodicScannerStartupActivity"/>
         <postStartupActivity
             implementation="com.adobe.clawdea.mcp.McpServerStartupActivity"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.knowledge.ClawdeaArtifactMigrationActivity"/>
 
         <!-- Git Repository Change Subscriber (drives drift rescan on git events) -->
         <projectService
@@ -415,6 +417,17 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <codeInsight.lineMarkerProvider language="JAVA"
             implementationClass="com.adobe.clawdea.profiling.ui.ProfilingLineMarker"/>
     </extensions>
+
+    <applicationListeners>
+        <!-- Safety-net reaper: kills orphaned persistent CLI subprocesses on
+             plugin unload (dynamic reinstall) and IDE close. -->
+        <listener
+            class="com.adobe.clawdea.cli.CliProcessReaper"
+            topic="com.intellij.ide.plugins.DynamicPluginListener"/>
+        <listener
+            class="com.adobe.clawdea.cli.CliProcessReaper"
+            topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
 
     <actions>
         <!-- Context Menu Group -->

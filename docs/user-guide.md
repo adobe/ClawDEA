@@ -112,7 +112,7 @@ Type `/` in the chat input to see available commands.
 | `/profile` | Profile a test, run config, or imported recording (`/profile`, `/profile test ...`, `/profile import ...`) |
 | `/note` | Append a quick note to `.claude/notes/CURRENT.md` (personal notes layer) |
 | `/promote-to-wiki` | Promote a personal note into a shared wiki concept page |
-| `/wiki-audit` | Audit `.claude/wiki/` for stale source-file links |
+| `/wiki-audit` | Audit the project wiki for stale source-file links |
 | `/wiki-gap` | Show clustered wiki probe misses — use before `/refresh-wiki` |
 | `/wiki-relocate <repo-relative-path>` | Move the wiki to a new location and commit the path to `.clawdea/config.json` (team mode opt-in) |
 
@@ -123,7 +123,7 @@ These expand an in-plugin prompt template and forward to the CLI, which drives t
 | Command | Description |
 |---------|-------------|
 | `/learn` | Capture a learning from the current session into the project wiki |
-| `/seed-wiki` | Bootstrap `.claude/wiki/` with an index and initial concept pages |
+| `/seed-wiki` | Bootstrap the project wiki (`.clawdea/wiki/` by default) with an index and initial concept pages |
 | `/refresh-wiki [--status|--apply-low-risk]` | Review and refresh wiki drift via the bundled `wiki-author` subagent |
 | `/seed-workspace` | Create a `.clawdea-workspace.md` manifest for cross-repo navigation |
 
@@ -211,7 +211,7 @@ ClawDEA runs a local MCP server that gives Claude direct access to IntelliJ's in
 
 | Tool | What it does |
 |------|-------------|
-| `read_wiki_page` | Read a concept, source, or index page from `.claude/wiki/` |
+| `read_wiki_page` | Read a concept, source, or index page from the project wiki |
 | `search_wiki` | Search the project wiki (registered only when **Enable wiki librarian** is off — otherwise the librarian subagent owns wiki access). Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
 | `record_wiki_suggestion` | Allow-listed for the `wiki-librarian` subagent — records a `missingConcept` / `staleConcept` / `incompleteConcept` suggestion that surfaces at refresh time |
 | `list_workspace_repos` | List sibling repos from `.clawdea-workspace.md` |
@@ -248,11 +248,11 @@ ClawDEA builds a project-local knowledge base under `.claude/` so Claude starts 
 
 ### Primer
 
-The **primer** assembles `CLAUDE.md` + the auto-generated `.claude/REPO_STATE.md` (current branch, hot files, recent commits) + the `.claude/wiki/index.md` table of contents, and ships it with every turn. Claude can also re-fetch it on demand via the `get_primer` MCP tool.
+The **primer** assembles `CLAUDE.md` + the auto-generated `.clawdea/REPO_STATE.md` (current branch, hot files, recent commits) + the wiki's `index.md` table of contents, and ships it with every turn. Claude can also re-fetch it on demand via the `get_primer` MCP tool.
 
-### Wiki (`.claude/wiki/`)
+### Wiki (`.clawdea/wiki/`)
 
-Concept pages live under `.claude/wiki/concepts/`. Each page names the files, classes, and entry points for a subsystem — Claude reads a concept page first to orient, then navigates directly instead of broad text search. Seed a fresh wiki with `/seed-wiki`, refresh auto-generated parts with `/refresh-wiki`, and audit for stale links with `/wiki-audit`. Capture a learning mid-session with `/learn`.
+Concept pages live under `.clawdea/wiki/concepts/` (default mode; team mode relocates the wiki to a committed path such as `docs/llm-wiki/`). Each page names the files, classes, and entry points for a subsystem — Claude reads a concept page first to orient, then navigates directly instead of broad text search. Seed a fresh wiki with `/seed-wiki`, refresh auto-generated parts with `/refresh-wiki`, and audit for stale links with `/wiki-audit`. Capture a learning mid-session with `/learn`.
 
 **Page schemas.** `/seed-wiki` and `/learn` classify each concept as `pipeline`, `runtime-behavior`, or `navigation`:
 
@@ -261,13 +261,13 @@ Concept pages live under `.claude/wiki/concepts/`. Each page names the files, cl
 
 The templates live in `src/main/resources/prompts/wiki-page-invariant.md` and `wiki-page-navigation.md`, iterable without a Kotlin rebuild.
 
-**Probe-miss capture and `/wiki-gap`.** When `search_wiki` returns low-hit results for a non-trivial query, the miss is recorded in `.claude/wiki/.drift-state.json`. `/wiki-gap` clusters recent misses by path-token Jaccard similarity and suggests concept-page slugs, giving `/refresh-wiki` a concrete work queue.
+**Probe-miss capture and `/wiki-gap`.** When `search_wiki` returns low-hit results for a non-trivial query, the miss is recorded in the wiki's `.drift-state.json`. `/wiki-gap` clusters recent misses by path-token Jaccard similarity and suggests concept-page slugs, giving `/refresh-wiki` a concrete work queue.
 
 **Correction capture.** When you follow an assistant message with a correction ("no, actually the policy is inert because…"), ClawDEA detects it heuristically, records a `USER_CORRECTION` evidence signal, and surfaces a `/learn <auto-drafted-topic>` suggestion in chat.
 
 ### Wiki team mode
 
-By default, the wiki lives at `.claude/wiki/` and each developer's drift state is local to their working copy. Teams can opt into a **shared wiki** committed to git:
+By default, the wiki lives at `.clawdea/wiki/` and each developer's drift state is local to their working copy. Teams can opt into a **shared wiki** committed to git:
 
 - Run `/wiki-relocate docs/llm-wiki` (or any repo-relative path). ClawDEA writes `.clawdea/config.json` with `{"wikiPath": "docs/llm-wiki"}`, moves any existing wiki contents (preserving git history via `git mv` for tracked files), and adds `.clawdea/wiki-state.local.json` to `.gitignore`.
 - Commit `.clawdea/config.json` and the new wiki path to share with the team. Teammates auto-discover team mode on next project open — no manual setup.
@@ -281,11 +281,11 @@ In team mode the drift state splits into:
 
 `lastSyncedCommit` anchors commit-driven drift detection: `CommitWikiDriftDetector` only considers commits in `lastSyncedCommit..HEAD`, and the SHA bumps to HEAD after every drift cycle. Branch switching is automatic because the team file is git-tracked.
 
-To revert: delete `.clawdea/config.json` (and optionally move the wiki back to `.claude/wiki/`). The next project open returns to default mode.
+To revert: delete `.clawdea/config.json` (and optionally move the wiki back to `.clawdea/wiki/`). The next project open returns to default mode.
 
 ### Commit-driven wiki maintenance
 
-ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On any change, `CommitWikiDriftDetector` reads commits since the last drift rescan and flags any `.claude/wiki/concepts/*.md` page whose mentioned files or class names appear in the touched paths. Each flagged page becomes a `CommitDrift` drift event.
+ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On any change, `CommitWikiDriftDetector` reads commits since the last drift rescan and flags any concept page (e.g. `concepts/*.md` under the wiki) whose mentioned files or class names appear in the touched paths. Each flagged page becomes a `CommitDrift` drift event.
 
 If **Auto-update wiki on drift** is enabled, ClawDEA invokes the bundled `wiki-author` subagent in a fresh `claude -p` subprocess to draft the page edits — `propose_write` / `propose_edit` calls open diff dialogs (or apply silently if **Auto-accept edits** is also enabled). A one-line note in any active chat reports the outcome.
 
@@ -302,11 +302,11 @@ Auto-applied fixes and `/refresh-wiki` summaries carry the same icons. Wiki MCP 
 
 ### Wiki librarian
 
-For any non-trivial question about this project's design, ClawDEA's main chat delegates to a `wiki-librarian` Claude Code subagent rather than running a keyword search itself. The librarian reads `.claude/wiki/` in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
+For any non-trivial question about this project's design, ClawDEA's main chat delegates to a `wiki-librarian` Claude Code subagent rather than running a keyword search itself. The librarian reads the project wiki in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
 
 The agent definition is bundled with the plugin and injected per-session via the Claude Code CLI's `--agents` flag — there is no file to install or manage. Each new plugin release ships the current agent text; restart your IDE (or end the chat session) to pick up changes. The agent is project-scoped: it isn't registered globally on disk and doesn't appear in other projects' subagent lists.
 
-**When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in `.claude/wiki/.drift-state.json` alongside other drift events and surface through the existing flow:
+**When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in the wiki's drift-state file alongside other drift events and surface through the existing flow:
 
 - With **Auto-update wiki on drift** enabled, suggestions surface alongside other drift events when the commit-driven detector fires.
 - Without it, suggestions wait until `/refresh-wiki` is invoked.

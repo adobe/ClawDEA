@@ -159,11 +159,18 @@ object CommitWikiDriftDetector {
         val root = repo.root
         val isAncestor: (String) -> Boolean = { sha -> isAncestorOfHead(project, root, sha) }
         val rangeArg = commitRangeArgs(lastSyncedCommit, isAncestor) ?: return emptyList()
-        val historyArgs = arrayOf("--name-only", "--pretty=format:%H", rangeArg)
+        // Pass ONLY the revision range. GitHistoryUtils.history builds the full
+        // `git log` command itself — it injects `--name-status` to populate
+        // `GitCommit.changes` and its own `--pretty` record format for parsing.
+        // Adding `--name-only` collides with the internal `--name-status`
+        // ("--name-only, --name-status, --check and -s are mutually exclusive")
+        // and a custom `--pretty` would break the parser. Both are unnecessary:
+        // sha and touched paths are read from the parsed GitCommit below, never
+        // from raw stdout.
         // GitHistoryUtils.history(project, root, vararg String) — verified against
         // IntelliJ Platform 2026.1 git4idea (vcs-git.jar -> git4idea/history/GitHistoryUtils.class).
         val history = try {
-            GitHistoryUtils.history(project, root, *historyArgs)
+            GitHistoryUtils.history(project, root, rangeArg)
         } catch (e: NoSuchMethodError) {
             LOG.warn("Git4Idea history API mismatch — see plan §Task 4 for the alternate entry point")
             return emptyList()

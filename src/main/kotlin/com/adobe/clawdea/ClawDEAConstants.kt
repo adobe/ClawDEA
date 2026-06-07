@@ -23,3 +23,13 @@ package com.adobe.clawdea
  * constant exists to dedupe the literal across call sites.
  */
 const val CLAUDE_DIR = ".claude"
+
+/**
+ * ClawDEA's own per-project directory (`<project>/.clawdea/`). Holds plugin-owned
+ * artifacts that are not part of Claude Code's `~/.claude/` contract: the team-mode
+ * `config.json`, per-user wiki state (`wiki-state.local.json`), the default-mode
+ * wiki (`wiki/`), and the generated `REPO_STATE.md`. Fixed (not user-overridable)
+ * so the layout is stable across clones and teammates. Unlike [CLAUDE_DIR], this is
+ * never used for the user-global `~/.clawdea/` path beyond plugin caches.
+ */
+const val CLAWDEA_DIR = ".clawdea"

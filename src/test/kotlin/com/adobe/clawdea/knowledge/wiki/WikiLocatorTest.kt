@@ -19,32 +19,30 @@ import java.nio.file.Path
 
 class WikiLocatorTest {
 
-    @Test fun `default mode resolves to claudeDir wikiSubdir`() {
+    @Test fun `default mode resolves to clawdea wikiSubdir`() {
         val tmp = Files.createTempDirectory("wiki-locator")
         try {
             val resolved = WikiLocator.resolve(
                 projectBase = tmp,
-                claudeDirName = ".claude",
                 wikiSubdir = "wiki",
                 configReader = { null },
             )
-            assertEquals(tmp.resolve(".claude").resolve("wiki"), resolved.wikiDir)
+            assertEquals(tmp.resolve(".clawdea").resolve("wiki"), resolved.wikiDir)
             assertFalse(resolved.teamMode)
         } finally {
             tmp.toFile().deleteRecursively()
         }
     }
 
-    @Test fun `default mode honors custom claudeDir and wikiSubdir`() {
+    @Test fun `default mode honors custom wikiSubdir`() {
         val tmp = Files.createTempDirectory("wiki-locator")
         try {
             val resolved = WikiLocator.resolve(
                 projectBase = tmp,
-                claudeDirName = ".myclaude",
                 wikiSubdir = "knowledge",
                 configReader = { null },
             )
-            assertEquals(tmp.resolve(".myclaude").resolve("knowledge"), resolved.wikiDir)
+            assertEquals(tmp.resolve(".clawdea").resolve("knowledge"), resolved.wikiDir)
             assertFalse(resolved.teamMode)
         } finally {
             tmp.toFile().deleteRecursively()
@@ -58,7 +56,6 @@ class WikiLocatorTest {
             Files.writeString(configDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
             val resolved = WikiLocator.resolve(
                 projectBase = tmp,
-                claudeDirName = ".claude",
                 wikiSubdir = "wiki",
                 configReader = { Files.readString(configDir.resolve("config.json")) },
             )
@@ -74,11 +71,10 @@ class WikiLocatorTest {
         try {
             val resolved = WikiLocator.resolve(
                 projectBase = tmp,
-                claudeDirName = ".claude",
                 wikiSubdir = "wiki",
                 configReader = { "{not json" },
             )
-            assertEquals(tmp.resolve(".claude").resolve("wiki"), resolved.wikiDir)
+            assertEquals(tmp.resolve(".clawdea").resolve("wiki"), resolved.wikiDir)
             assertEquals(false, resolved.teamMode)
         } finally {
             tmp.toFile().deleteRecursively()
@@ -90,12 +86,35 @@ class WikiLocatorTest {
         try {
             val resolved = WikiLocator.resolve(
                 projectBase = tmp,
-                claudeDirName = ".claude",
                 wikiSubdir = "wiki",
                 configReader = { """{"wikiPath":""}""" },
             )
-            assertEquals(tmp.resolve(".claude").resolve("wiki"), resolved.wikiDir)
+            assertEquals(tmp.resolve(".clawdea").resolve("wiki"), resolved.wikiDir)
             assertEquals(false, resolved.teamMode)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `resolveForRepo reads the sibling repo's own team config`() {
+        val tmp = Files.createTempDirectory("wiki-locator-sibling-team")
+        try {
+            val configDir = Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(configDir.resolve("config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+            val resolved = WikiLocator.resolveForRepo(tmp, wikiSubdir = "wiki")
+            assertEquals(tmp.resolve("docs").resolve("llm-wiki"), resolved.wikiDir)
+            assertEquals(true, resolved.teamMode)
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `resolveForRepo falls back to default when sibling has no config`() {
+        val tmp = Files.createTempDirectory("wiki-locator-sibling-default")
+        try {
+            val resolved = WikiLocator.resolveForRepo(tmp, wikiSubdir = "wiki")
+            assertEquals(tmp.resolve(".clawdea").resolve("wiki"), resolved.wikiDir)
+            assertFalse(resolved.teamMode)
         } finally {
             tmp.toFile().deleteRecursively()
         }

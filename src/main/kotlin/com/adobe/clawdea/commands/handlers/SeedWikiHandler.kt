@@ -129,6 +129,9 @@ class SeedWikiHandler(
         val heavy = Runnable {
             try {
                 WikiRelocateHandler.writeConfig(projectBase, newPath)
+                // Switching to team mode: remove any empty default-mode wiki dir
+                // (e.g. a stale .clawdea/wiki) so it doesn't dangle.
+                WikiRelocateHandler.removeEmptyDefaultWikiTrees(projectBase, WikiRelocateHandler.safeWikiSubdir(), projectBase.resolve(newPath))
                 WikiRelocateHandler.appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
                 project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
                     ?.onMassFileChange()
@@ -162,7 +165,7 @@ class SeedWikiHandler(
 
         private val LOG = Logger.getInstance(SeedWikiHandler::class.java)
 
-        const val DEFAULT_LOCAL_WIKI_PATH: String = ".claude/wiki"
+        const val DEFAULT_LOCAL_WIKI_PATH: String = ".clawdea/wiki"
         const val DEFAULT_SHAREABLE_WIKI_PATH: String = "docs/llm-wiki"
         const val LOCAL_ONLY_LABEL: String = "local only"
         const val SHAREABLE_LABEL: String = "shareable via git"

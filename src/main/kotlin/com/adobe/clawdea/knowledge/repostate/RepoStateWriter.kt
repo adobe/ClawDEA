@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.repostate
 
+import com.adobe.clawdea.CLAWDEA_DIR
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,8 +21,9 @@ object RepoStateWriter {
 
     private val LOG = Logger.getInstance(RepoStateWriter::class.java)
 
-    fun write(projectRoot: Path, claudeDirName: String, content: String) {
-        val dir = projectRoot.resolve(claudeDirName)
+    /** Writes `REPO_STATE.md` into the project's `.clawdea/` directory. */
+    fun write(projectRoot: Path, content: String) {
+        val dir = projectRoot.resolve(CLAWDEA_DIR)
         Files.createDirectories(dir)
         val target = dir.resolve("REPO_STATE.md")
         val temp = Files.createTempFile(dir, "REPO_STATE.md.tmp", "")

@@ -71,17 +71,22 @@ class WikiSuggestionWriter(
             recordedAt = recordedAt.toString(),
         )
 
-        val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = projectBase)
-        if (event.signature in state.dismissed) return Result.Dismissed(event.signature)
-
-        val existing = state.suggestions.indexOfFirst { it.signature == event.signature }
-        val newSuggestions = if (existing >= 0) {
-            state.suggestions.toMutableList().also { it[existing] = event }
-        } else {
-            state.suggestions + event
+        // Atomic read-modify-write: the periodic rescan rewrites the same
+        // `suggestions` array, so reading and writing must be one critical section
+        // to avoid losing either side's update.
+        return DriftStateStore.mutate(wikiDir = wikiDir, projectBase = projectBase) { state ->
+            if (event.signature in state.dismissed) {
+                state to Result.Dismissed(event.signature)
+            } else {
+                val existing = state.suggestions.indexOfFirst { it.signature == event.signature }
+                val newSuggestions = if (existing >= 0) {
+                    state.suggestions.toMutableList().also { it[existing] = event }
+                } else {
+                    state.suggestions + event
+                }
+                state.copy(suggestions = newSuggestions) to Result.Recorded(event.signature, isNew = existing < 0)
+            }
         }
-        DriftStateStore.write(wikiDir = wikiDir, projectBase = projectBase, state = state.copy(suggestions = newSuggestions))
-        return Result.Recorded(event.signature, isNew = existing < 0)
     }
 
     private fun parseKind(raw: String): SuggestionKind? = try {

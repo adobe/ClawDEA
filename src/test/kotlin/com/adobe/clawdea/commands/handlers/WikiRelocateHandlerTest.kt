@@ -406,6 +406,46 @@ class WikiRelocateHandlerTest {
         }
     }
 
+    // --- removeEmptyDefaultWikiTrees ---
+
+    @Test fun `removeEmptyDefaultWikiTrees deletes an empty leftover wiki dir`() {
+        val tmp = Files.createTempDirectory("relocate-empty-wiki")
+        try {
+            Files.createDirectories(tmp.resolve(".clawdea").resolve("wiki").resolve("concepts"))
+            val newWiki = tmp.resolve("docs").resolve("llm-wiki")
+            WikiRelocateHandler.removeEmptyDefaultWikiTrees(tmp, "wiki", newWiki)
+            assertFalse("empty .clawdea/wiki must be removed", Files.exists(tmp.resolve(".clawdea").resolve("wiki")))
+            // .clawdea itself is kept (holds config.json etc.).
+            assertTrue(Files.exists(tmp.resolve(".clawdea")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `removeEmptyDefaultWikiTrees preserves a populated wiki dir`() {
+        val tmp = Files.createTempDirectory("relocate-populated-wiki")
+        try {
+            Files.createDirectories(tmp.resolve(".clawdea").resolve("wiki"))
+            Files.writeString(tmp.resolve(".clawdea").resolve("wiki").resolve("index.md"), "x")
+            WikiRelocateHandler.removeEmptyDefaultWikiTrees(tmp, "wiki", tmp.resolve("docs/llm-wiki"))
+            assertTrue("populated wiki must be preserved", Files.exists(tmp.resolve(".clawdea").resolve("wiki").resolve("index.md")))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test fun `removeEmptyDefaultWikiTrees never deletes the new team path`() {
+        val tmp = Files.createTempDirectory("relocate-keep-team")
+        try {
+            // Pathological: team path is literally .clawdea/wiki and it's empty.
+            val teamWiki = Files.createDirectories(tmp.resolve(".clawdea").resolve("wiki"))
+            WikiRelocateHandler.removeEmptyDefaultWikiTrees(tmp, "wiki", teamWiki)
+            assertTrue("the new team path must never be deleted", Files.exists(teamWiki))
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     // --- updateClaudeMdWikiLink ---
 
     @Test fun `updateClaudeMdWikiLink rewrites both the link text and the URL`() {
