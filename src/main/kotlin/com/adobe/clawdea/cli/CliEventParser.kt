@@ -58,6 +58,8 @@ class CliEventParser {
 
     private fun parseAssistantMessage(json: String): CliEvent {
         val parentToolUseId = extractString(json, "\"parent_tool_use_id\"")
+        // model lives inside the nested `message` object (message.model).
+        val model = extractNestedString(json, "\"message\"", "\"model\"") ?: ""
         val contentArray = extractContentArray(json)
         var text = ""
         val toolUses = mutableListOf<CliEvent.ToolUse>()
@@ -78,7 +80,7 @@ class CliEventParser {
             }
         }
 
-        return CliEvent.AssistantMessage(text, toolUses, parentToolUseId)
+        return CliEvent.AssistantMessage(text, toolUses, parentToolUseId, model)
     }
 
     private fun parseUserMessage(json: String): CliEvent {

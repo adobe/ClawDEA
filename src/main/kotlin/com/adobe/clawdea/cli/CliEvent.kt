@@ -27,6 +27,12 @@ sealed class CliEvent {
         val text: String,
         val toolUses: List<ToolUse>,
         val parentToolUseId: String? = null,
+        /**
+         * Model id from `message.model`. Every assistant message carries it, so this is
+         * the reliable source for the cost footer — more robust than the SystemInit
+         * model, which is blank on resume and absent in some CC init shapes.
+         */
+        val model: String = "",
     ) : CliEvent()
 
     data class ToolUse(

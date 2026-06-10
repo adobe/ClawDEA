@@ -203,7 +203,13 @@ class EventStreamHandler(
                     return
                 }
 
-                // Top-level (main agent) content.
+                // Top-level (main agent) content. Capture the model here as the
+                // authoritative source for the cost footer: every assistant message
+                // carries message.model, whereas SystemInit.model is blank on resume
+                // and absent in some CC init shapes.
+                if (event.model.isNotBlank()) {
+                    currentModel = event.model
+                }
                 if (messageBuffer.isNotEmpty()) {
                     val bufText = messageBuffer.toString()
                     browserRenderer.appendHtml(renderer.renderAssistantText(bufText))

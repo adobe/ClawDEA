@@ -48,6 +48,13 @@ class CliEventParserTest {
     }
 
     @Test
+    fun `parses model from assistant message`() {
+        val json = """{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"hi"}]}}"""
+        val event = parser.parse(json) as CliEvent.AssistantMessage
+        assertEquals("claude-opus-4-8", event.model)
+    }
+
+    @Test
     fun `parses assistant tool use message`() {
         val json = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_123","name":"Read","input":{"file_path":"/tmp/test.kt"}}]}}"""
         val event = parser.parse(json)

@@ -694,8 +694,11 @@ class MessageRenderer(
         if (!model.isNullOrBlank()) {
             parts.add(escapeHtml(prettyModelName(model)))
         }
-        if (!effort.isNullOrBlank()) {
-            parts.add("effort ${escapeHtml(effort)}")
+        // Always show effort when a model is known — including under "Default"
+        // (blank flag), so the user sees what the turn actually ran with.
+        if (!model.isNullOrBlank()) {
+            val effortLabel = if (effort.isNullOrBlank()) "default" else effort
+            parts.add("effort ${escapeHtml(effortLabel)}")
         }
         if (totalElapsedMs > 0) {
             parts.add(formatElapsed(totalElapsedMs))

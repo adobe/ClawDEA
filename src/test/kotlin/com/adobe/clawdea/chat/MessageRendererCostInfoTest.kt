@@ -36,4 +36,13 @@ class MessageRendererCostInfoTest {
         // formatElapsed uses the JVM default locale; match locale-agnostic pattern "5<sep>0s"
         assertTrue(Regex("""5[.,]0s""").containsMatchIn(html))
     }
+
+    @Test
+    fun `shows effort default when model present but effort blank`() {
+        // Under the "Default" effort selection (blank flag), still surface the model
+        // and "effort default" so the user sees what the turn ran with.
+        val html = renderer.renderCostInfo("claude-opus-4-8", null, 0.0421, 0)
+        assertTrue(html.contains("Opus 4 8"))
+        assertTrue(html.contains("effort default"))
+    }
 }
