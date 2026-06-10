@@ -385,6 +385,11 @@ class ChatPanel(
                     toolName != "AskUserQuestion" &&
                     !toolName.startsWith("mcp__clawdea-intellij__")
             },
+            costTracker = project.getService(com.adobe.clawdea.cost.CostTracker::class.java),
+            resolveEffort = {
+                ClawDEASettings.getInstance()
+                    .getSelectedEffort(project.basePath ?: "")
+            },
         )
 
         // Session manager: handles resume, reload, wake recovery, interactive terminal

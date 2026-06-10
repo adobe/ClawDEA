@@ -51,6 +51,8 @@ class EventStreamHandler(
      */
     private val consumeAutoAllow: (toolUseId: String, toolName: String, inputJson: String) -> Boolean = { _, _, _ -> false },
     private val isToolAutoAllowed: (toolName: String) -> Boolean = { _ -> false },
+    private val costTracker: com.adobe.clawdea.cost.CostTracker,
+    private val resolveEffort: () -> String,
 ) {
     val messageBuffer = StringBuilder()
     var turnHasContent = false
@@ -60,6 +62,9 @@ class EventStreamHandler(
     // 0 until the first turn completes — ChatPanel falls back to a default until then.
     var contextWindow = 0
     var lastAssistantText: String = ""
+
+    /** Real model id for the active session, from the latest SystemInit. */
+    var currentModel: String = ""
 
     private val toolNameById = mutableMapOf<String, String>()
     private val toolInputById = mutableMapOf<String, String>()
@@ -142,6 +147,7 @@ class EventStreamHandler(
         }
         when (event) {
             is CliEvent.SystemInit -> {
+                currentModel = event.model
                 statusLabel.text = "Connected"
             }
             is CliEvent.TextDelta -> {
@@ -401,9 +407,14 @@ class EventStreamHandler(
                 val totalElapsed = if (streamStartTime > 0) {
                     System.currentTimeMillis() - streamStartTime
                 } else 0L
-                if (event.costUsd > 0 || totalElapsed > 0) {
-                    browserRenderer.appendHtml(renderer.renderCostInfo(null, null, event.costUsd, totalElapsed))
+                val model = currentModel.ifBlank { null }
+                val effort = resolveEffort().ifBlank { null }
+                if (event.costUsd > 0 || totalElapsed > 0 || model != null) {
+                    browserRenderer.appendHtml(
+                        renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
+                    )
                 }
+                costTracker.recordTurn(currentModel, event.costUsd, event.contextTokens)
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()
