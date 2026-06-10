@@ -11,8 +11,9 @@ class OAuthUsageParseTest {
         val u = OAuthUsageClient.parse(fixture("spend.json"))
         assertTrue(u.available)
         assertNotNull(u.spend)
-        assertEquals(54652.0, u.spend!!.used, 1e-6)
-        assertEquals(60000.0, u.spend.limit, 1e-6)
+        // Endpoint reports cents (54652, 60000) → canonical dollars.
+        assertEquals(546.52, u.spend!!.used, 1e-6)
+        assertEquals(600.0, u.spend.limit, 1e-6)
         assertEquals(91, u.spend.pct) // 91.0867 rounds to 91
         assertEquals("USD", u.spend.currency)
         assertTrue(u.windows.isEmpty())

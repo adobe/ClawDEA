@@ -74,14 +74,15 @@ object OAuthUsageClient {
             val o = root.asJsonObject
 
             // Spend gauge from extra_usage (the headline number). used_credits/monthly_limit are
-            // in `currency` units (labeled "credits" — display with the currency code).
+            // in CENTS of `currency` (e.g. 54652 = $546.52, 60000 = $600.00) — divide by 100 so
+            // Spend.used/limit are canonical dollar amounts everywhere downstream.
             val spend = o.get("extra_usage")?.takeIf { it.isJsonObject }?.asJsonObject?.let { eu ->
-                val limit = eu.get("monthly_limit")?.takeIf { it.isJsonPrimitive }?.asDouble
-                val used = eu.get("used_credits")?.takeIf { it.isJsonPrimitive }?.asDouble
-                if (limit == null || used == null) return@let null
+                val limitCents = eu.get("monthly_limit")?.takeIf { it.isJsonPrimitive }?.asDouble
+                val usedCents = eu.get("used_credits")?.takeIf { it.isJsonPrimitive }?.asDouble
+                if (limitCents == null || usedCents == null) return@let null
                 val pct = eu.get("utilization")?.takeIf { it.isJsonPrimitive }?.asDouble ?: 0.0
                 val currency = eu.get("currency")?.takeIf { it.isJsonPrimitive }?.asString ?: "USD"
-                SubscriptionUsage.Spend(used, limit, Math.round(pct).toInt(), currency)
+                SubscriptionUsage.Spend(usedCents / 100.0, limitCents / 100.0, Math.round(pct).toInt(), currency)
             }
 
             // Known rate-limit windows that are present (non-null). Codename keys are ignored.
