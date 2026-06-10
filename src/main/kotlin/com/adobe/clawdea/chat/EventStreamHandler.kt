@@ -402,7 +402,7 @@ class EventStreamHandler(
                     System.currentTimeMillis() - streamStartTime
                 } else 0L
                 if (event.costUsd > 0 || totalElapsed > 0) {
-                    browserRenderer.appendHtml(renderer.renderCostInfo(event.costUsd, totalElapsed))
+                    browserRenderer.appendHtml(renderer.renderCostInfo(null, null, event.costUsd, totalElapsed))
                 }
                 turnController.onStreamResult()
                 onSyncStreamingUi()

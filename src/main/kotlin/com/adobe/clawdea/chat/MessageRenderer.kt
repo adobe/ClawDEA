@@ -684,8 +684,19 @@ class MessageRenderer(
         return """<div class="goal-achieved">&#10003; Goal achieved: $cond</div>"""
     }
 
-    fun renderCostInfo(costUsd: Double, totalElapsedMs: Long = 0): String {
+    fun renderCostInfo(
+        model: String?,
+        effort: String?,
+        costUsd: Double,
+        totalElapsedMs: Long = 0,
+    ): String {
         val parts = mutableListOf<String>()
+        if (!model.isNullOrBlank()) {
+            parts.add(escapeHtml(prettyModelName(model)))
+        }
+        if (!effort.isNullOrBlank()) {
+            parts.add("effort ${escapeHtml(effort)}")
+        }
         if (totalElapsedMs > 0) {
             parts.add(formatElapsed(totalElapsedMs))
         }
@@ -695,6 +706,13 @@ class MessageRenderer(
         val inner = parts.joinToString("<span style='margin: 0 4px; color: #45475a;'>|</span>")
         return """<div class="cost-info">$inner</div>"""
     }
+
+    /** "claude-fable-5" -> "Fable 5"; best-effort prettifier for display. */
+    internal fun prettyModelName(id: String): String =
+        id.removePrefix("claude-")
+            .split('-')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
 
     fun renderCollapsedToolBlock(toolName: String, toolUseId: String): String {
         val safeId = escapeHtml(toolUseId)

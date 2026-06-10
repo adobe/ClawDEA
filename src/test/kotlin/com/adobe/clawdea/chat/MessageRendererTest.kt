@@ -76,7 +76,7 @@ class MessageRendererTest {
 
     @Test
     fun `renders cost info`() {
-        val html = renderer.renderCostInfo(0.0523)
+        val html = renderer.renderCostInfo(null, null, 0.0523)
         assertTrue(html.contains("cost-info"))
         assertTrue(html.contains("0") && (html.contains("0523") || html.contains(",0523")))
     }
