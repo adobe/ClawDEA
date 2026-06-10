@@ -36,6 +36,8 @@ class SessionManager(
     private val renderer: MessageRenderer,
     private val browserRenderer: ChatBrowserRenderer,
     private val turnController: TurnController,
+    /** Stable per-tab id for per-chat cost accounting. */
+    private val chatId: String,
     private val getDiscoveredSkills: () -> List<SkillInfo>,
     private val onResetUi: () -> Unit,
     private val onRestartAfterTerminal: (sessionId: String?) -> Unit,
@@ -81,7 +83,7 @@ class SessionManager(
             browserRenderer.appendHtml(html)
         }
 
-        val resumeCost = CostTracker.getInstance(project).seedFromResume(sessionId)
+        val resumeCost = CostTracker.getInstance(project).seedFromResume(chatId, sessionId)
         if (resumeCost.totalUsd > 0) {
             // Mirror the live per-turn footer so a resumed session shows its
             // accumulated cost at the bottom of the chat, just like a live turn.

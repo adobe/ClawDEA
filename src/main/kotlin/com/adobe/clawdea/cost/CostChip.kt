@@ -28,6 +28,7 @@ import java.util.Locale
 /** Toolbar chip showing running spend / subscription window. Click to set a daily budget. */
 class CostChip(
     private val project: Project,
+    private val chatId: String,
     parentDisposable: Disposable,
 ) : JBLabel() {
 
@@ -40,12 +41,14 @@ class CostChip(
         project.messageBus.connect(parentDisposable).subscribe(
             CostSnapshotListener.TOPIC,
             object : CostSnapshotListener {
-                override fun onCostUpdated(snapshot: CostSnapshot) {
+                override fun onCostChanged() {
+                    // Per-chat snapshot: re-query this chip's own chat total.
+                    val snapshot = CostTracker.getInstance(project).snapshot(chatId)
                     ApplicationManager.getApplication().invokeLater({ render(snapshot) }, ModalityState.any())
                 }
             },
         )
-        render(CostTracker.getInstance(project).snapshot())
+        render(CostTracker.getInstance(project).snapshot(chatId))
     }
 
     private fun render(s: CostSnapshot) {
@@ -67,7 +70,7 @@ class CostChip(
         )
         val parsed = input?.trim()?.toDoubleOrNull() ?: return
         settings.state.dailyBudgetUsd = parsed.coerceAtLeast(0.0)
-        render(CostTracker.getInstance(project).snapshot())
+        render(CostTracker.getInstance(project).snapshot(chatId))
     }
 
     private fun buildTooltip(s: CostSnapshot): String {

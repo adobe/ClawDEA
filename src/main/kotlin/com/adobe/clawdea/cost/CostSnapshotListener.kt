@@ -13,9 +13,13 @@ package com.adobe.clawdea.cost
 
 import com.intellij.util.messages.Topic
 
-/** Project-level topic: published by CostTracker, consumed by CostChip. */
+/**
+ * Project-level topic: published by CostTracker, consumed by CostChip and ModelComboManager.
+ * Payload-free — the session total is per-chat, so each listener re-queries
+ * [CostTracker.snapshot] with its own chatId on notification.
+ */
 interface CostSnapshotListener {
-    fun onCostUpdated(snapshot: CostSnapshot)
+    fun onCostChanged()
 
     companion object {
         val TOPIC: Topic<CostSnapshotListener> = Topic.create(

@@ -30,4 +30,12 @@ data class CostSnapshot(
     val band: CostBand,
     val perModelUsd: Map<String, Double>,
     val window: SubscriptionWindow? = null,
+    /**
+     * The model that the "Default" selection actually resolved to — set only after a
+     * turn ran with no explicit model override (the CLI chose). Null until such a turn
+     * is observed. Lets the selector honestly label its "Default" entry, e.g.
+     * "Default (Opus 4.8)". Deliberately NOT set from explicit selections or from
+     * resumed history, where the model reflects a past choice, not today's default.
+     */
+    val defaultResolvedModel: String? = null,
 )

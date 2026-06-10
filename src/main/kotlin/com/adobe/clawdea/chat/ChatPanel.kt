@@ -80,6 +80,13 @@ class ChatPanel(
     )
     private val indexQueryHandler = IndexQueryHandler(project)
     private val commandRegistry = CommandRegistry()
+
+    /**
+     * Stable per-tab id for cost accounting. The CLI session id changes on resume, so
+     * cost is keyed by this panel-lifetime id instead — each chat tab gets its own
+     * "$chat" total. See [com.adobe.clawdea.cost.CostTracker].
+     */
+    val chatId: String = "chat-" + System.identityHashCode(this).toString(16)
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ChatPanel::class.java)
 
@@ -386,9 +393,17 @@ class ChatPanel(
                     !toolName.startsWith("mcp__clawdea-intellij__")
             },
             costTracker = project.getService(com.adobe.clawdea.cost.CostTracker::class.java),
+            chatId = chatId,
             resolveEffort = {
                 ClawDEASettings.getInstance()
                     .getSelectedEffort(project.basePath ?: "")
+            },
+            resolveIsDefaultModel = {
+                // Default ⇔ no explicit model id stored for this provider/dir
+                // (same condition under which buildModelArg omits --model).
+                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                ClawDEASettings.getInstance()
+                    .getSelectedModelId(project.basePath ?: "", providerId).isBlank()
             },
         )
 
@@ -399,6 +414,7 @@ class ChatPanel(
             renderer = renderer,
             browserRenderer = browserRenderer,
             turnController = turnController,
+            chatId = chatId,
             getDiscoveredSkills = { discoveredSkills },
             onResetUi = {
                 turnController.resetTurnState()
@@ -1035,7 +1051,7 @@ class ChatPanel(
         }
         westRow.add(modelCombo)
         westRow.add(effortCombo)
-        val costChip = com.adobe.clawdea.cost.CostChip(project, this)
+        val costChip = com.adobe.clawdea.cost.CostChip(project, chatId, this)
         westRow.add(costChip)
         westRow.add(statusLabel)
         statusRow.add(westRow, BorderLayout.WEST)

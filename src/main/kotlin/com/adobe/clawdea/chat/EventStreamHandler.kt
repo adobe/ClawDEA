@@ -52,7 +52,11 @@ class EventStreamHandler(
     private val consumeAutoAllow: (toolUseId: String, toolName: String, inputJson: String) -> Boolean = { _, _, _ -> false },
     private val isToolAutoAllowed: (toolName: String) -> Boolean = { _ -> false },
     private val costTracker: com.adobe.clawdea.cost.CostTracker,
+    /** Stable per-tab id for per-chat cost accounting. */
+    private val chatId: String,
     private val resolveEffort: () -> String,
+    /** True when no explicit model is selected (the CLI uses its Default). */
+    private val resolveIsDefaultModel: () -> Boolean = { false },
 ) {
     val messageBuffer = StringBuilder()
     var turnHasContent = false
@@ -421,6 +425,7 @@ class EventStreamHandler(
                     )
                 }
                 costTracker.recordTurn(
+                    chatId,
                     currentModel,
                     event.costUsd,
                     event.contextTokens,
@@ -428,6 +433,7 @@ class EventStreamHandler(
                     event.outputTokens,
                     event.cacheReadTokens,
                     event.cacheCreationTokens,
+                    ranUnderDefaultSelection = resolveIsDefaultModel(),
                 )
                 turnController.onStreamResult()
                 onSyncStreamingUi()
