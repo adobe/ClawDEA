@@ -1035,6 +1035,8 @@ class ChatPanel(
         }
         westRow.add(modelCombo)
         westRow.add(effortCombo)
+        val costChip = com.adobe.clawdea.cost.CostChip(project, this)
+        westRow.add(costChip)
         westRow.add(statusLabel)
         statusRow.add(westRow, BorderLayout.WEST)
         statusRow.add(contextLabel, BorderLayout.EAST)
