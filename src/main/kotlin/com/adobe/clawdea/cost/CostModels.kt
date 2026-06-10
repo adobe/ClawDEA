@@ -50,6 +50,13 @@ data class SubscriptionUsage(
     companion object { val UNAVAILABLE = SubscriptionUsage(available = false) }
 }
 
+/** One provider's header data for the Cost Control panel. */
+data class ProviderBlock(
+    val providerId: String,
+    val total: ProviderTotal?,
+    val usage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE,
+)
+
 /** Immutable view published to the UI after every cost update. */
 data class CostSnapshot(
     val providerId: String,

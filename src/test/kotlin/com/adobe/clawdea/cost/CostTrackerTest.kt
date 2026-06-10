@@ -52,4 +52,19 @@ class CostTrackerTest {
         assertEquals(1.74, m[KnowledgeBucket.WIKI_UPDATE]!!, 1e-9)
         assertEquals(3.10, m[KnowledgeBucket.WIKI_CREATE]!!, 1e-9)
     }
+
+    @Test fun `usedProviders unions stored keys with the active provider`() {
+        assertEquals(
+            listOf("anthropic", "bedrock"),
+            CostTracker.usedProviders(stored = setOf("bedrock"), active = "anthropic").sorted(),
+        )
+        assertEquals(
+            listOf("bedrock"),
+            CostTracker.usedProviders(stored = setOf("bedrock"), active = "bedrock"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            CostTracker.usedProviders(stored = emptySet(), active = ""),
+        )
+    }
 }

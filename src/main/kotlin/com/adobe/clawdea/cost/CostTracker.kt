@@ -166,6 +166,23 @@ class CostTracker(private val project: Project) {
         )
     }
 
+    /**
+     * Header data for every provider the user has used (union of persisted totals + active
+     * provider). The live subscription [usage] attaches only to the "subscription" block; other
+     * providers get their persisted [ProviderTotal]. Chat-scoped body comes from snapshot(chatId).
+     */
+    @Synchronized
+    fun providerBlocks(): List<ProviderBlock> {
+        val active = AuthManager.getInstance().effectiveProviderId()
+        return usedProviders(settings.state.providerTotals.keys, active).map { pid ->
+            ProviderBlock(
+                providerId = pid,
+                total = settings.state.providerTotals[pid]?.let { ProviderTotal.parse(it) },
+                usage = if (pid == "subscription") usage else SubscriptionUsage.UNAVAILABLE,
+            )
+        }
+    }
+
     private fun addToDaily(costUsd: Double) {
         val today = LocalDate.now().toString()
         // Daily total lives on the application-level ClawDEASettings; serialize the
@@ -244,6 +261,13 @@ class CostTracker(private val project: Project) {
 
         fun addKnowledge(m: MutableMap<KnowledgeBucket, Double>, bucket: KnowledgeBucket, usd: Double) {
             m.merge(bucket, usd) { a, b -> a + b }
+        }
+
+        /** Providers to render: union of persisted-total keys and the active provider (blank ignored). */
+        fun usedProviders(stored: Set<String>, active: String): List<String> {
+            val set = LinkedHashSet(stored)
+            if (active.isNotBlank()) set.add(active)
+            return set.toList()
         }
     }
 }
