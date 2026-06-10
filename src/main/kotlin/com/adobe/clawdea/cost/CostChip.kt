@@ -11,12 +11,10 @@
  */
 package com.adobe.clawdea.cost
 
-import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
@@ -36,7 +34,7 @@ class CostChip(
         border = JBUI.Borders.empty(2, 8)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) = promptBudget()
+            override fun mouseClicked(e: MouseEvent) = CostControlPanel(project, chatId).showUnder(this@CostChip)
         })
         project.messageBus.connect(parentDisposable).subscribe(
             CostSnapshotListener.TOPIC,
@@ -57,21 +55,6 @@ class CostChip(
         toolTipText = buildTooltip(s)
     }
 
-    private fun promptBudget() {
-        val settings = ClawDEASettings.getInstance()
-        val current = settings.state.dailyBudgetUsd
-        val input = Messages.showInputDialog(
-            project,
-            "Daily budget in USD (0 = no budget):",
-            "ClawDEA Cost Budget",
-            null,
-            if (current > 0) current.toString() else "",
-            null,
-        )
-        val parsed = input?.trim()?.toDoubleOrNull() ?: return
-        settings.state.dailyBudgetUsd = parsed.coerceAtLeast(0.0)
-        render(CostTracker.getInstance(project).snapshot(chatId))
-    }
 
     private fun buildTooltip(s: CostSnapshot): String {
         val sb = StringBuilder("<html>")
