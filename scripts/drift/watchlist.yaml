@@ -158,6 +158,21 @@
   triage: issue
   clawdea: 'ModelPricing.kt (per-model token rate table — update inputPerM/outputPerM)'
 
+# Undocumented oauth/usage endpoint powering the Cost Control subscription header.
+# OAuthUsageClient.parse depends on the live schema captured in
+# src/test/resources/oauth-usage/live-sample.json: an `extra_usage` object
+# {monthly_limit, used_credits, utilization, currency} as the spend gauge, plus flat
+# window keys (five_hour, seven_day, seven_day_opus, seven_day_sonnet) each
+# {utilization, resets_at}|null. The endpoint is undocumented, so we watch the SDK
+# reference page for any of these field names appearing/changing; a schema shift
+# silently breaks the header (→ notional fallback) and must be reconciled against a
+# fresh live capture. Narrow field-name match keeps it `issue`.
+- id: oauth-usage-schema
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
+  match: 'oauth/usage|extra_usage|used_credits|monthly_limit|five_hour|seven_day'
+  triage: issue
+  clawdea: 'OAuthUsageClient.kt (parse), OAuthUsagePoller.kt, CostPanelFormat.kt'
+
 # Fires only when one of the six tools ClawDEA's denylist redirects (Grep,
 # Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed, removed, or annotated
 # [DEPRECATED] in `claude --help`. Narrow by construction, so it stays `issue`.
