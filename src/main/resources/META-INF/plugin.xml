@@ -337,6 +337,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <projectService
             serviceImplementation="com.adobe.clawdea.debug.DebugBridge"/>
 
+        <!-- Cost Tracker -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.cost.CostTracker"/>
+
         <!-- Drift Detection -->
         <projectService
             serviceImplementation="com.adobe.clawdea.knowledge.drift.DriftDetectionService"/>
