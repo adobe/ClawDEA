@@ -21,4 +21,11 @@ class KnowledgeBucketClassifierTest {
         assertNull(KnowledgeBucketClassifier.classify("fix the bug in Foo.kt"))
         assertNull(KnowledgeBucketClassifier.classify(""))
     }
+    @Test fun `classifyCommand maps slash-command names`() {
+        // Commands dispatch an expanded template, so attribution classifies by command name.
+        assertEquals(KnowledgeBucket.WIKI_CREATE, KnowledgeBucketClassifier.classifyCommand("/seed-wiki"))
+        assertEquals(KnowledgeBucket.WIKI_UPDATE, KnowledgeBucketClassifier.classifyCommand("/refresh-wiki"))
+        assertEquals(KnowledgeBucket.WORKSPACE_CREATE, KnowledgeBucketClassifier.classifyCommand("/seed-workspace"))
+        assertNull(KnowledgeBucketClassifier.classifyCommand("/clear"))
+    }
 }
