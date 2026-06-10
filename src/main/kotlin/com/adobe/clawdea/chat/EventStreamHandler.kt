@@ -51,15 +51,47 @@ class EventStreamHandler(
      */
     private val consumeAutoAllow: (toolUseId: String, toolName: String, inputJson: String) -> Boolean = { _, _, _ -> false },
     private val isToolAutoAllowed: (toolName: String) -> Boolean = { _ -> false },
+    private val costTracker: com.adobe.clawdea.cost.CostTracker,
+    /** Stable per-tab id for per-chat cost accounting. */
+    private val chatId: String,
+    private val resolveEffort: () -> String,
+    /** True when no explicit model is selected (the CLI uses its Default). */
+    private val resolveIsDefaultModel: () -> Boolean = { false },
 ) {
     val messageBuffer = StringBuilder()
     var turnHasContent = false
     var streamStartTime: Long = 0
+
+    /**
+     * Knowledge-upkeep bucket classified from the prompt that started the in-flight turn,
+     * captured at submit time and consumed when the turn's Result arrives. Null for an
+     * ordinary turn. See [com.adobe.clawdea.cost.KnowledgeBucketClassifier].
+     */
+    private var pendingKnowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null
+
+    /**
+     * Called by the panel right before a user-originated prompt is sent to the bridge.
+     * [explicitBucket] lets the caller name the knowledge bucket directly — required for
+     * slash commands that dispatch an *expanded template* (e.g. /seed-wiki sends a long
+     * "Bootstrap an initial wiki…" prompt, not the literal "/seed-wiki"), which the text
+     * classifier can't recognize. Falls back to classifying the prompt text when null.
+     */
+    fun onTurnSubmitted(
+        promptText: String,
+        explicitBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ) {
+        pendingKnowledgeBucket = explicitBucket
+            ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
+    }
+
     var totalTokensUsed = 0
     // Context window for the model in use, as reported by CC's `result.modelUsage`.
     // 0 until the first turn completes — ChatPanel falls back to a default until then.
     var contextWindow = 0
     var lastAssistantText: String = ""
+
+    /** Real model id for the active session, from the latest SystemInit. */
+    var currentModel: String = ""
 
     private val toolNameById = mutableMapOf<String, String>()
     private val toolInputById = mutableMapOf<String, String>()
@@ -142,6 +174,7 @@ class EventStreamHandler(
         }
         when (event) {
             is CliEvent.SystemInit -> {
+                currentModel = event.model
                 statusLabel.text = "Connected"
             }
             is CliEvent.TextDelta -> {
@@ -175,12 +208,23 @@ class EventStreamHandler(
                         // operate correctly on the nested link.
                         val isEditOrPropose = EditReviewCoordinator.isProposeTool(toolUse.name) ||
                             EditReviewCoordinator.isEditTool(toolUse.name)
+                        val isReadWithPath = toolUse.name == "Read" &&
+                            MessageRenderer.extractJsonString(toolUse.input, "file_path") != null
                         val stepHtml = if (isEditOrPropose) {
                             val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
                             val file = java.io.File(filePath)
                             val originalContent = if (file.exists()) file.readText() else ""
                             val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
                             editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
+                            renderer.renderToolUseEvent(
+                                toolName = toolUse.name,
+                                input = toolUse.input,
+                                toolUseId = toolUse.id,
+                                mode = ToolMode.Live(autoAcceptEdits = renderer.autoAcceptEdits),
+                            )
+                        } else if (isReadWithPath) {
+                            // Match main-chat behavior: compact filename link, not
+                            // a step row showing the full path.
                             renderer.renderToolUseEvent(
                                 toolName = toolUse.name,
                                 input = toolUse.input,
@@ -197,7 +241,13 @@ class EventStreamHandler(
                     return
                 }
 
-                // Top-level (main agent) content.
+                // Top-level (main agent) content. Capture the model here as the
+                // authoritative source for the cost footer: every assistant message
+                // carries message.model, whereas SystemInit.model is blank on resume
+                // and absent in some CC init shapes.
+                if (event.model.isNotBlank()) {
+                    currentModel = event.model
+                }
                 if (messageBuffer.isNotEmpty()) {
                     val bufText = messageBuffer.toString()
                     browserRenderer.appendHtml(renderer.renderAssistantText(bufText))
@@ -351,6 +401,9 @@ class EventStreamHandler(
                         renderer.renderToolResult(event.content, autoAllowed),
                     )
                 }
+                // Auto-collapse the generic tool block on completion, mirroring
+                // sub-agent cards. No-op for edit-links, file-links, etc.
+                browserRenderer.finalizeToolBlock(event.toolUseId)
                 onContextLabelUpdate()
                 watchForToolResultStall(progressSequence)
             }
@@ -401,9 +454,27 @@ class EventStreamHandler(
                 val totalElapsed = if (streamStartTime > 0) {
                     System.currentTimeMillis() - streamStartTime
                 } else 0L
-                if (event.costUsd > 0 || totalElapsed > 0) {
-                    browserRenderer.appendHtml(renderer.renderCostInfo(event.costUsd, totalElapsed))
+                val model = currentModel.ifBlank { null }
+                val effort = resolveEffort().ifBlank { null }
+                if (event.costUsd > 0 || totalElapsed > 0 || model != null) {
+                    browserRenderer.appendHtml(
+                        renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
+                    )
                 }
+                costTracker.recordTurn(
+                    chatId,
+                    currentModel,
+                    event.costUsd,
+                    event.contextTokens,
+                    event.inputTokens,
+                    event.outputTokens,
+                    event.cacheReadTokens,
+                    event.cacheCreationTokens,
+                    ranUnderDefaultSelection = resolveIsDefaultModel(),
+                    providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                    knowledgeBucket = pendingKnowledgeBucket,
+                )
+                pendingKnowledgeBucket = null
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()

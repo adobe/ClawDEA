@@ -217,6 +217,16 @@ class ChatBrowserRenderer(
         )
     }
 
+    /** Collapse a generic tool block on completion. Mirrors finalizeSubAgent. */
+    fun finalizeToolBlock(toolUseId: String) {
+        if (!browserReady) return
+        val safeId = toolUseId.replace("\\", "\\\\").replace("\"", "\\\"")
+        browser.cefBrowser.executeJavaScript(
+            "finalizeToolBlock(\"$safeId\");",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
     /** Collapse sub-agent card [parentId] and insert its final [summaryHtml]. */
     fun finalizeSubAgent(parentId: String, summaryHtml: String) {
         if (!browserReady) return

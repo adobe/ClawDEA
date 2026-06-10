@@ -80,6 +80,13 @@ class ChatPanel(
     )
     private val indexQueryHandler = IndexQueryHandler(project)
     private val commandRegistry = CommandRegistry()
+
+    /**
+     * Stable per-tab id for cost accounting. The CLI session id changes on resume, so
+     * cost is keyed by this panel-lifetime id instead — each chat tab gets its own
+     * "$chat" total. See [com.adobe.clawdea.cost.CostTracker].
+     */
+    val chatId: String = "chat-" + System.identityHashCode(this).toString(16)
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ChatPanel::class.java)
 
@@ -300,6 +307,7 @@ class ChatPanel(
                     browserRenderer.hidePausedBanner()
                     browserRenderer.appendHtml(renderer.renderUserMessage(text))
                     browserRenderer.showThinkingIndicator()
+                    eventHandler.onTurnSubmitted(text)
                     bridge.sendMessage(text)
                     turnController.setStreaming(true)
                     syncStreamingUi()
@@ -385,6 +393,19 @@ class ChatPanel(
                     toolName != "AskUserQuestion" &&
                     !toolName.startsWith("mcp__clawdea-intellij__")
             },
+            costTracker = project.getService(com.adobe.clawdea.cost.CostTracker::class.java),
+            chatId = chatId,
+            resolveEffort = {
+                ClawDEASettings.getInstance()
+                    .getSelectedEffort(project.basePath ?: "")
+            },
+            resolveIsDefaultModel = {
+                // Default ⇔ no explicit model id stored for this provider/dir
+                // (same condition under which buildModelArg omits --model).
+                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                ClawDEASettings.getInstance()
+                    .getSelectedModelId(project.basePath ?: "", providerId).isBlank()
+            },
         )
 
         // Session manager: handles resume, reload, wake recovery, interactive terminal
@@ -394,6 +415,7 @@ class ChatPanel(
             renderer = renderer,
             browserRenderer = browserRenderer,
             turnController = turnController,
+            chatId = chatId,
             getDiscoveredSkills = { discoveredSkills },
             onResetUi = {
                 turnController.resetTurnState()
@@ -1030,6 +1052,8 @@ class ChatPanel(
         }
         westRow.add(modelCombo)
         westRow.add(effortCombo)
+        val costChip = com.adobe.clawdea.cost.CostChip(project, chatId, this)
+        westRow.add(costChip)
         westRow.add(statusLabel)
         statusRow.add(westRow, BorderLayout.WEST)
         statusRow.add(contextLabel, BorderLayout.EAST)
@@ -1076,7 +1100,9 @@ class ChatPanel(
         contextLabel.text = "context: $pct% used"
     }
 
-    private fun buildCommandContext(): CommandContext {
+    private fun buildCommandContext(
+        knowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ): CommandContext {
         return CommandContext(
             appendHtml = { html -> appendHtml(html) },
             showNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.INFORMATION) },
@@ -1085,7 +1111,9 @@ class ChatPanel(
                 val requestId = service.register(onResolve)
                 appendHtml(askUserQuestionRenderer.renderCard(requestId, input))
             },
-            dispatchToBridge = { text -> dispatchSendToBridge(text, renderInChat = false) },
+            dispatchToBridge = { text ->
+                dispatchSendToBridge(text, renderInChat = false, knowledgeBucket = knowledgeBucket)
+            },
         )
     }
 
@@ -1510,7 +1538,7 @@ class ChatPanel(
             appendHtml(renderer.renderInfoMessage("Queued wiki drift review until the current Claude turn finishes."))
             return
         }
-        dispatchSendToBridge(prompt, renderInChat = false)
+        dispatchSendToBridge(prompt, renderInChat = false, knowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucket.WIKI_UPDATE)
     }
 
     private fun queueExplicitPrompt(prompt: String): Boolean {
@@ -1674,6 +1702,7 @@ class ChatPanel(
         maybeHandleCorrection(text)
         appendHtml(renderer.renderUserMessage(text))
         browserRenderer.showThinkingIndicator()
+        eventHandler.onTurnSubmitted(text)
         bridge.sendMessage(text)
         turnController.onUserSend()
         syncStreamingUi()
@@ -1796,7 +1825,13 @@ class ChatPanel(
                     handleGoalCommand(match.args)
                     return
                 }
-                match.handler.execute(match.args, buildCommandContext())
+                // Knowledge-cost attribution: a slash command dispatches an EXPANDED
+                // template to the bridge (not the literal command), so the prompt-text
+                // classifier can't recognize it. Classify by the command name here and
+                // pass the bucket explicitly into the dispatch below.
+                val commandBucket =
+                    com.adobe.clawdea.cost.KnowledgeBucketClassifier.classifyCommand(handler.info.name)
+                match.handler.execute(match.args, buildCommandContext(commandBucket))
                 when (handler) {
                     is BridgeForwardHandler -> { /* fall through; send `text` verbatim */ }
                     is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler -> {
@@ -1809,7 +1844,7 @@ class ChatPanel(
                         // ("Expanding /seed-workspace…") is the visible chat marker.
                         scope.launch {
                             val expanded = withContext(Dispatchers.IO) { handler.expand(match.args) }
-                            dispatchSendToBridge(expanded, renderInChat = false)
+                            dispatchSendToBridge(expanded, renderInChat = false, knowledgeBucket = commandBucket)
                         }
                         return
                     }
@@ -1931,7 +1966,11 @@ class ChatPanel(
      * its `execute()` already emitted ("Expanding /seed-workspace…") is the
      * visible chat marker for that turn.
      */
-    private fun dispatchSendToBridge(text: String, renderInChat: Boolean = true) {
+    private fun dispatchSendToBridge(
+        text: String,
+        renderInChat: Boolean = true,
+        knowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ) {
         // Ensure CLI is running (first start uses CLI's default model)
         if (!bridge.isRunning) {
             try {
@@ -1948,6 +1987,7 @@ class ChatPanel(
             appendHtml(renderer.renderUserMessage(text))
         }
         browserRenderer.showThinkingIndicator()
+        eventHandler.onTurnSubmitted(text, knowledgeBucket)
         bridge.sendMessage(text)
         turnController.onUserSend()
         syncStreamingUi()

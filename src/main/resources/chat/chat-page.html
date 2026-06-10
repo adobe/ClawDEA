@@ -163,6 +163,17 @@ em { color: var(--subtext0); }
     padding: 6px 10px;
     background: rgba(249, 226, 175, 0.06);
     border-bottom: 1px solid rgba(249, 226, 175, 0.06);
+    cursor: pointer;
+    user-select: none;
+}
+/* Collapsed: keep only the header visible. Mirrors .subagent-block:not(.expanded). */
+.tool-block:not(.expanded) > .tool-header {
+    border-bottom: none;
+}
+.tool-block:not(.expanded) > .tool-input,
+.tool-block:not(.expanded) > .tool-result-header,
+.tool-block:not(.expanded) > .tool-body-collapsible {
+    display: none;
 }
 .tool-icon { color: var(--yellow); font-size: 12px; }
 .tool-name { color: var(--yellow); font-size: 12px; font-weight: 500; }
@@ -1010,6 +1021,15 @@ function toggleToolBody(header) {
     if (chevron) {
         chevron.classList.toggle('open', isOpen);
     }
+}
+function toggleToolBlock(header) {
+    var block = header.closest('.tool-block');
+    if (block) block.classList.toggle('expanded');
+}
+function finalizeToolBlock(toolId) {
+    var block = document.querySelector('.tool-block[data-tool-id="' + toolId + '"]');
+    if (!block) return;
+    block.classList.remove('expanded');
 }
 function subAgentEl(parentId) {
     return document.querySelector('.subagent-block[data-tool-id="' + parentId + '"]');

@@ -15,6 +15,7 @@ import com.adobe.clawdea.chat.session.HistoryEntry
 import com.adobe.clawdea.chat.session.SessionPickerDialog
 import com.adobe.clawdea.chat.session.SessionScanner
 import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.cost.CostTracker
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -35,6 +36,8 @@ class SessionManager(
     private val renderer: MessageRenderer,
     private val browserRenderer: ChatBrowserRenderer,
     private val turnController: TurnController,
+    /** Stable per-tab id for per-chat cost accounting. */
+    private val chatId: String,
     private val getDiscoveredSkills: () -> List<SkillInfo>,
     private val onResetUi: () -> Unit,
     private val onRestartAfterTerminal: (sessionId: String?) -> Unit,
@@ -80,6 +83,15 @@ class SessionManager(
             browserRenderer.appendHtml(html)
         }
 
+        val resumeCost = CostTracker.getInstance(project).seedFromResume(chatId, sessionId)
+        if (resumeCost.totalUsd > 0) {
+            // Mirror the live per-turn footer so a resumed session shows its
+            // accumulated cost at the bottom of the chat, just like a live turn.
+            // No elapsed time — this is reconstructed from history, not a live turn.
+            browserRenderer.appendHtml(
+                renderer.renderCostInfo(resumeCost.lastModel, null, resumeCost.totalUsd, 0),
+            )
+        }
         bridge.stop()
         scope.launch {
             try {

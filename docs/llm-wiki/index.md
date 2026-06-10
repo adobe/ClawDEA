@@ -19,6 +19,7 @@ Use these pages to ground reasoning before touching code. Invariants and resolut
 - [Permission prompt](concepts/permission-prompt.md) — 60-second CC cap, abandoned-decision caching
 - [Mentions and completions](concepts/mentions-and-completions.md) — `@` autocomplete and inline completion gateway
 - [Gateway completions](concepts/gateway-completions.md) — direct API vs CLI fallback for latency-sensitive features
+- [Cost tracking and session model](concepts/cost-tracking.md) — per-turn spend accounting, resume seeding, captured model is display-only (never feeds `--model`)
 
 ### Knowledge layer
 - [Knowledge layer](concepts/knowledge-layer.md) — primer assembly order, REPO_STATE, wiki, notes, workspace siblings

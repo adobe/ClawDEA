@@ -144,6 +144,25 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var profilingAutoGitignore: Boolean = true,
         var profilingAutoAnalyze: Boolean = true,
         var profilingTopN: Int = 50,
+
+        // Cost tracking
+        var dailyCostUsd: Double = 0.0,
+        var dailyCostDate: String = "",
+        var dailyBudgetUsd: Double = 0.0,
+        /**
+         * Per-provider cumulative spend, keyed by providerId. Value is a packed
+         * string "sinceDate|monthToDate|allTime|mtdMonth" (mtdMonth = "YYYY-MM" for
+         * calendar rollover). Packed as a String so PersistentStateComponent's
+         * XmlSerializer handles the Map<String,String> without a custom bean.
+         * Parsed via ProviderTotal.parse / format (added in a later task).
+         */
+        var providerTotals: MutableMap<String, String> = mutableMapOf(),
+        /**
+         * GLOBAL knowledge-upkeep spend (across all projects), keyed by [KnowledgeBucket] name
+         * ("WIKI_CREATE", "WIKI_UPDATE", "WORKSPACE_CREATE", "WORKSPACE_UPDATE") → cumulative USD.
+         * App-level so wiki/workspace upkeep reads as one bill regardless of which project ran it.
+         */
+        var knowledgeUsd: MutableMap<String, Double> = mutableMapOf(),
     )
 
     private var state = State()

@@ -116,6 +116,23 @@ class ModelComboManager(
             },
         )
 
+        // Re-label "Default (<model>)" when a turn is observed (live or resume).
+        project.messageBus.connect(parentDisposable).subscribe(
+            com.adobe.clawdea.cost.CostSnapshotListener.TOPIC,
+            object : com.adobe.clawdea.cost.CostSnapshotListener {
+                private var lastSeenResolved: String? = null
+                override fun onCostChanged() {
+                    // Only refresh when the resolved Default model actually changed, to
+                    // avoid rebuilding the combo on every cost tick.
+                    val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()
+                    if (resolved != lastSeenResolved) {
+                        lastSeenResolved = resolved
+                        ApplicationManager.getApplication().invokeLater({ refresh() }, ModalityState.any())
+                    }
+                }
+            },
+        )
+
         Disposer.register(parentDisposable) { scope.cancel() }
         refresh()
     }
@@ -125,8 +142,12 @@ class ModelComboManager(
         val state = settings.state
         val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
         val selectedId = settings.getSelectedModelId(project.basePath.orEmpty(), providerId)
-        val entries = mutableListOf(DEFAULT_SENTINEL)
-        entries += (state.modelCatalogs[providerId] ?: emptyList()).map { it.copy() }
+        val catalog = (state.modelCatalogs[providerId] ?: emptyList())
+        // Annotate "Default" only with the model a Default-selection turn actually
+        // resolved to (never an explicit pick or stale history). Project-wide value.
+        val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()
+        val entries = mutableListOf(ModelEntry(id = "", displayName = defaultLabel(resolved, catalog)))
+        entries += catalog.map { it.copy() }
         suppressEvents = true
         try {
             modelCombo.model = DefaultComboBoxModel(entries.toTypedArray())
@@ -138,5 +159,29 @@ class ModelComboManager(
 
     companion object {
         val DEFAULT_SENTINEL = ModelEntry(id = "", displayName = "Default")
+
+        /**
+         * Label for the "Default" entry, annotated with the model "Default" actually
+         * resolved to once a turn has been observed: "Default (Opus 4.8)". Falls back
+         * to a prettified id when the model isn't in the catalog, and to plain "Default"
+         * when no model has been observed yet.
+         */
+        fun defaultLabel(observedModelId: String?, catalog: List<ModelEntry>): String {
+            if (observedModelId.isNullOrBlank()) return "Default"
+            val friendly = catalog.firstOrNull { it.id == observedModelId }?.displayName
+                ?.removePrefix("Claude ")
+                ?: prettyModelName(observedModelId)
+            return "Default ($friendly)"
+        }
+
+        /** "claude-opus-4-8" -> "Opus 4.8"; "us.anthropic.claude-sonnet-4-6" -> "Sonnet 4.6". */
+        internal fun prettyModelName(id: String): String {
+            val core = id.substringAfter("claude-", id)
+            val words = core.split('-').filter { it.isNotBlank() }
+            if (words.isEmpty()) return id
+            val name = words.first().replaceFirstChar { it.uppercase() }
+            val version = words.drop(1).joinToString(".")
+            return if (version.isBlank()) name else "$name $version"
+        }
     }
 }

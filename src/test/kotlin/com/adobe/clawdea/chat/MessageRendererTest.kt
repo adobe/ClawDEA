@@ -76,7 +76,7 @@ class MessageRendererTest {
 
     @Test
     fun `renders cost info`() {
-        val html = renderer.renderCostInfo(0.0523)
+        val html = renderer.renderCostInfo(null, null, 0.0523)
         assertTrue(html.contains("cost-info"))
         assertTrue(html.contains("0") && (html.contains("0523") || html.contains(",0523")))
     }
@@ -593,6 +593,30 @@ class MessageRendererTest {
         )
         assertTrue(html.contains("tool-stop-btn"))
         assertTrue(html.contains("""data-tool-id="toolu_L5""""))
+    }
+
+    @Test
+    fun `renderToolUseEvent Live for generic tool renders expanded with toggle handler`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_L5b",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue("live block should start expanded", html.contains("tool-block expanded"))
+        assertTrue("header should dispatch toggle action", html.contains("""data-action="toggle-tool-block""""))
+    }
+
+    @Test
+    fun `renderToolUseEvent Replay for generic tool renders collapsed`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_L5c",
+            mode = ToolMode.Replay(resultContent = "files...", isError = false),
+        )
+        assertTrue(html.contains("tool-block"))
+        assertFalse("replayed block should be collapsed (no expanded class)", html.contains("tool-block expanded"))
     }
 
     @Test

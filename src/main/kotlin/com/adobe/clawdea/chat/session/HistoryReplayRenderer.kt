@@ -113,7 +113,9 @@ object HistoryReplayRenderer {
                 consumed.add(j)  // only child tool_uses need skipping; results are no-ops in render()
                 stepCount++
                 val (childResult, childIsError, _) = findToolResult(history, j, e.id)
-                val stepHtml = if (EditReviewCoordinator.isProposeTool(e.name) || EditReviewCoordinator.isEditTool(e.name)) {
+                val isReadWithPath = e.name == "Read" &&
+                    MessageRenderer.extractJsonString(e.input, "file_path") != null
+                val stepHtml = if (EditReviewCoordinator.isProposeTool(e.name) || EditReviewCoordinator.isEditTool(e.name) || isReadWithPath) {
                     renderer.renderToolUseEvent(e.name, e.input, e.id, ToolMode.Replay(childResult, childIsError))
                 } else {
                     renderer.renderInnerToolUse(e.name, e.input, e.id, childResult)

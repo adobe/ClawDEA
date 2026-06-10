@@ -48,6 +48,13 @@ class CliEventParserTest {
     }
 
     @Test
+    fun `parses model from assistant message`() {
+        val json = """{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"text","text":"hi"}]}}"""
+        val event = parser.parse(json) as CliEvent.AssistantMessage
+        assertEquals("claude-opus-4-8", event.model)
+    }
+
+    @Test
     fun `parses assistant tool use message`() {
         val json = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_123","name":"Read","input":{"file_path":"/tmp/test.kt"}}]}}"""
         val event = parser.parse(json)
@@ -235,6 +242,16 @@ class CliEventParserTest {
         val msg = event as CliEvent.AssistantMessage
         assertEquals(1, msg.toolUses.size)
         assertEquals("Edit", msg.toolUses[0].name)
+    }
+
+    @Test
+    fun `parses per-turn token breakdown from result usage`() {
+        val json = """{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0,"session_id":"s","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":40}}"""
+        val event = parser.parse(json) as CliEvent.Result
+        assertEquals(10, event.inputTokens)
+        assertEquals(40, event.outputTokens)
+        assertEquals(30, event.cacheReadTokens)
+        assertEquals(20, event.cacheCreationTokens)
     }
 
 }

@@ -115,6 +115,16 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.8.0</h3>
+<h4>See &mdash; and control &mdash; what each turn costs</h4>
+<ul>
+  <li><b>Per-turn cost footer.</b> Every completed turn now shows the model it ran on, the effort level, the elapsed time, and the cost &mdash; e.g. <code>Opus 4.8 &middot; effort high &middot; 12.3s &middot; $0.0421</code>. The model and effort appear even under the &ldquo;Default&rdquo; selection, so you always know what actually ran.</li>
+  <li><b>Cost shown on subscription and Bedrock too.</b> When your plan reports no per-turn dollar figure (subscription, and often Bedrock), the cost is computed from token usage with a per-model rate table, so the running total still moves.</li>
+  <li><b>Per-chat running total.</b> Each chat tab tracks its own &ldquo;chat&rdquo; spend independently. Reopening a past conversation reconstructs its accumulated cost and shows it at the bottom, just like a live turn.</li>
+  <li><b>Cost Control panel.</b> Click the cost chip to open a panel showing, per provider you&rsquo;ve used: your subscription usage (spend limit or rate-limit windows, live from your Claude account), or your tracked Bedrock spend (this month and all-time). Below that: this chat&rsquo;s cost, a by-model breakdown, and a <b>Knowledge upkeep</b> breakdown of what wiki and workspace creation/updates have cost. The daily-budget control lives in the panel footer and still color-codes the chip as you approach it.</li>
+  <li><b>Model selector labels the default.</b> Once a Default-selection turn has run, the model dropdown&rsquo;s &ldquo;Default&rdquo; entry shows what it resolved to &mdash; e.g. <code>Default (Opus 4.8)</code>.</li>
+</ul>
+
 <h3>1.7.1</h3>
 <h4>Wiki authoring that actually lands, and a tidier project footprint</h4>
 <ul>
@@ -336,6 +346,14 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <!-- Debug Bridge -->
         <projectService
             serviceImplementation="com.adobe.clawdea.debug.DebugBridge"/>
+
+        <!-- Cost Tracker -->
+        <projectService
+            serviceImplementation="com.adobe.clawdea.cost.CostTracker"/>
+        <projectService
+            serviceImplementation="com.adobe.clawdea.cost.OAuthUsagePoller"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.cost.OAuthUsagePollerStartupActivity"/>
 
         <!-- Drift Detection -->
         <projectService

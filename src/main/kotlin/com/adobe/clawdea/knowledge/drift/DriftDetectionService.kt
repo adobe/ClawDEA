@@ -206,6 +206,12 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             mcpPort = mcpPort,
             modelId = modelId,
             wikiDir = wikiDir,
+            // Attribute the subprocess's cost to the WIKI_UPDATE knowledge bucket + daily/provider
+            // totals. Runs outside any chat, so it never touches a chat's session total.
+            onStdout = { stdout ->
+                project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
+                    .recordWikiAuthorCost(stdout)
+            },
         )
     }
 
