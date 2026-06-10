@@ -61,6 +61,19 @@ class EventStreamHandler(
     val messageBuffer = StringBuilder()
     var turnHasContent = false
     var streamStartTime: Long = 0
+
+    /**
+     * Knowledge-upkeep bucket classified from the prompt that started the in-flight turn,
+     * captured at submit time and consumed when the turn's Result arrives. Null for an
+     * ordinary turn. See [com.adobe.clawdea.cost.KnowledgeBucketClassifier].
+     */
+    private var pendingKnowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null
+
+    /** Called by the panel right before a user-originated prompt is sent to the bridge. */
+    fun onTurnSubmitted(promptText: String) {
+        pendingKnowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
+    }
+
     var totalTokensUsed = 0
     // Context window for the model in use, as reported by CC's `result.modelUsage`.
     // 0 until the first turn completes — ChatPanel falls back to a default until then.
@@ -434,7 +447,10 @@ class EventStreamHandler(
                     event.cacheReadTokens,
                     event.cacheCreationTokens,
                     ranUnderDefaultSelection = resolveIsDefaultModel(),
+                    providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                    knowledgeBucket = pendingKnowledgeBucket,
                 )
+                pendingKnowledgeBucket = null
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()

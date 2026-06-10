@@ -307,6 +307,7 @@ class ChatPanel(
                     browserRenderer.hidePausedBanner()
                     browserRenderer.appendHtml(renderer.renderUserMessage(text))
                     browserRenderer.showThinkingIndicator()
+                    eventHandler.onTurnSubmitted(text)
                     bridge.sendMessage(text)
                     turnController.setStreaming(true)
                     syncStreamingUi()
@@ -1697,6 +1698,7 @@ class ChatPanel(
         maybeHandleCorrection(text)
         appendHtml(renderer.renderUserMessage(text))
         browserRenderer.showThinkingIndicator()
+        eventHandler.onTurnSubmitted(text)
         bridge.sendMessage(text)
         turnController.onUserSend()
         syncStreamingUi()
@@ -1971,6 +1973,7 @@ class ChatPanel(
             appendHtml(renderer.renderUserMessage(text))
         }
         browserRenderer.showThinkingIndicator()
+        eventHandler.onTurnSubmitted(text)
         bridge.sendMessage(text)
         turnController.onUserSend()
         syncStreamingUi()
