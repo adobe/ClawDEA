@@ -1,0 +1,24 @@
+{
+    "five_hour": null,
+    "seven_day": null,
+    "seven_day_oauth_apps": null,
+    "seven_day_opus": null,
+    "seven_day_sonnet": null,
+    "seven_day_cowork": null,
+    "seven_day_omelette": null,
+    "tangelo": null,
+    "iguana_necktie": null,
+    "omelette_promotional": {
+        "utilization": 0.0,
+        "resets_at": null
+    },
+    "cinder_cove": null,
+    "extra_usage": {
+        "is_enabled": true,
+        "monthly_limit": 60000,
+        "used_credits": 54652.0,
+        "utilization": 91.08666666666667,
+        "currency": "USD",
+        "disabled_reason": null
+    }
+}

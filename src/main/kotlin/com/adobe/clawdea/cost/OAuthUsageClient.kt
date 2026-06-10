@@ -18,6 +18,18 @@ object OAuthUsageClient {
     private const val USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 
     /**
+     * Rate-limit window keys we surface, in display order, with friendly labels. The endpoint
+     * also returns internal codename keys (tangelo, iguana_necktie, cinder_cove, *_omelette, …);
+     * those are deliberately NOT listed here so the UI never shows them.
+     */
+    private val WINDOW_LABELS: List<Pair<String, String>> = listOf(
+        "five_hour" to "5-hour",
+        "seven_day" to "7-day",
+        "seven_day_opus" to "7-day Opus",
+        "seven_day_sonnet" to "7-day Sonnet",
+    )
+
+    /**
      * Fetch + parse live usage. Returns UNAVAILABLE on no-token / non-200 / IO error.
      * Must be called off-EDT. Read-only; reuses SubscriptionModelProbe's token source.
      * The token is used only as a Bearer header — never logged or persisted.
@@ -50,30 +62,37 @@ object OAuthUsageClient {
         }
     }
 
-    /** Parse an oauth/usage JSON body. Returns UNAVAILABLE on any malformed/empty input. */
+    /**
+     * Parse an oauth/usage JSON body into [SubscriptionUsage]. Returns UNAVAILABLE on malformed
+     * input or when neither a spend gauge nor any known non-null window is present. Schema is the
+     * live shape: flat window keys (`{utilization, resets_at}` | null) plus an `extra_usage` object.
+     */
     fun parse(json: String): SubscriptionUsage {
         return try {
             val root = JsonParser.parseString(json)
             if (!root.isJsonObject) return SubscriptionUsage.UNAVAILABLE
             val o = root.asJsonObject
-            val spendObj = o.getAsJsonObject("spend")
-            if (spendObj != null) {
-                val used = spendObj.get("used_usd")?.asDouble ?: return SubscriptionUsage.UNAVAILABLE
-                val limit = spendObj.get("limit_usd")?.asDouble ?: return SubscriptionUsage.UNAVAILABLE
-                val reset = epochMs(spendObj.get("resets_at")?.asString)
-                return SubscriptionUsage(true, spend = SubscriptionUsage.Spend(used, limit, reset))
+
+            // Spend gauge from extra_usage (the headline number). used_credits/monthly_limit are
+            // in `currency` units (labeled "credits" — display with the currency code).
+            val spend = o.get("extra_usage")?.takeIf { it.isJsonObject }?.asJsonObject?.let { eu ->
+                val limit = eu.get("monthly_limit")?.takeIf { it.isJsonPrimitive }?.asDouble
+                val used = eu.get("used_credits")?.takeIf { it.isJsonPrimitive }?.asDouble
+                if (limit == null || used == null) return@let null
+                val pct = eu.get("utilization")?.takeIf { it.isJsonPrimitive }?.asDouble ?: 0.0
+                val currency = eu.get("currency")?.takeIf { it.isJsonPrimitive }?.asString ?: "USD"
+                SubscriptionUsage.Spend(used, limit, Math.round(pct).toInt(), currency)
             }
-            val winArr = o.getAsJsonArray("windows")
-            if (winArr != null && winArr.size() > 0) {
-                val windows = winArr.mapNotNull { el ->
-                    val w = el.asJsonObject
-                    val label = w.get("label")?.asString ?: return@mapNotNull null
-                    val pct = w.get("utilization")?.asInt ?: return@mapNotNull null
-                    UsageWindow(label, pct, epochMs(w.get("resets_at")?.asString))
-                }
-                if (windows.isNotEmpty()) return SubscriptionUsage(true, windows = windows)
+
+            // Known rate-limit windows that are present (non-null). Codename keys are ignored.
+            val windows = WINDOW_LABELS.mapNotNull { (key, label) ->
+                val w = o.get(key)?.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+                val pct = w.get("utilization")?.takeIf { it.isJsonPrimitive }?.asDouble ?: return@mapNotNull null
+                UsageWindow(label, Math.round(pct).toInt(), epochMs(w.get("resets_at")?.takeIf { it.isJsonPrimitive }?.asString))
             }
-            SubscriptionUsage.UNAVAILABLE
+
+            if (spend == null && windows.isEmpty()) SubscriptionUsage.UNAVAILABLE
+            else SubscriptionUsage(available = true, spend = spend, windows = windows)
         } catch (_: Exception) {
             SubscriptionUsage.UNAVAILABLE
         }

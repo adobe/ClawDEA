@@ -21,14 +21,23 @@ data class SubscriptionWindow(
     val resetEpochMs: Long,
 )
 
-/** One rate-limit window (Pro/Max): label, percent used, reset epoch ms. */
+/**
+ * One rate-limit window from `oauth/usage` (e.g. `five_hour`, `seven_day`, `seven_day_opus`).
+ * [label] is a friendly display name; [pct] is the utilization percent (0–100, rounded from
+ * the endpoint's Double); [resetEpochMs] is 0 when the endpoint reported no reset time.
+ */
 data class UsageWindow(val label: String, val pct: Int, val resetEpochMs: Long)
 
 /**
- * Parsed `oauth/usage` result. Exactly one of [spend]/[windows] is meaningful:
- *  - Enterprise/Team → spend (used, limit, resetEpochMs)
- *  - Pro/Max → windows
- * [available] is false when the endpoint failed and the UI should show a notional estimate.
+ * Parsed Anthropic `oauth/usage` result. The endpoint returns a flat object of window keys
+ * (each null or `{utilization, resets_at}`) plus an `extra_usage` spend object. We surface:
+ *  - [spend] from `extra_usage` (used vs monthly limit, in `currency`) — the headline gauge.
+ *  - [windows] the non-null, user-relevant rate-limit windows (internal codename keys are dropped).
+ * [available] is false when the endpoint failed/empty and the UI should show a notional estimate.
+ *
+ * NOTE: schema captured from a live response (src/test/resources/oauth-usage/live-sample.json);
+ * undocumented and drift-watched. `utilization` is a Double percent; `monthly_limit`/`used_credits`
+ * are in `currency` units (labeled "credits" — display with the currency code, do not assume "$").
  */
 data class SubscriptionUsage(
     val available: Boolean,
@@ -36,7 +45,8 @@ data class SubscriptionUsage(
     val windows: List<UsageWindow> = emptyList(),
     val lastUpdatedEpochMs: Long = 0,
 ) {
-    data class Spend(val usedUsd: Double, val limitUsd: Double, val resetEpochMs: Long)
+    /** From `extra_usage`: [used]/[limit] in [currency]; [pct] is the reported utilization (0–100). */
+    data class Spend(val used: Double, val limit: Double, val pct: Int, val currency: String)
     companion object { val UNAVAILABLE = SubscriptionUsage(available = false) }
 }
 
