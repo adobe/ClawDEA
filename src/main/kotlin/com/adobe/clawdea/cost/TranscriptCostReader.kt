@@ -14,44 +14,73 @@ package com.adobe.clawdea.cost
 import java.io.File
 
 /**
- * Sums prior-turn cost from a Claude Code session transcript for resume seeding.
- * Per-turn semantics. Path scheme mirrors SessionScanner.
+ * Reconstructs prior-turn cost from a Claude Code session transcript for resume
+ * seeding. The transcript persists no dollar figure, so cost is computed from each
+ * assistant message's token `usage` via [ModelPricing]. Path scheme mirrors SessionScanner.
+ *
+ * De-duplication: Claude Code rewrites the same assistant message to the `.jsonl`
+ * multiple times as it streams (observed up to 4 byte-identical copies sharing one
+ * `message.id`). Pricing every line over-counts by ~3x, so each `message.id` is
+ * priced once.
  */
 object TranscriptCostReader {
+
+    /** Resume seed: total reconstructed cost and the model of the last priced turn (for the footer). */
+    data class ResumeCost(val totalUsd: Double, val lastModel: String?)
 
     fun sessionTranscriptFile(projectBasePath: String, sessionId: String): File {
         val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
         return File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath + "/$sessionId.jsonl")
     }
 
-    fun sumCost(file: File): Double {
-        if (!file.isFile) return 0.0
+    /** Total reconstructed cost, de-duplicated by message id. */
+    fun sumCost(file: File): Double = readResumeCost(file).totalUsd
+
+    /** Total cost + last model seen, de-duplicated by message id. */
+    fun readResumeCost(file: File): ResumeCost {
+        if (!file.isFile) return ResumeCost(0.0, null)
         var total = 0.0
+        var lastModel: String? = null
+        val seen = HashSet<String>()
+        var lineIndex = 0
         try {
             file.bufferedReader().useLines { lines ->
-                lines.forEach { line -> total += priceLine(line) }
+                lines.forEach { line ->
+                    val priced = priceLine(line, lineIndex++, seen)
+                    if (priced != null) {
+                        total += priced.first
+                        priced.second?.let { lastModel = it }
+                    }
+                }
             }
         } catch (_: Exception) {
             // Best-effort: seeding is non-critical.
         }
-        return total
+        return ResumeCost(total, lastModel)
     }
 
     /**
-     * Price one transcript line. Assistant lines carry `model` and a `usage` object
-     * (both nested inside `message`); everything else contributes 0. The transcript
-     * has no persisted dollar field, so we compute from tokens via [ModelPricing].
+     * Price one transcript line, or null if it carries no usage. Assistant lines carry
+     * `model` and a `usage` object (both nested inside `message`). Returns (cost, model).
+     * A line whose `message.id` was already priced returns 0.0 cost (still reports its
+     * model so the footer reflects the latest turn) — see the dedup note on the object.
      */
-    internal fun priceLine(line: String): Double {
+    internal fun priceLine(line: String, lineIndex: Int, seen: MutableSet<String>): Pair<Double, String?>? {
         val usageStart = line.indexOf("\"usage\"")
-        if (usageStart == -1) return 0.0
-        val model = extractStringValue(line, "\"model\"") ?: return 0.0
+        if (usageStart == -1) return null
+        val model = extractStringValue(line, "\"model\"") ?: return null
+        // De-dup key: the message id (msg_...), unique per logical assistant turn.
+        // Lines without one (e.g. test fixtures) fall back to a per-line key so each counts once.
+        val messageStart = line.indexOf("\"message\"")
+        val msgId = if (messageStart >= 0) extractStringValue(line.substring(messageStart), "\"id\"") else null
+        val dedupKey = msgId ?: "__line_$lineIndex"
+        if (!seen.add(dedupKey)) return 0.0 to model
         val usage = line.substring(usageStart)
         val input = extractIntValue(usage, "\"input_tokens\"")
         val output = extractIntValue(usage, "\"output_tokens\"")
         val cacheRead = extractIntValue(usage, "\"cache_read_input_tokens\"")
         val cacheCreate = extractIntValue(usage, "\"cache_creation_input_tokens\"")
-        return ModelPricing.costFor(model, input, output, cacheRead, cacheCreate)
+        return ModelPricing.costFor(model, input, output, cacheRead, cacheCreate) to model
     }
 
     private fun extractStringValue(s: String, key: String): String? {

@@ -67,14 +67,19 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
-    /** Reset the session view, then seed it from the resumed conversation's transcript. */
-    fun seedFromResume(sessionId: String) {
+    /**
+     * Reset the session view, then seed it from the resumed conversation's transcript.
+     * Returns the reconstructed cost (total + last model) so the caller can render a
+     * per-turn-style cost footer in the chat, matching what a live turn shows.
+     */
+    fun seedFromResume(sessionId: String): TranscriptCostReader.ResumeCost {
         resetSession()
-        val base = project.basePath ?: return
-        val prior = TranscriptCostReader.sumCost(
+        val base = project.basePath ?: return TranscriptCostReader.ResumeCost(0.0, null)
+        val prior = TranscriptCostReader.readResumeCost(
             TranscriptCostReader.sessionTranscriptFile(base, sessionId),
         )
-        seedSession(prior)
+        seedSession(prior.totalUsd)
+        return prior
     }
 
     /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
