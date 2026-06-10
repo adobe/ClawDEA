@@ -128,6 +128,7 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
+    /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateUsage(u: SubscriptionUsage) { usage = u; publish() }
 
     @Synchronized
@@ -241,8 +242,8 @@ class CostTracker(private val project: Project) {
             if (reportedUsd > 0.0) reportedUsd
             else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
 
-        fun addKnowledge(m: MutableMap<KnowledgeBucket, Double>, b: KnowledgeBucket, usd: Double) {
-            m.merge(b, usd) { a, v -> a + v }
+        fun addKnowledge(m: MutableMap<KnowledgeBucket, Double>, bucket: KnowledgeBucket, usd: Double) {
+            m.merge(bucket, usd) { a, b -> a + b }
         }
     }
 }
