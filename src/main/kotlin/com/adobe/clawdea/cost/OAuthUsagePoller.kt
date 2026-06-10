@@ -14,22 +14,31 @@ package com.adobe.clawdea.cost
 import com.adobe.clawdea.auth.AuthManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Polls oauth/usage on a ~5-minute cadence (subscription only) and feeds CostTracker.
  * On repeated failure, backs off (5m → up to 40m) and leaves the cached usage UNAVAILABLE
- * so the UI shows the notional estimate. Read-only. Stops when [parentDisposable] disposes.
+ * so the UI shows the notional estimate. Read-only.
+ *
+ * Project-scoped service: exactly ONE poller per project (not per chat tab), started once
+ * by [OAuthUsagePollerStartupActivity] and stopped when the project (this service) disposes.
  */
-class OAuthUsagePoller(private val project: Project, parentDisposable: Disposable) {
-    private val running = AtomicBoolean(true)
+@Service(Service.Level.PROJECT)
+class OAuthUsagePoller(private val project: Project) : Disposable {
+    private val running = AtomicBoolean(false)
     @Volatile private var failures = 0
 
-    init {
-        Disposer.register(parentDisposable) { running.set(false) }
+    /** Idempotent: starts the polling loop once. Safe to call on every project open. */
+    fun start() {
+        if (!running.compareAndSet(false, true)) return
         ApplicationManager.getApplication().executeOnPooledThread { loop() }
+    }
+
+    override fun dispose() {
+        running.set(false)
     }
 
     private fun loop() {
@@ -41,7 +50,7 @@ class OAuthUsagePoller(private val project: Project, parentDisposable: Disposabl
                 failures = if (usage.available) 0 else (failures + 1).coerceAtMost(3)
             }
             val baseMs = 5 * 60 * 1000L
-            val waitMs = baseMs * (1L shl failures)  // 5m, 10m, 20m, 40m
+            val waitMs = baseMs * (1L shl failures) // 5m, 10m, 20m, 40m
             sleep(waitMs)
         }
     }
@@ -50,7 +59,16 @@ class OAuthUsagePoller(private val project: Project, parentDisposable: Disposabl
     private fun sleep(ms: Long) {
         val endMs = System.currentTimeMillis() + ms
         while (running.get() && System.currentTimeMillis() < endMs) {
-            try { Thread.sleep(500) } catch (_: InterruptedException) { return }
+            try {
+                Thread.sleep(500)
+            } catch (_: InterruptedException) {
+                return
+            }
         }
+    }
+
+    companion object {
+        fun getInstance(project: Project): OAuthUsagePoller =
+            project.getService(OAuthUsagePoller::class.java)
     }
 }

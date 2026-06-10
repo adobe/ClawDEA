@@ -350,6 +350,10 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <!-- Cost Tracker -->
         <projectService
             serviceImplementation="com.adobe.clawdea.cost.CostTracker"/>
+        <projectService
+            serviceImplementation="com.adobe.clawdea.cost.OAuthUsagePoller"/>
+        <postStartupActivity
+            implementation="com.adobe.clawdea.cost.OAuthUsagePollerStartupActivity"/>
 
         <!-- Drift Detection -->
         <projectService
