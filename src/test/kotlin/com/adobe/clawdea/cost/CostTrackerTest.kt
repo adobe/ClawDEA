@@ -6,6 +6,27 @@ import org.junit.Test
 class CostTrackerTest {
 
     @Test
+    fun `parseResultLine extracts cost model and tokens from stream-json stdout`() {
+        val stdout = """
+            {"type":"system","subtype":"init","session_id":"s"}
+            {"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":5,"output_tokens":7,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+            {"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.0321,"session_id":"s","usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":7}}
+        """.trimIndent()
+        val r = CostTracker.parseResultLine(stdout)
+        assertNotNull(r)
+        assertEquals("claude-opus-4-8", r!!.model)
+        assertEquals(0.0321, r.costUsd, 1e-9)
+        assertEquals(5, r.inputTokens)
+        assertEquals(7, r.outputTokens)
+    }
+
+    @Test
+    fun `parseResultLine returns null when no result line present`() {
+        assertNull(CostTracker.parseResultLine("{\"type\":\"system\"}\n{\"type\":\"assistant\",\"message\":{}}"))
+        assertNull(CostTracker.parseResultLine(""))
+    }
+
+    @Test
     fun `budget unset is neutral`() {
         assertEquals(CostBand.NEUTRAL, CostTracker.bandForDollars(daily = 10.0, budget = 0.0))
     }

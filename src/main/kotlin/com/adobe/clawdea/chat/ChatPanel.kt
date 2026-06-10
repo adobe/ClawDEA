@@ -1100,7 +1100,9 @@ class ChatPanel(
         contextLabel.text = "context: $pct% used"
     }
 
-    private fun buildCommandContext(): CommandContext {
+    private fun buildCommandContext(
+        knowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ): CommandContext {
         return CommandContext(
             appendHtml = { html -> appendHtml(html) },
             showNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.INFORMATION) },
@@ -1109,7 +1111,9 @@ class ChatPanel(
                 val requestId = service.register(onResolve)
                 appendHtml(askUserQuestionRenderer.renderCard(requestId, input))
             },
-            dispatchToBridge = { text -> dispatchSendToBridge(text, renderInChat = false) },
+            dispatchToBridge = { text ->
+                dispatchSendToBridge(text, renderInChat = false, knowledgeBucket = knowledgeBucket)
+            },
         )
     }
 
@@ -1534,7 +1538,7 @@ class ChatPanel(
             appendHtml(renderer.renderInfoMessage("Queued wiki drift review until the current Claude turn finishes."))
             return
         }
-        dispatchSendToBridge(prompt, renderInChat = false)
+        dispatchSendToBridge(prompt, renderInChat = false, knowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucket.WIKI_UPDATE)
     }
 
     private fun queueExplicitPrompt(prompt: String): Boolean {
@@ -1821,7 +1825,13 @@ class ChatPanel(
                     handleGoalCommand(match.args)
                     return
                 }
-                match.handler.execute(match.args, buildCommandContext())
+                // Knowledge-cost attribution: a slash command dispatches an EXPANDED
+                // template to the bridge (not the literal command), so the prompt-text
+                // classifier can't recognize it. Classify by the command name here and
+                // pass the bucket explicitly into the dispatch below.
+                val commandBucket =
+                    com.adobe.clawdea.cost.KnowledgeBucketClassifier.classifyCommand(handler.info.name)
+                match.handler.execute(match.args, buildCommandContext(commandBucket))
                 when (handler) {
                     is BridgeForwardHandler -> { /* fall through; send `text` verbatim */ }
                     is com.adobe.clawdea.commands.handlers.BridgeExpandingHandler -> {
@@ -1834,7 +1844,7 @@ class ChatPanel(
                         // ("Expanding /seed-workspace…") is the visible chat marker.
                         scope.launch {
                             val expanded = withContext(Dispatchers.IO) { handler.expand(match.args) }
-                            dispatchSendToBridge(expanded, renderInChat = false)
+                            dispatchSendToBridge(expanded, renderInChat = false, knowledgeBucket = commandBucket)
                         }
                         return
                     }
@@ -1956,7 +1966,11 @@ class ChatPanel(
      * its `execute()` already emitted ("Expanding /seed-workspace…") is the
      * visible chat marker for that turn.
      */
-    private fun dispatchSendToBridge(text: String, renderInChat: Boolean = true) {
+    private fun dispatchSendToBridge(
+        text: String,
+        renderInChat: Boolean = true,
+        knowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ) {
         // Ensure CLI is running (first start uses CLI's default model)
         if (!bridge.isRunning) {
             try {
@@ -1973,7 +1987,7 @@ class ChatPanel(
             appendHtml(renderer.renderUserMessage(text))
         }
         browserRenderer.showThinkingIndicator()
-        eventHandler.onTurnSubmitted(text)
+        eventHandler.onTurnSubmitted(text, knowledgeBucket)
         bridge.sendMessage(text)
         turnController.onUserSend()
         syncStreamingUi()

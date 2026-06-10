@@ -44,6 +44,12 @@ class DefaultWikiAuthorInvoker(
     private val projectRoot: Path,
     private val mcpPort: Int = 0,
     private val modelId: String = "",
+    /**
+     * Invoked with the subprocess's full stream-json stdout after a run so the caller can
+     * parse the trailing `result` event and attribute the wiki-author's cost. Default no-op
+     * keeps the invoker usable in tests / non-UI contexts.
+     */
+    private val onStdout: (String) -> Unit = {},
     // Authoring a brand-new concept page (missingConcept) involves reading the
     // index, several concept pages, and multiple find_symbol/find_files
     // verification round-trips through the IDE MCP server before the final
@@ -107,6 +113,15 @@ class DefaultWikiAuthorInvoker(
             } catch (e: Exception) {
                 LOG.warn("wiki-author runner.run threw: ${e.javaClass.simpleName}: ${e.message}", e)
                 ProcessResult(-1, "", "${e.javaClass.simpleName}: ${e.message}", timedOut = false)
+            }
+        }
+        // Attribute the subprocess's cost (stream-json `result` event in stdout), regardless
+        // of exit code — a timed-out/non-zero run can still have produced billable turns.
+        if (result.stdout.isNotBlank()) {
+            try {
+                onStdout(result.stdout)
+            } catch (e: Throwable) {
+                LOG.warn("wiki-author onStdout hook threw: ${e.message}")
             }
         }
         return when {

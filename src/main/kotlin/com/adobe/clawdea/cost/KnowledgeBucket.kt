@@ -31,4 +31,11 @@ object KnowledgeBucketClassifier {
             else -> null
         }
     }
+
+    /**
+     * Classify by the originating slash-command name (e.g. "/seed-wiki"). Used at command
+     * routing time, where the literal command is known — slash commands dispatch an expanded
+     * template to the bridge, not the command text, so [classify] on the sent prompt would miss.
+     */
+    fun classifyCommand(commandName: String): KnowledgeBucket? = classify(commandName)
 }

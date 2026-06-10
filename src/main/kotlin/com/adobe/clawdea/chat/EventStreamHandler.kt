@@ -69,9 +69,19 @@ class EventStreamHandler(
      */
     private var pendingKnowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null
 
-    /** Called by the panel right before a user-originated prompt is sent to the bridge. */
-    fun onTurnSubmitted(promptText: String) {
-        pendingKnowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
+    /**
+     * Called by the panel right before a user-originated prompt is sent to the bridge.
+     * [explicitBucket] lets the caller name the knowledge bucket directly — required for
+     * slash commands that dispatch an *expanded template* (e.g. /seed-wiki sends a long
+     * "Bootstrap an initial wiki…" prompt, not the literal "/seed-wiki"), which the text
+     * classifier can't recognize. Falls back to classifying the prompt text when null.
+     */
+    fun onTurnSubmitted(
+        promptText: String,
+        explicitBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null,
+    ) {
+        pendingKnowledgeBucket = explicitBucket
+            ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
     }
 
     var totalTokensUsed = 0

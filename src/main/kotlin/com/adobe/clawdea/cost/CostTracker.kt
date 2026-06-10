@@ -12,6 +12,8 @@
 package com.adobe.clawdea.cost
 
 import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.cli.CliEvent
+import com.adobe.clawdea.cli.CliEventParser
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
@@ -36,11 +38,18 @@ class CostTracker(private val project: Project) {
     private class ChatCost {
         var sessionUsd: Double = 0.0
         val perModelUsd: MutableMap<String, Double> = mutableMapOf()
-        val knowledgeUsd: MutableMap<KnowledgeBucket, Double> = mutableMapOf()
     }
 
     private val chats = mutableMapOf<String, ChatCost>()
     private fun chat(chatId: String): ChatCost = chats.getOrPut(chatId) { ChatCost() }
+
+    /**
+     * Knowledge-upkeep sub-totals, keyed by bucket. PROJECT-WIDE (not per-chat): wiki/workspace
+     * upkeep comes from chat-dispatched commands (/seed-wiki) AND a background drift subprocess
+     * that isn't tied to any chat, so it aggregates at the project level and shows in every
+     * chat's Cost Control panel. A breakdown of overall spend, not a separate pool.
+     */
+    private val knowledgeUsd = mutableMapOf<KnowledgeBucket, Double>()
 
     /**
      * The model the "Default" selection resolved to — set only by turns that ran with
@@ -76,10 +85,35 @@ class CostTracker(private val project: Project) {
             val c = chat(chatId)
             c.sessionUsd += effective
             if (model.isNotBlank()) c.perModelUsd.merge(model, effective) { a, b -> a + b }
-            if (knowledgeBucket != null) addKnowledge(c.knowledgeUsd, knowledgeBucket, effective)
+            if (knowledgeBucket != null) addKnowledge(knowledgeUsd, knowledgeBucket, effective)
             if (providerId.isNotBlank()) addToProvider(providerId, effective)
             addToDaily(effective)
         }
+        publish()
+    }
+
+    /**
+     * Record the cost of the background wiki-author drift subprocess. It runs OUTSIDE any chat
+     * (a separate `claude -p` invocation), so its cost feeds daily + the active provider's totals
+     * + the WIKI_UPDATE knowledge bucket, but no chat's session total. [stdout] is the subprocess's
+     * stream-json output; the trailing `result` event carries cost + token usage.
+     */
+    fun recordWikiAuthorCost(stdout: String) {
+        val result = parseResultLine(stdout) ?: return
+        val effective = effectiveTurnCost(
+            result.model, result.costUsd,
+            result.inputTokens, result.outputTokens, result.cacheReadTokens, result.cacheCreationTokens,
+        )
+        if (effective <= 0) {
+            publish()
+            return
+        }
+        val providerId = AuthManager.getInstance().effectiveProviderId()
+        synchronized(this) {
+            addKnowledge(knowledgeUsd, KnowledgeBucket.WIKI_UPDATE, effective)
+        }
+        if (providerId.isNotBlank()) addToProvider(providerId, effective)
+        addToDaily(effective)
         publish()
     }
 
@@ -154,19 +188,22 @@ class CostTracker(private val project: Project) {
             defaultResolvedModel,
             usage,
             providerTotal,
-            c?.knowledgeUsd?.toMap() ?: emptyMap(),
+            knowledgeUsd.toMap(),
         )
     }
 
     /**
-     * Header data for every provider the user has used (union of persisted totals + active
-     * provider). The live subscription [usage] attaches only to the "subscription" block; other
-     * providers get their persisted [ProviderTotal]. Chat-scoped body comes from snapshot(chatId).
+     * Header data for every provider to render: providers with persisted totals, the active
+     * provider, AND subscription whenever live usage is available (so the poller's spend/window
+     * data shows even when the user is currently on bedrock). The live subscription [usage]
+     * attaches only to the "subscription" block. Chat-scoped body comes from snapshot(chatId).
      */
     @Synchronized
     fun providerBlocks(): List<ProviderBlock> {
         val active = AuthManager.getInstance().effectiveProviderId()
-        return usedProviders(settings.state.providerTotals.keys, active).map { pid ->
+        val pids = LinkedHashSet(usedProviders(settings.state.providerTotals.keys, active))
+        if (usage.available) pids.add("subscription")
+        return pids.map { pid ->
             ProviderBlock(
                 providerId = pid,
                 total = settings.state.providerTotals[pid]?.let { ProviderTotal.parse(it) },
@@ -269,6 +306,45 @@ class CostTracker(private val project: Project) {
             val set = LinkedHashSet(stored)
             if (active.isNotBlank()) set.add(active)
             return set.toList()
+        }
+
+        /** Per-turn cost + token breakdown parsed from a stream-json `result` event. */
+        data class ParsedResult(
+            val model: String,
+            val costUsd: Double,
+            val inputTokens: Int,
+            val outputTokens: Int,
+            val cacheReadTokens: Int,
+            val cacheCreationTokens: Int,
+        )
+
+        /**
+         * Scan multi-line stream-json [stdout] for the trailing `result` event and extract its
+         * cost + token usage. Returns null if no parseable result line is present. The result
+         * event carries no model id, so [ParsedResult.model] falls back to the last assistant
+         * line's `message.model` (drives notional pricing when total_cost_usd is 0).
+         */
+        fun parseResultLine(stdout: String): ParsedResult? {
+            val parser = CliEventParser()
+            var model = ""
+            var result: CliEvent.Result? = null
+            stdout.lineSequence().forEach { line ->
+                if (line.isBlank()) return@forEach
+                when (val ev = parser.parse(line)) {
+                    is CliEvent.AssistantMessage -> if (ev.model.isNotBlank()) model = ev.model
+                    is CliEvent.Result -> result = ev
+                    else -> {}
+                }
+            }
+            val r = result ?: return null
+            return ParsedResult(
+                model = model,
+                costUsd = r.costUsd,
+                inputTokens = r.inputTokens,
+                outputTokens = r.outputTokens,
+                cacheReadTokens = r.cacheReadTokens,
+                cacheCreationTokens = r.cacheCreationTokens,
+            )
         }
     }
 }
