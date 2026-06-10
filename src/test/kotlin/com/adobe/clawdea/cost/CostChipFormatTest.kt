@@ -13,15 +13,24 @@ class CostChipFormatTest {
     }
 
     @Test
-    fun `subscription with window shows window percent and notional chat`() {
+    fun `subscription with spend gauge shows usage percent and notional chat`() {
         val s = CostSnapshot("subscription", sessionUsd = 0.41, dailyUsd = 0.41,
-            dailyBudgetUsd = 0.0, band = CostBand.AMBER, perModelUsd = emptyMap(),
-            window = SubscriptionWindow(fiveHourPct = 38, sevenDayPct = 12, resetEpochMs = 0))
-        assertEquals("window 38% · ≈\$0.41 chat", CostChip.formatText(s))
+            dailyBudgetUsd = 0.0, band = CostBand.RED, perModelUsd = emptyMap(),
+            usage = SubscriptionUsage(true, spend = SubscriptionUsage.Spend(54652.0, 60000.0, 91, "USD")))
+        assertEquals("usage 91% · ≈\$0.41 chat", CostChip.formatText(s))
     }
 
     @Test
-    fun `subscription without window falls back to notional dollars`() {
+    fun `subscription with windows shows worst window percent`() {
+        val s = CostSnapshot("subscription", sessionUsd = 0.41, dailyUsd = 0.41,
+            dailyBudgetUsd = 0.0, band = CostBand.AMBER, perModelUsd = emptyMap(),
+            usage = SubscriptionUsage(true, windows = listOf(
+                UsageWindow("5-hour", 38, 0), UsageWindow("7-day", 12, 0))))
+        assertEquals("usage 38% · ≈\$0.41 chat", CostChip.formatText(s))
+    }
+
+    @Test
+    fun `subscription without usage falls back to notional dollars`() {
         val s = CostSnapshot("subscription", sessionUsd = 0.41, dailyUsd = 0.41,
             dailyBudgetUsd = 0.0, band = CostBand.NEUTRAL, perModelUsd = emptyMap())
         assertEquals("≈\$0.41 chat", CostChip.formatText(s))

@@ -49,9 +49,6 @@ class CostTracker(private val project: Project) {
      */
     private var defaultResolvedModel: String? = null
 
-    @Volatile
-    private var window: SubscriptionWindow? = null
-
     @Volatile private var usage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE
 
     @Synchronized
@@ -123,12 +120,6 @@ class CostTracker(private val project: Project) {
     fun defaultResolvedModel(): String? = defaultResolvedModel
 
     /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
-    fun updateWindow(w: SubscriptionWindow?) {
-        window = w
-        publish()
-    }
-
-    /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateUsage(u: SubscriptionUsage) { usage = u; publish() }
 
     @Synchronized
@@ -143,9 +134,11 @@ class CostTracker(private val project: Project) {
         val providerId = AuthManager.getInstance().effectiveProviderId()
         val daily = currentDailyUsd()
         val budget = settings.state.dailyBudgetUsd
-        val w = window
-        val band = if (providerId == "subscription" && w != null) {
-            bandForWindow(w)
+        val u = usage
+        // Subscription with live usage → band off the worst utilization (spend or window).
+        // Otherwise → band off daily spend vs the user's budget.
+        val band = if (providerId == "subscription" && u.available) {
+            bandForUsage(u)
         } else {
             bandForDollars(daily, budget)
         }
@@ -158,7 +151,6 @@ class CostTracker(private val project: Project) {
             budget,
             band,
             c?.perModelUsd?.toMap() ?: emptyMap(),
-            w,
             defaultResolvedModel,
             usage,
             providerTotal,
@@ -234,8 +226,17 @@ class CostTracker(private val project: Project) {
             }
         }
 
-        fun bandForWindow(w: SubscriptionWindow): CostBand {
-            val pct = maxOf(w.fiveHourPct, w.sevenDayPct)
+        /**
+         * Band from live subscription usage: the worst utilization across the spend gauge
+         * and every rate-limit window (whichever is closest to its limit). NEUTRAL when the
+         * usage carries no percentages.
+         */
+        fun bandForUsage(u: SubscriptionUsage): CostBand {
+            val pcts = buildList {
+                u.spend?.let { add(it.pct) }
+                u.windows.forEach { add(it.pct) }
+            }
+            val pct = pcts.maxOrNull() ?: return CostBand.NEUTRAL
             return when {
                 pct >= 90 -> CostBand.RED
                 pct >= 75 -> CostBand.AMBER

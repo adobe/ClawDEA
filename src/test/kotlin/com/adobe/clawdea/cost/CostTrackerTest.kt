@@ -20,11 +20,22 @@ class CostTrackerTest {
     }
 
     @Test
-    fun `subscription band uses worst window pct`() {
-        val w = SubscriptionWindow(fiveHourPct = 80, sevenDayPct = 40, resetEpochMs = 0)
-        assertEquals(CostBand.AMBER, CostTracker.bandForWindow(w))
-        assertEquals(CostBand.RED, CostTracker.bandForWindow(w.copy(fiveHourPct = 95)))
-        assertEquals(CostBand.GREEN, CostTracker.bandForWindow(w.copy(fiveHourPct = 10, sevenDayPct = 10)))
+    fun `subscription band uses worst utilization across spend and windows`() {
+        // Spend gauge dominates when it's the worst.
+        val spend = SubscriptionUsage(true, spend = SubscriptionUsage.Spend(0.0, 0.0, 80, "USD"))
+        assertEquals(CostBand.AMBER, CostTracker.bandForUsage(spend))
+        // A window can push it to RED.
+        val mixed = SubscriptionUsage(
+            true,
+            spend = SubscriptionUsage.Spend(0.0, 0.0, 40, "USD"),
+            windows = listOf(UsageWindow("5-hour", 95, 0)),
+        )
+        assertEquals(CostBand.RED, CostTracker.bandForUsage(mixed))
+        // All low → GREEN.
+        val low = SubscriptionUsage(true, windows = listOf(UsageWindow("7-day", 10, 0)))
+        assertEquals(CostBand.GREEN, CostTracker.bandForUsage(low))
+        // No percentages → NEUTRAL.
+        assertEquals(CostBand.NEUTRAL, CostTracker.bandForUsage(SubscriptionUsage.UNAVAILABLE))
     }
 
     @Test

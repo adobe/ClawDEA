@@ -58,8 +58,11 @@ class CostChip(
 
     private fun buildTooltip(s: CostSnapshot): String {
         val sb = StringBuilder("<html>")
-        if (s.window != null) {
-            sb.append("5h window: ${s.window.fiveHourPct}% &middot; 7d: ${s.window.sevenDayPct}%<br>")
+        s.usage.spend?.let { sp ->
+            sb.append("Subscription: ${sp.pct}% of limit used<br>")
+        }
+        s.usage.windows.forEach { w ->
+            sb.append("${w.label}: ${w.pct}%<br>")
         }
         if (s.dailyBudgetUsd > 0) {
             sb.append("Daily budget: \$${String.format(Locale.US, "%.2f", s.dailyBudgetUsd)}<br>")
@@ -79,8 +82,12 @@ class CostChip(
         fun formatText(s: CostSnapshot): String {
             val chat = String.format(Locale.US, "%.2f", s.sessionUsd)
             return when {
-                s.providerId == "subscription" && s.window != null ->
-                    "window ${s.window.fiveHourPct}% · ≈\$$chat chat"
+                // Subscription with a live spend gauge → show its utilization %.
+                s.providerId == "subscription" && s.usage.spend != null ->
+                    "usage ${s.usage.spend.pct}% · ≈\$$chat chat"
+                // Subscription with only window data → worst window %.
+                s.providerId == "subscription" && s.usage.windows.isNotEmpty() ->
+                    "usage ${s.usage.windows.maxOf { it.pct }}% · ≈\$$chat chat"
                 s.providerId == "subscription" ->
                     "≈\$$chat chat"
                 else ->

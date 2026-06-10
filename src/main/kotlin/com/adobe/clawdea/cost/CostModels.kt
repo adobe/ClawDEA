@@ -14,13 +14,6 @@ package com.adobe.clawdea.cost
 /** Soft-warning band derived from spend vs budget (or subscription window). */
 enum class CostBand { NEUTRAL, GREEN, AMBER, RED }
 
-/** Subscription rate-limit windows from the Anthropic oauth/usage endpoint. */
-data class SubscriptionWindow(
-    val fiveHourPct: Int,
-    val sevenDayPct: Int,
-    val resetEpochMs: Long,
-)
-
 /**
  * One rate-limit window from `oauth/usage` (e.g. `five_hour`, `seven_day`, `seven_day_opus`).
  * [label] is a friendly display name; [pct] is the utilization percent (0–100, rounded from
@@ -65,7 +58,6 @@ data class CostSnapshot(
     val dailyBudgetUsd: Double,
     val band: CostBand,
     val perModelUsd: Map<String, Double>,
-    val window: SubscriptionWindow? = null,
     /**
      * The model that the "Default" selection actually resolved to — set only after a
      * turn ran with no explicit model override (the CLI chose). Null until such a turn
