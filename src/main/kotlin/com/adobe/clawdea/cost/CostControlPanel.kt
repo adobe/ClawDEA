@@ -34,6 +34,8 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             .createComponentPopupBuilder(content, content)
             .setRequestFocus(true)
             .setTitle("Cost Control")
+            .setMovable(true)
+            .setResizable(true)
             .createPopup()
             .showUnderneathOf(anchor)
     }
@@ -55,7 +57,7 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             val headerText = if (b.providerId == "subscription") {
                 CostPanelFormat.subscriptionHeader(b.usage)
             } else {
-                b.total?.let { CostPanelFormat.bedrockHeader(it) } ?: "${b.providerId}: no spend tracked yet"
+                b.total?.let { CostPanelFormat.bedrockHeader(it) } ?: "no spend tracked yet"
             }
             root.add(JLabel("${b.providerId}: $headerText"))
             if (b.providerId != "subscription" && b.total != null) {
@@ -65,18 +67,20 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             }
         }
 
-        // (2) Shared chat-scoped body.
+        // (2) Shared chat-scoped body. Sections always render (with $0.00) so the
+        // panel is a complete at-a-glance breakdown, not a sometimes-empty list.
         root.add(JSeparator())
         root.add(JLabel("This chat: " + money2(s.sessionUsd)))
-        if (s.knowledgeUsd.isNotEmpty()) {
-            root.add(JLabel("Knowledge upkeep:"))
-            for (bucket in KnowledgeBucket.entries) {
-                val v = s.knowledgeUsd[bucket] ?: continue
-                root.add(JLabel("  " + bucketLabel(bucket) + ": " + money2(v)))
-            }
+
+        root.add(JLabel("Knowledge upkeep:"))
+        for (bucket in KnowledgeBucket.entries) {
+            root.add(JLabel("  " + bucketLabel(bucket) + ": " + money2(s.knowledgeUsd[bucket] ?: 0.0)))
         }
-        if (s.perModelUsd.isNotEmpty()) {
-            root.add(JLabel("By model:"))
+
+        root.add(JLabel("By model:"))
+        if (s.perModelUsd.isEmpty()) {
+            root.add(JLabel("  (no per-model data yet)"))
+        } else {
             s.perModelUsd.entries.sortedByDescending { it.value }.forEach { (m, v) ->
                 root.add(JLabel("  $m: " + money4(v)))
             }
