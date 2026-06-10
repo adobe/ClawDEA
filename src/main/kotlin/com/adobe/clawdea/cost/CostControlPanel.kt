@@ -92,7 +92,12 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         val field = JTextField(if (settings.state.dailyBudgetUsd > 0) settings.state.dailyBudgetUsd.toString() else "", 8)
         val apply = JButton("Set daily budget").apply {
             addActionListener {
-                field.text.trim().toDoubleOrNull()?.let { settings.state.dailyBudgetUsd = it.coerceAtLeast(0.0) }
+                field.text.trim().toDoubleOrNull()?.let {
+                    settings.state.dailyBudgetUsd = it.coerceAtLeast(0.0)
+                    // Republish so the current chat's chip (and every other open chip)
+                    // re-bands against the new budget immediately, not only on a new chat.
+                    CostTracker.getInstance(project).refresh()
+                }
             }
         }
         root.add(JPanel().apply { add(JLabel("Daily budget $")); add(field); add(apply) })

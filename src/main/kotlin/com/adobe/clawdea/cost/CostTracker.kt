@@ -147,6 +147,13 @@ class CostTracker(private val project: Project) {
     /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateUsage(u: SubscriptionUsage) { usage = u; publish() }
 
+    /**
+     * Republish the current state to all listeners. For changes made directly to settings that
+     * don't flow through recordTurn (notably the daily budget edited in the Cost Control panel),
+     * so every open chip re-snapshots and re-bands immediately instead of waiting for a new chat.
+     */
+    fun refresh() = publish()
+
     @Synchronized
     fun resetProvider(providerId: String) {
         synchronized(settings) { settings.state.providerTotals.remove(providerId) }
