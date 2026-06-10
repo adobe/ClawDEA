@@ -11,7 +11,6 @@
  */
 package com.adobe.clawdea.cost
 
-import com.adobe.clawdea.auth.AuthManager
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -43,12 +42,13 @@ class OAuthUsagePoller(private val project: Project) : Disposable {
 
     private fun loop() {
         while (running.get()) {
-            if (AuthManager.getInstance().effectiveProviderId() == "subscription") {
-                val usage = OAuthUsageClient.fetch()
-                if (project.isDisposed) return
-                CostTracker.getInstance(project).updateUsage(usage)
-                failures = if (usage.available) 0 else (failures + 1).coerceAtMost(3)
-            }
+            // NOT gated on the active provider: a user on bedrock can still have a Claude
+            // subscription, and we want its usage shown alongside. fetch() self-limits —
+            // it returns UNAVAILABLE when no OAuth token is present (i.e. no subscription).
+            val usage = OAuthUsageClient.fetch()
+            if (project.isDisposed) return
+            CostTracker.getInstance(project).updateUsage(usage)
+            failures = if (usage.available) 0 else (failures + 1).coerceAtMost(3)
             val baseMs = 5 * 60 * 1000L
             val waitMs = baseMs * (1L shl failures) // 5m, 10m, 20m, 40m
             sleep(waitMs)

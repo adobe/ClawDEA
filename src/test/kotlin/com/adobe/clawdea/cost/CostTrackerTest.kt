@@ -76,14 +76,6 @@ class CostTrackerTest {
         assertEquals(25.0, CostTracker.effectiveTurnCost("claude-opus-4-8", 0.0, 0, 1_000_000, 0, 0), 1e-6)
     }
 
-    @Test fun `knowledge buckets accrue per bucket`() {
-        val m = mutableMapOf<KnowledgeBucket, Double>()
-        CostTracker.addKnowledge(m, KnowledgeBucket.WIKI_UPDATE, 1.50)
-        CostTracker.addKnowledge(m, KnowledgeBucket.WIKI_UPDATE, 0.24)
-        CostTracker.addKnowledge(m, KnowledgeBucket.WIKI_CREATE, 3.10)
-        assertEquals(1.74, m[KnowledgeBucket.WIKI_UPDATE]!!, 1e-9)
-        assertEquals(3.10, m[KnowledgeBucket.WIKI_CREATE]!!, 1e-9)
-    }
 
     @Test fun `usedProviders unions stored keys with the active provider`() {
         assertEquals(

@@ -43,13 +43,6 @@ class CostTracker(private val project: Project) {
     private val chats = mutableMapOf<String, ChatCost>()
     private fun chat(chatId: String): ChatCost = chats.getOrPut(chatId) { ChatCost() }
 
-    /**
-     * Knowledge-upkeep sub-totals, keyed by bucket. PROJECT-WIDE (not per-chat): wiki/workspace
-     * upkeep comes from chat-dispatched commands (/seed-wiki) AND a background drift subprocess
-     * that isn't tied to any chat, so it aggregates at the project level and shows in every
-     * chat's Cost Control panel. A breakdown of overall spend, not a separate pool.
-     */
-    private val knowledgeUsd = mutableMapOf<KnowledgeBucket, Double>()
 
     /**
      * The model the "Default" selection resolved to — set only by turns that ran with
@@ -85,7 +78,7 @@ class CostTracker(private val project: Project) {
             val c = chat(chatId)
             c.sessionUsd += effective
             if (model.isNotBlank()) c.perModelUsd.merge(model, effective) { a, b -> a + b }
-            if (knowledgeBucket != null) addKnowledge(knowledgeUsd, knowledgeBucket, effective)
+            if (knowledgeBucket != null) addToKnowledge(knowledgeBucket, effective)
             if (providerId.isNotBlank()) addToProvider(providerId, effective)
             addToDaily(effective)
         }
@@ -109,9 +102,7 @@ class CostTracker(private val project: Project) {
             return
         }
         val providerId = AuthManager.getInstance().effectiveProviderId()
-        synchronized(this) {
-            addKnowledge(knowledgeUsd, KnowledgeBucket.WIKI_UPDATE, effective)
-        }
+        addToKnowledge(KnowledgeBucket.WIKI_UPDATE, effective)
         if (providerId.isNotBlank()) addToProvider(providerId, effective)
         addToDaily(effective)
         publish()
@@ -188,7 +179,7 @@ class CostTracker(private val project: Project) {
             defaultResolvedModel,
             usage,
             providerTotal,
-            knowledgeUsd.toMap(),
+            readKnowledge(),
         )
     }
 
@@ -230,6 +221,20 @@ class CostTracker(private val project: Project) {
             val cur = ProviderTotal.parse(settings.state.providerTotals[providerId].orEmpty())
             settings.state.providerTotals[providerId] = ProviderTotal.format(cur.add(costUsd, today, month))
         }
+    }
+
+    /** Accrue into the GLOBAL knowledge-upkeep total (app settings), keyed by bucket name. */
+    private fun addToKnowledge(bucket: KnowledgeBucket, costUsd: Double) {
+        synchronized(settings) {
+            settings.state.knowledgeUsd.merge(bucket.name, costUsd) { a, b -> a + b }
+        }
+    }
+
+    /** Read the global knowledge-upkeep totals as a typed map (unknown keys ignored). */
+    private fun readKnowledge(): Map<KnowledgeBucket, Double> = synchronized(settings) {
+        settings.state.knowledgeUsd.mapNotNull { (k, v) ->
+            runCatching { KnowledgeBucket.valueOf(k) }.getOrNull()?.let { it to v }
+        }.toMap()
     }
 
     private fun currentDailyUsd(): Double = synchronized(settings) {
@@ -296,10 +301,6 @@ class CostTracker(private val project: Project) {
         ): Double =
             if (reportedUsd > 0.0) reportedUsd
             else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
-
-        fun addKnowledge(m: MutableMap<KnowledgeBucket, Double>, bucket: KnowledgeBucket, usd: Double) {
-            m.merge(bucket, usd) { a, b -> a + b }
-        }
 
         /** Providers to render: union of persisted-total keys and the active provider (blank ignored). */
         fun usedProviders(stored: Set<String>, active: String): List<String> {

@@ -157,6 +157,12 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          * Parsed via ProviderTotal.parse / format (added in a later task).
          */
         var providerTotals: MutableMap<String, String> = mutableMapOf(),
+        /**
+         * GLOBAL knowledge-upkeep spend (across all projects), keyed by [KnowledgeBucket] name
+         * ("WIKI_CREATE", "WIKI_UPDATE", "WORKSPACE_CREATE", "WORKSPACE_UPDATE") → cumulative USD.
+         * App-level so wiki/workspace upkeep reads as one bill regardless of which project ran it.
+         */
+        var knowledgeUsd: MutableMap<String, Double> = mutableMapOf(),
     )
 
     private var state = State()
