@@ -21,6 +21,25 @@ data class SubscriptionWindow(
     val resetEpochMs: Long,
 )
 
+/** One rate-limit window (Pro/Max): label, percent used, reset epoch ms. */
+data class UsageWindow(val label: String, val pct: Int, val resetEpochMs: Long)
+
+/**
+ * Parsed `oauth/usage` result. Exactly one of [spend]/[windows] is meaningful:
+ *  - Enterprise/Team → spend (used, limit, resetEpochMs)
+ *  - Pro/Max → windows
+ * [available] is false when the endpoint failed and the UI should show a notional estimate.
+ */
+data class SubscriptionUsage(
+    val available: Boolean,
+    val spend: Spend? = null,
+    val windows: List<UsageWindow> = emptyList(),
+    val lastUpdatedEpochMs: Long = 0,
+) {
+    data class Spend(val usedUsd: Double, val limitUsd: Double, val resetEpochMs: Long)
+    companion object { val UNAVAILABLE = SubscriptionUsage(available = false) }
+}
+
 /** Immutable view published to the UI after every cost update. */
 data class CostSnapshot(
     val providerId: String,
