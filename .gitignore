@@ -51,3 +51,4 @@ docs/superpowers/
 *.log
 !gradle/wrapper/*.log
 .clawdea/wiki-state.local.json
+.clawdea/REPO_STATE.md

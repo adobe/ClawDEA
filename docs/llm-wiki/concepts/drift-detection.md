@@ -54,7 +54,7 @@
 - [CodeRenameDetector.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/CodeRenameDetector.kt) — broken source-link detector
 - [ManifestStaleDetector.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/ManifestStaleDetector.kt) — workspace manifest path resolver
 - [CommitWikiDriftDetector.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/CommitWikiDriftDetector.kt) — git-driven detector for load-bearing claim drift
-- [WikiAuthorInvoker.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/WikiAuthorInvoker.kt) — subagent invocation for non-deterministic fixes
+- [WikiAuthorInvoker.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/WikiAuthorInvoker.kt) — subagent invocation for non-deterministic fixes; `DefaultWikiAuthorInvoker` takes an `onStdout` hook (wired by `DriftDetectionService` to `CostTracker.recordWikiAuthorCost`) so the chatless `claude -p` subprocess's spend is metered into the `WIKI_UPDATE` knowledge bucket — see [cost tracking](cost-tracking.md)
 - [WikiAuthorDigestBuilder.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/WikiAuthorDigestBuilder.kt) — per-event digest passed to the subagent
 - [DriftStartupActivity.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/drift/DriftStartupActivity.kt) — project-open trigger
 - [DriftBanner.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/DriftBanner.kt) — chat-panel surface for unapplied events

@@ -82,7 +82,6 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         root.layout = BoxLayout(root, BoxLayout.Y_AXIS)
         root.border = JBUI.Borders.empty(10)
         root.background = BG
-        root.preferredSize = Dimension(340, root.preferredSize.height)
 
         // (1) One card per provider used.
         val blocks = tracker.providerBlocks()
@@ -182,10 +181,14 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         val row = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
+            alignmentX = Component.LEFT_ALIGNMENT
             add(JLabel("$").apply { foreground = MUTED })
             add(field)
             add(JLabel(" ").apply { isOpaque = false })
             add(apply)
+            // Keep the input/button at their natural size and anchored left, instead of
+            // stretching across the (now wider) card.
+            add(javax.swing.Box.createHorizontalGlue())
         }
         body.add(row)
         body.add(mutedLabel("0 = no budget. Chip turns amber at 75%, red at 90%."))

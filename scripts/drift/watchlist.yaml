@@ -171,7 +171,7 @@
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
   match: 'oauth/usage|extra_usage|used_credits|monthly_limit|five_hour|seven_day'
   triage: issue
-  clawdea: 'OAuthUsageClient.kt (parse), OAuthUsagePoller.kt, CostPanelFormat.kt'
+  clawdea: 'OAuthUsageClient.kt (parse), OAuthUsagePoller.kt, CostControlPanel.kt'
 
 # Fires only when one of the six tools ClawDEA's denylist redirects (Grep,
 # Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed, removed, or annotated
