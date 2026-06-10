@@ -58,6 +58,16 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
+    /** Reset the session view, then seed it from the resumed conversation's transcript. */
+    fun seedFromResume(sessionId: String) {
+        resetSession()
+        val base = project.basePath ?: return
+        val prior = TranscriptCostReader.sumCost(
+            TranscriptCostReader.sessionTranscriptFile(base, sessionId),
+        )
+        seedSession(prior)
+    }
+
     /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateWindow(w: SubscriptionWindow?) {
         window = w

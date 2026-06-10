@@ -15,6 +15,7 @@ import com.adobe.clawdea.chat.session.HistoryEntry
 import com.adobe.clawdea.chat.session.SessionPickerDialog
 import com.adobe.clawdea.chat.session.SessionScanner
 import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.cost.CostTracker
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -80,6 +81,7 @@ class SessionManager(
             browserRenderer.appendHtml(html)
         }
 
+        CostTracker.getInstance(project).seedFromResume(sessionId)
         bridge.stop()
         scope.launch {
             try {
