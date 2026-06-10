@@ -149,6 +149,14 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var dailyCostUsd: Double = 0.0,
         var dailyCostDate: String = "",
         var dailyBudgetUsd: Double = 0.0,
+        /**
+         * Per-provider cumulative spend, keyed by providerId. Value is a packed
+         * string "sinceDate|monthToDate|allTime|mtdMonth" (mtdMonth = "YYYY-MM" for
+         * calendar rollover). Packed as a String so PersistentStateComponent's
+         * XmlSerializer handles the Map<String,String> without a custom bean.
+         * Parsed via ProviderTotal.parse / format (added in a later task).
+         */
+        var providerTotals: MutableMap<String, String> = mutableMapOf(),
     )
 
     private var state = State()
