@@ -147,6 +147,17 @@
   match: '.*'
   triage: noise
 
+# Published Claude model pricing. ClawDEA hardcodes per-model token rates in
+# ModelPricing.kt to compute cost when the CLI reports total_cost_usd = 0
+# (subscription/bedrock flat-rate plans) and to seed prior cost on resume. When
+# the pricing page changes a per-million-token rate, the hardcoded table is stale
+# and must be updated. Narrow match on the dollar-per-Mtok figures keeps it `issue`.
+- id: model-pricing
+  source: { type: url, url: 'https://platform.claude.com/docs/en/about-claude/pricing' }
+  match: 'Opus|Sonnet|Haiku|Fable|\$[0-9]+(\.[0-9]+)?\s*/\s*(M|million|1M)'
+  triage: issue
+  clawdea: 'ModelPricing.kt (per-model token rate table — update inputPerM/outputPerM)'
+
 # Fires only when one of the six tools ClawDEA's denylist redirects (Grep,
 # Glob, Edit, Write, MultiEdit, NotebookEdit) is renamed, removed, or annotated
 # [DEPRECATED] in `claude --help`. Narrow by construction, so it stays `issue`.
