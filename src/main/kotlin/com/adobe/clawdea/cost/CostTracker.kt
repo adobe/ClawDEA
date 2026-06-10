@@ -36,6 +36,7 @@ class CostTracker(private val project: Project) {
     private class ChatCost {
         var sessionUsd: Double = 0.0
         val perModelUsd: MutableMap<String, Double> = mutableMapOf()
+        val knowledgeUsd: MutableMap<KnowledgeBucket, Double> = mutableMapOf()
     }
 
     private val chats = mutableMapOf<String, ChatCost>()
@@ -50,6 +51,8 @@ class CostTracker(private val project: Project) {
 
     @Volatile
     private var window: SubscriptionWindow? = null
+
+    @Volatile private var usage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE
 
     @Synchronized
     fun recordTurn(
@@ -67,6 +70,8 @@ class CostTracker(private val project: Project) {
          * what Default resolves to — an explicit selection tells us nothing about Default.
          */
         ranUnderDefaultSelection: Boolean = false,
+        providerId: String = "",
+        knowledgeBucket: KnowledgeBucket? = null,
     ) {
         val effective = effectiveTurnCost(model, costUsd, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
         if (ranUnderDefaultSelection && model.isNotBlank()) defaultResolvedModel = model
@@ -74,6 +79,8 @@ class CostTracker(private val project: Project) {
             val c = chat(chatId)
             c.sessionUsd += effective
             if (model.isNotBlank()) c.perModelUsd.merge(model, effective) { a, b -> a + b }
+            if (knowledgeBucket != null) addKnowledge(c.knowledgeUsd, knowledgeBucket, effective)
+            if (providerId.isNotBlank()) addToProvider(providerId, effective)
             addToDaily(effective)
         }
         publish()
@@ -121,6 +128,14 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
+    fun updateUsage(u: SubscriptionUsage) { usage = u; publish() }
+
+    @Synchronized
+    fun resetProvider(providerId: String) {
+        synchronized(settings) { settings.state.providerTotals.remove(providerId) }
+        publish()
+    }
+
     /** Snapshot for one chat tab: that chat's session/per-model totals + shared daily/window/default. */
     @Synchronized
     fun snapshot(chatId: String): CostSnapshot {
@@ -134,6 +149,7 @@ class CostTracker(private val project: Project) {
             bandForDollars(daily, budget)
         }
         val c = chats[chatId]
+        val providerTotal = settings.state.providerTotals[providerId]?.let { ProviderTotal.parse(it) }
         return CostSnapshot(
             providerId,
             c?.sessionUsd ?: 0.0,
@@ -143,6 +159,9 @@ class CostTracker(private val project: Project) {
             c?.perModelUsd?.toMap() ?: emptyMap(),
             w,
             defaultResolvedModel,
+            usage,
+            providerTotal,
+            c?.knowledgeUsd?.toMap() ?: emptyMap(),
         )
     }
 
@@ -154,6 +173,15 @@ class CostTracker(private val project: Project) {
             settings.state.dailyCostUsd =
                 rolledDaily(settings.state.dailyCostDate, settings.state.dailyCostUsd, today, costUsd)
             settings.state.dailyCostDate = today
+        }
+    }
+
+    private fun addToProvider(providerId: String, costUsd: Double) {
+        val today = LocalDate.now().toString()
+        val month = today.substring(0, 7)
+        synchronized(settings) {
+            val cur = ProviderTotal.parse(settings.state.providerTotals[providerId].orEmpty())
+            settings.state.providerTotals[providerId] = ProviderTotal.format(cur.add(costUsd, today, month))
         }
     }
 
@@ -212,5 +240,9 @@ class CostTracker(private val project: Project) {
         ): Double =
             if (reportedUsd > 0.0) reportedUsd
             else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+
+        fun addKnowledge(m: MutableMap<KnowledgeBucket, Double>, b: KnowledgeBucket, usd: Double) {
+            m.merge(b, usd) { a, v -> a + v }
+        }
     }
 }

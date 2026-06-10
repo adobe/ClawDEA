@@ -57,4 +57,10 @@ data class CostSnapshot(
      * resumed history, where the model reflects a past choice, not today's default.
      */
     val defaultResolvedModel: String? = null,
+    /** Live subscription usage (enterprise spend or pro windows); UNAVAILABLE until polled. */
+    val usage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE,
+    /** Per-provider cumulative totals for the current provider, or null for none. */
+    val providerTotal: ProviderTotal? = null,
+    /** Knowledge-upkeep sub-totals for this chat, keyed by bucket. */
+    val knowledgeUsd: Map<KnowledgeBucket, Double> = emptyMap(),
 )
