@@ -596,6 +596,30 @@ class MessageRendererTest {
     }
 
     @Test
+    fun `renderToolUseEvent Live for generic tool renders expanded with toggle handler`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_L5b",
+            mode = ToolMode.Live(autoAcceptEdits = false),
+        )
+        assertTrue("live block should start expanded", html.contains("tool-block expanded"))
+        assertTrue("header should dispatch toggle action", html.contains("""data-action="toggle-tool-block""""))
+    }
+
+    @Test
+    fun `renderToolUseEvent Replay for generic tool renders collapsed`() {
+        val html = renderer.renderToolUseEvent(
+            toolName = "Bash",
+            input = """{"command":"ls"}""",
+            toolUseId = "toolu_L5c",
+            mode = ToolMode.Replay(resultContent = "files...", isError = false),
+        )
+        assertTrue(html.contains("tool-block"))
+        assertFalse("replayed block should be collapsed (no expanded class)", html.contains("tool-block expanded"))
+    }
+
+    @Test
     fun `renderToolUseEvent Live for Read renders file link`() {
         val html = renderer.renderToolUseEvent(
             toolName = "Read",

@@ -86,6 +86,12 @@ class ChatHtmlTemplate {
                 case 'turn-pause': bridgeTurnControl('pause'); break;
                 case 'turn-stop': bridgeTurnControl('stop'); break;
                 case 'toggle-tool-body': toggleToolBody(el); break;
+                case 'toggle-tool-block':
+                    // Header is also the stop-button container; ignore the
+                    // toggle when the click landed on the stop button itself.
+                    if (e.target.closest('.tool-stop-btn')) break;
+                    toggleToolBlock(el);
+                    break;
                 case 'toggle-subagent': toggleSubAgent(el); break;
                 case 'toggle-subagent-step': toggleSubAgentStep(el); break;
                 case 'open-file': bridgeOpenFile(el.getAttribute('data-file-path') || ''); break;

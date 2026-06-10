@@ -132,7 +132,10 @@ class MessageRenderer(
             is ToolMode.Live -> toolUseId
             is ToolMode.Replay -> ""
         }
-        return renderToolUse(toolName, input, effectiveId, extraInnerHtml = extra)
+        // Live cards stream input/output and stay expanded until ToolResult
+        // collapses them; replayed cards are settled, so render collapsed.
+        val expanded = mode is ToolMode.Live
+        return renderToolUse(toolName, input, effectiveId, extraInnerHtml = extra, expanded = expanded)
     }
 
     /**
@@ -301,6 +304,7 @@ class MessageRenderer(
         input: String,
         toolUseId: String = "",
         extraInnerHtml: String = "",
+        expanded: Boolean = true,
     ): String {
         val parsed = parseToolInput(toolName, input)
         val icon = when {
@@ -324,9 +328,10 @@ class MessageRenderer(
         val stopHtml = if (toolUseId.isNotEmpty()) {
             """<span class="tool-stop-btn" data-action="stop-tool">${"■"}</span>"""
         } else ""
+        val expandedClass = if (expanded) " expanded" else ""
         return """
-            <div class="tool-block" data-tool-id="$safeId">
-                <div class="tool-header">
+            <div class="tool-block$expandedClass" data-tool-id="$safeId">
+                <div class="tool-header" data-action="toggle-tool-block">
                     <span class="tool-icon">$icon</span>
                     <span class="tool-name">$title</span>
                     $stopHtml

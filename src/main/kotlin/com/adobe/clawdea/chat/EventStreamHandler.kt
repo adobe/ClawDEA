@@ -208,12 +208,23 @@ class EventStreamHandler(
                         // operate correctly on the nested link.
                         val isEditOrPropose = EditReviewCoordinator.isProposeTool(toolUse.name) ||
                             EditReviewCoordinator.isEditTool(toolUse.name)
+                        val isReadWithPath = toolUse.name == "Read" &&
+                            MessageRenderer.extractJsonString(toolUse.input, "file_path") != null
                         val stepHtml = if (isEditOrPropose) {
                             val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
                             val file = java.io.File(filePath)
                             val originalContent = if (file.exists()) file.readText() else ""
                             val proposedContent = EditReviewCoordinator.buildProposedContent(originalContent, toolUse.name, toolUse.input)
                             editReviewCoordinator.captureFileContent(toolUse.id, filePath, originalContent, proposedContent)
+                            renderer.renderToolUseEvent(
+                                toolName = toolUse.name,
+                                input = toolUse.input,
+                                toolUseId = toolUse.id,
+                                mode = ToolMode.Live(autoAcceptEdits = renderer.autoAcceptEdits),
+                            )
+                        } else if (isReadWithPath) {
+                            // Match main-chat behavior: compact filename link, not
+                            // a step row showing the full path.
                             renderer.renderToolUseEvent(
                                 toolName = toolUse.name,
                                 input = toolUse.input,
@@ -390,6 +401,9 @@ class EventStreamHandler(
                         renderer.renderToolResult(event.content, autoAllowed),
                     )
                 }
+                // Auto-collapse the generic tool block on completion, mirroring
+                // sub-agent cards. No-op for edit-links, file-links, etc.
+                browserRenderer.finalizeToolBlock(event.toolUseId)
                 onContextLabelUpdate()
                 watchForToolResultStall(progressSequence)
             }
