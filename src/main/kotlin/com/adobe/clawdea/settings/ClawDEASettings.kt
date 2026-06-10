@@ -144,6 +144,11 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var profilingAutoGitignore: Boolean = true,
         var profilingAutoAnalyze: Boolean = true,
         var profilingTopN: Int = 50,
+
+        // Cost tracking
+        var dailyCostUsd: Double = 0.0,
+        var dailyCostDate: String = "",
+        var dailyBudgetUsd: Double = 0.0,
     )
 
     private var state = State()
