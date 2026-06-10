@@ -15,6 +15,41 @@ import com.google.gson.JsonParser
 import java.time.Instant
 
 object OAuthUsageClient {
+    private const val USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+
+    /**
+     * Fetch + parse live usage. Returns UNAVAILABLE on no-token / non-200 / IO error.
+     * Must be called off-EDT. Read-only; reuses SubscriptionModelProbe's token source.
+     * The token is used only as a Bearer header — never logged or persisted.
+     */
+    fun fetch(
+        tokenSource: () -> String? = {
+            com.adobe.clawdea.gateway.SubscriptionModelProbe.defaultTokenSource(
+                com.adobe.clawdea.gateway.SubscriptionModelProbe.defaultCredentialsFile(),
+            )
+        },
+        timeoutMs: Int = 5000,
+    ): SubscriptionUsage {
+        val token = tokenSource() ?: return SubscriptionUsage.UNAVAILABLE
+        return try {
+            val conn = java.net.URI(USAGE_URL).toURL().openConnection() as java.net.HttpURLConnection
+            try {
+                conn.requestMethod = "GET"
+                conn.connectTimeout = timeoutMs
+                conn.readTimeout = timeoutMs
+                conn.setRequestProperty("Authorization", "Bearer $token")
+                conn.setRequestProperty("anthropic-beta", "oauth-2025-04-20")
+                conn.setRequestProperty("Accept", "application/json")
+                if (conn.responseCode != 200) return SubscriptionUsage.UNAVAILABLE
+                parse(conn.inputStream.bufferedReader().use { it.readText() })
+            } finally {
+                conn.disconnect()
+            }
+        } catch (_: Throwable) {
+            SubscriptionUsage.UNAVAILABLE
+        }
+    }
+
     /** Parse an oauth/usage JSON body. Returns UNAVAILABLE on any malformed/empty input. */
     fun parse(json: String): SubscriptionUsage {
         return try {

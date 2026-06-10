@@ -73,7 +73,7 @@ class SubscriptionModelProbe(
         internal fun defaultCredentialsFile(): File =
             File(System.getProperty("user.home"), "$CLAUDE_DIR/.credentials.json")
 
-        private fun defaultTokenSource(file: File): String? {
+        internal fun defaultTokenSource(file: File): String? {
             readAccessToken(file)?.let { return it }
             if (!isMac()) return null
             val account = System.getProperty("user.name").orEmpty()
