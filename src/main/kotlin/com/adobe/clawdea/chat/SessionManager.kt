@@ -81,7 +81,15 @@ class SessionManager(
             browserRenderer.appendHtml(html)
         }
 
-        CostTracker.getInstance(project).seedFromResume(sessionId)
+        val resumeCost = CostTracker.getInstance(project).seedFromResume(sessionId)
+        if (resumeCost.totalUsd > 0) {
+            // Mirror the live per-turn footer so a resumed session shows its
+            // accumulated cost at the bottom of the chat, just like a live turn.
+            // No elapsed time — this is reconstructed from history, not a live turn.
+            browserRenderer.appendHtml(
+                renderer.renderCostInfo(resumeCost.lastModel, null, resumeCost.totalUsd, 0),
+            )
+        }
         bridge.stop()
         scope.launch {
             try {
