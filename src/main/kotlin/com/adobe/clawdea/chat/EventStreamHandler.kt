@@ -414,7 +414,15 @@ class EventStreamHandler(
                         renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
                     )
                 }
-                costTracker.recordTurn(currentModel, event.costUsd, event.contextTokens)
+                costTracker.recordTurn(
+                    currentModel,
+                    event.costUsd,
+                    event.contextTokens,
+                    event.inputTokens,
+                    event.outputTokens,
+                    event.cacheReadTokens,
+                    event.cacheCreationTokens,
+                )
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()

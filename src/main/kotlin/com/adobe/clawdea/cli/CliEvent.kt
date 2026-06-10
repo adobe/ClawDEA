@@ -62,6 +62,11 @@ sealed class CliEvent {
          * which would otherwise be measured against the 200K Sonnet/Opus default.
          */
         val contextWindow: Int = 0,
+        // Per-turn token breakdown from the result `usage` object. Used to compute a notional cost when total_cost_usd is 0 (subscription/bedrock flat-rate plans).
+        val inputTokens: Int = 0,
+        val outputTokens: Int = 0,
+        val cacheReadTokens: Int = 0,
+        val cacheCreationTokens: Int = 0,
     ) : CliEvent()
 
     data class Unknown(

@@ -36,11 +36,20 @@ class CostTracker(private val project: Project) {
     private var window: SubscriptionWindow? = null
 
     @Synchronized
-    fun recordTurn(model: String, costUsd: Double, @Suppress("UNUSED_PARAMETER") contextTokens: Int) {
-        if (costUsd > 0) {
-            sessionUsd += costUsd
-            if (model.isNotBlank()) perModelUsd.merge(model, costUsd) { a, b -> a + b }
-            addToDaily(costUsd)
+    fun recordTurn(
+        model: String,
+        costUsd: Double,
+        @Suppress("UNUSED_PARAMETER") contextTokens: Int,
+        inputTokens: Int = 0,
+        outputTokens: Int = 0,
+        cacheReadTokens: Int = 0,
+        cacheCreationTokens: Int = 0,
+    ) {
+        val effective = effectiveTurnCost(model, costUsd, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+        if (effective > 0) {
+            sessionUsd += effective
+            if (model.isNotBlank()) perModelUsd.merge(model, effective) { a, b -> a + b }
+            addToDaily(effective)
         }
         publish()
     }
@@ -136,5 +145,21 @@ class CostTracker(private val project: Project) {
                 else -> CostBand.GREEN
             }
         }
+
+        /**
+         * Effective per-turn cost: the real total_cost_usd when the plan reports one,
+         * else a notional cost computed from token usage (subscription/bedrock are
+         * flat-rate and report 0). Keeps the chip moving on every plan.
+         */
+        fun effectiveTurnCost(
+            model: String,
+            reportedUsd: Double,
+            inputTokens: Int,
+            outputTokens: Int,
+            cacheReadTokens: Int,
+            cacheCreationTokens: Int,
+        ): Double =
+            if (reportedUsd > 0.0) reportedUsd
+            else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
     }
 }

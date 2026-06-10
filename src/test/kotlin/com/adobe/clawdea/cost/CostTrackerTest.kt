@@ -32,4 +32,15 @@ class CostTrackerTest {
         assertEquals(3.0, CostTracker.rolledDaily(storedDate = "2026-06-10", storedUsd = 2.0, today = "2026-06-10", add = 1.0), 0.0)
         assertEquals(1.0, CostTracker.rolledDaily(storedDate = "2026-06-09", storedUsd = 2.0, today = "2026-06-10", add = 1.0), 0.0)
     }
+
+    @Test
+    fun `effectiveTurnCost prefers reported cost when present`() {
+        assertEquals(0.42, CostTracker.effectiveTurnCost("claude-opus-4-8", 0.42, 1000, 1000, 0, 0), 1e-9)
+    }
+
+    @Test
+    fun `effectiveTurnCost computes from tokens when reported is zero`() {
+        // opus output $25/M: 1,000,000 output = 25.0
+        assertEquals(25.0, CostTracker.effectiveTurnCost("claude-opus-4-8", 0.0, 0, 1_000_000, 0, 0), 1e-6)
+    }
 }

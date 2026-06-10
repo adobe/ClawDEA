@@ -237,4 +237,14 @@ class CliEventParserTest {
         assertEquals("Edit", msg.toolUses[0].name)
     }
 
+    @Test
+    fun `parses per-turn token breakdown from result usage`() {
+        val json = """{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0,"session_id":"s","usage":{"input_tokens":10,"cache_creation_input_tokens":20,"cache_read_input_tokens":30,"output_tokens":40}}"""
+        val event = parser.parse(json) as CliEvent.Result
+        assertEquals(10, event.inputTokens)
+        assertEquals(40, event.outputTokens)
+        assertEquals(30, event.cacheReadTokens)
+        assertEquals(20, event.cacheCreationTokens)
+    }
+
 }

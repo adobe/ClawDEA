@@ -141,13 +141,29 @@ class CliEventParser {
         val costUsd = extractNumber(json, "\"total_cost_usd\"")
         val sessionId = extractString(json, "\"session_id\"") ?: ""
         val usageStart = json.indexOf("\"usage\"")
-        val contextTokens = if (usageStart != -1) {
+        val contextTokens: Int
+        val inputTokens: Int
+        val outputTokens: Int
+        val cacheReadTokens: Int
+        val cacheCreationTokens: Int
+        if (usageStart != -1) {
             val usageBlock = json.substring(usageStart)
             val input = extractNumber(usageBlock, "\"input_tokens\"").toInt()
             val cacheRead = extractNumber(usageBlock, "\"cache_read_input_tokens\"").toInt()
             val cacheCreate = extractNumber(usageBlock, "\"cache_creation_input_tokens\"").toInt()
-            input + cacheRead + cacheCreate
-        } else 0
+            val output = extractNumber(usageBlock, "\"output_tokens\"").toInt()
+            contextTokens = input + cacheRead + cacheCreate
+            inputTokens = input
+            outputTokens = output
+            cacheReadTokens = cacheRead
+            cacheCreationTokens = cacheCreate
+        } else {
+            contextTokens = 0
+            inputTokens = 0
+            outputTokens = 0
+            cacheReadTokens = 0
+            cacheCreationTokens = 0
+        }
         // contextWindow lives inside modelUsage.<model>.contextWindow. Search after
         // the modelUsage marker so we don't accidentally read a numeric field with
         // that name from elsewhere; if absent, the caller falls back to a default.
@@ -158,7 +174,7 @@ class CliEventParser {
         if (isError && looksLikeAuthFailure(text)) {
             return CliEvent.AuthFailure(text)
         }
-        return CliEvent.Result(text, isError, costUsd, sessionId, contextTokens, contextWindow)
+        return CliEvent.Result(text, isError, costUsd, sessionId, contextTokens, contextWindow, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
     }
 
     private fun looksLikeAuthFailure(text: String): Boolean {
