@@ -48,6 +48,7 @@ class ChatSession(
         }
         panel.suggestSeedWikiIfMissing()
         ModelSelectorProbeStarter.probeIfApplicable(project)
+        com.adobe.clawdea.cost.OAuthUsagePoller(project, this)
     }
 
     override fun dispose() {}
