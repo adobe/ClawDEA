@@ -58,6 +58,7 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
+    /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateWindow(w: SubscriptionWindow?) {
         window = w
         publish()
@@ -79,18 +80,24 @@ class CostTracker(private val project: Project) {
 
     private fun addToDaily(costUsd: Double) {
         val today = LocalDate.now().toString()
-        settings.state.dailyCostUsd =
-            rolledDaily(settings.state.dailyCostDate, settings.state.dailyCostUsd, today, costUsd)
-        settings.state.dailyCostDate = today
+        // Daily total lives on the application-level ClawDEASettings; serialize the
+        // read-modify-write on the shared instance so concurrent projects don't lose updates.
+        synchronized(settings) {
+            settings.state.dailyCostUsd =
+                rolledDaily(settings.state.dailyCostDate, settings.state.dailyCostUsd, today, costUsd)
+            settings.state.dailyCostDate = today
+        }
     }
 
-    private fun currentDailyUsd(): Double {
+    private fun currentDailyUsd(): Double = synchronized(settings) {
         val today = LocalDate.now().toString()
-        return if (settings.state.dailyCostDate == today) settings.state.dailyCostUsd else 0.0
+        if (settings.state.dailyCostDate == today) settings.state.dailyCostUsd else 0.0
     }
 
     private fun publish() {
         if (project.isDisposed) return
+        // Listeners are invoked synchronously while the instance lock is held; they must
+        // update UI quickly and must not call back into CostTracker or block.
         project.messageBus.syncPublisher(CostSnapshotListener.TOPIC).onCostUpdated(snapshot())
     }
 
