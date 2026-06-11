@@ -198,9 +198,15 @@ class CliProcess(
             command.addAll(sanitizeCliExtraArgs(tokenizeArgs(settings.cliExtraArgs)))
         }
 
-        log.info("Starting CLI process: ${command.joinToString(" ")}")
+        // On Windows the resolved entry point is `claude.cmd`, which ProcessBuilder runs through
+        // cmd.exe (8191-char command-line cap). The inline `--agents` JSON blows past that with
+        // "The command line is too long.", so launch node + cli.js directly (CreateProcess, 32767).
+        // No-op on non-Windows and when the shim can't be parsed. Regression: NodeDirectLaunchTest.
+        val launchCommand = rewriteWindowsCmdToNodeLaunch(command)
 
-        val pb = ProcessBuilder(command)
+        log.info("Starting CLI process: ${launchCommand.joinToString(" ")}")
+
+        val pb = ProcessBuilder(launchCommand)
             .directory(java.io.File(workingDirectory))
             .redirectErrorStream(false)
 
@@ -660,4 +666,69 @@ internal fun findClaudeOnWindowsPath(
         }
     }
     return null
+}
+
+/**
+ * Recover `[node, <abs cli.js>]` from a Windows npm `.cmd`/`.bat` shim so we can launch the CLI
+ * through `node.exe` directly instead of via `cmd.exe`.
+ *
+ * Why: a `.cmd` shim is a batch file, so Java's ProcessBuilder routes it through cmd.exe, whose
+ * command line is capped at 8191 chars. ClawDEA's `--agents` JSON (the wiki subagents) pushes the
+ * line past that cap and the CLI dies with "The command line is too long." A native `node.exe`
+ * launch goes through CreateProcess (32767-char limit) and clears it.
+ *
+ * Parsing mirrors npm's own `read-cmd-shim`: the exec line is `… "%dp0%\<target>" %*` (modern
+ * cmd-shim) or `"%~dp0\<target>" %*` (legacy corepack style). We only redirect when the target is a
+ * `.js` file. [shimDir] is the directory the shim lives in (its `%~dp0`); the returned cli.js path
+ * is resolved against it. The node executable is `<shimDir>\node.exe` when [nodeExeExists] reports
+ * it bundled (the npm layout), else bare `"node"` (resolved from PATH by node's own launcher).
+ * Returns null when the text is not a recognizable JS shim, so callers fall back to the `.cmd`.
+ */
+internal fun nodeDirectLaunchPrefix(
+    shimDir: String,
+    shimText: String,
+    nodeExeExists: (String) -> Boolean = { java.io.File(it).isFile },
+): List<String>? {
+    // Matches both `"%dp0%\target" %*` and `"%~dp0\target" %*`; captures the relative target.
+    val target = Regex(""""%(?:~dp0|dp0%)\\([^"]+?)"\s+%\*""")
+        .find(shimText)?.groupValues?.get(1)
+        ?: return null
+    if (!target.endsWith(".js", ignoreCase = true)) return null
+
+    val cleanDir = shimDir.trimEnd('\\')
+    val cliJs = "$cleanDir\\$target"
+    val nodeExe = "$cleanDir\\node.exe"
+    val node = if (nodeExeExists(nodeExe)) nodeExe else "node"
+    return listOf(node, cliJs)
+}
+
+/**
+ * If [command] launches a Windows `.cmd`/`.bat` claude shim, rewrite it to `[node, cli.js, …args]`
+ * so the spawn bypasses cmd.exe's 8191-char command-line limit (see [nodeDirectLaunchPrefix]). Any
+ * failure — not Windows, argv0 not a shim, unparseable shim, read error — returns [command]
+ * unchanged so behavior degrades to the existing (cmd.exe) launch rather than breaking. [readShim]
+ * and [nodeExeExists] are injected for testing.
+ */
+internal fun rewriteWindowsCmdToNodeLaunch(
+    command: List<String>,
+    isWindows: Boolean = isWindows(),
+    readShim: (String) -> String = { java.io.File(it).readText() },
+    nodeExeExists: (String) -> Boolean = { java.io.File(it).isFile },
+): List<String> {
+    if (!isWindows || command.isEmpty()) return command
+    val argv0 = command[0]
+    if (!argv0.endsWith(".cmd", ignoreCase = true) && !argv0.endsWith(".bat", ignoreCase = true)) {
+        return command
+    }
+    // Extract the parent by backslash explicitly — java.io.File.parent keys off the host
+    // separator, so on a non-Windows test host it would not split a `C:\…\claude.cmd` path.
+    val shimDir = argv0.substringBeforeLast('\\', "").ifEmpty { return command }
+    val prefix = try {
+        nodeDirectLaunchPrefix(shimDir, readShim(argv0), nodeExeExists)
+    } catch (e: Throwable) {
+        resolveLog.info("Could not read claude shim '$argv0' for node-direct launch; using cmd.exe: ${e.message}")
+        null
+    } ?: return command
+    resolveLog.info("Windows: launching claude via node directly to bypass cmd.exe arg limit: ${prefix.joinToString(" ")}")
+    return prefix + command.drop(1)
 }
