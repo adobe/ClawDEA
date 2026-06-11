@@ -115,6 +115,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.8.1</h3>
+<h4>Windows: chat starts reliably again</h4>
+<ul>
+  <li><b>Fixed: &ldquo;The command line is too long&rdquo; on Windows.</b> With the wiki librarian enabled, the chat could fail to start on Windows &mdash; the helper subagents were passed to the Claude CLI as a long inline argument that exceeded the Windows command-line limit. ClawDEA now launches the CLI in a way that isn&rsquo;t bound by that limit, so chat starts normally. macOS and Linux were unaffected.</li>
+</ul>
+
 <h3>1.8.0</h3>
 <h4>See &mdash; and control &mdash; what each turn costs</h4>
 <ul>
