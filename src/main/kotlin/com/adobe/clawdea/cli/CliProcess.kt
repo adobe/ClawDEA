@@ -625,5 +625,39 @@ fun resolveClaudeCliPath(configured: String): String {
             return candidate
         }
     }
+    // Windows: none of the well-known install dirs matched (e.g. fnm / nvm-for-windows
+    // / a custom prefix). ProcessBuilder on Windows does NOT replicate cmd.exe's
+    // PATH+PATHEXT search, so spawning the bare name "claude" fails with
+    // CreateProcess error=2 even when claude.cmd is on PATH. Resolve it ourselves to a
+    // fully-qualified, launchable shim before falling back.
+    if (isWindows()) {
+        findClaudeOnWindowsPath(System.getenv("PATH").orEmpty(), System.getenv("PATHEXT").orEmpty())
+            ?.let {
+                resolveLog.info("Resolved claude CLI on PATH: $it")
+                return it
+            }
+    }
     return "claude"
+}
+
+/**
+ * Replicate cmd.exe's PATH + PATHEXT lookup for `claude`, returning the first launchable
+ * fully-qualified shim (e.g. `…\claude.CMD`) or null if none is on PATH. ProcessBuilder can launch
+ * such a path directly via CreateProcess; a bare "claude" it cannot. [pathExt] falls back to a
+ * standard default when blank so the search is never disabled. [exists] is injected for testing.
+ */
+internal fun findClaudeOnWindowsPath(
+    path: String,
+    pathExt: String,
+    exists: (String) -> Boolean = { java.io.File(it).isFile },
+): String? {
+    val exts = pathExt.split(';').map { it.trim() }.filter { it.isNotEmpty() }
+        .ifEmpty { listOf(".COM", ".EXE", ".BAT", ".CMD") }
+    for (dir in path.split(';').map { it.trim() }.filter { it.isNotEmpty() }) {
+        for (ext in exts) {
+            val candidate = "$dir\\claude$ext"
+            if (exists(candidate)) return candidate
+        }
+    }
+    return null
 }

@@ -129,6 +129,12 @@ object CliEnvironment {
     }
 
     private fun captureShellEnv(envScript: String): Map<String, String> {
+        // Windows has no POSIX login shell to source, and the JVM already inherits the full
+        // user environment (the Finder/Dock PATH-stripping problem this solves is macOS-only).
+        // Running `/bin/zsh -l -c` here would always fail with CreateProcess error=2.
+        if (System.getProperty("os.name").orEmpty().lowercase().contains("windows")) {
+            return emptyMap()
+        }
         val shell = System.getenv("SHELL") ?: "/bin/zsh"
 
         // Build the command: source the shell rc file + env script, then print env.
