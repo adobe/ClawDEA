@@ -350,8 +350,11 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
         <!-- Cost Tracker -->
         <projectService
             serviceImplementation="com.adobe.clawdea.cost.CostTracker"/>
+        <!-- Subscription usage: ONE app-level poll, fanned out to every project's CostTracker. -->
+        <applicationService
+            serviceImplementation="com.adobe.clawdea.cost.OAuthUsageService"/>
         <projectService
-            serviceImplementation="com.adobe.clawdea.cost.OAuthUsagePoller"/>
+            serviceImplementation="com.adobe.clawdea.cost.OAuthUsageProjectLink"/>
         <postStartupActivity
             implementation="com.adobe.clawdea.cost.OAuthUsagePollerStartupActivity"/>
 
