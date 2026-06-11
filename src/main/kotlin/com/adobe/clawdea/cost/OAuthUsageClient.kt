@@ -12,9 +12,11 @@
 package com.adobe.clawdea.cost
 
 import com.google.gson.JsonParser
+import com.intellij.openapi.diagnostic.logger
 import java.time.Instant
 
 object OAuthUsageClient {
+    private val log = logger<OAuthUsageClient>()
     private const val USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 
     /**
@@ -42,7 +44,13 @@ object OAuthUsageClient {
         },
         timeoutMs: Int = 5000,
     ): SubscriptionUsage {
-        val token = tokenSource() ?: return SubscriptionUsage.UNAVAILABLE
+        val token = tokenSource()
+        if (token == null) {
+            // No subscription token present (e.g. user is API-key / bedrock only). Expected, not
+            // an error — debug level so it never clutters the log but is there when needed.
+            log.debug("oauth/usage: no subscription token; skipping fetch")
+            return SubscriptionUsage.UNAVAILABLE
+        }
         return try {
             val conn = java.net.URI(USAGE_URL).toURL().openConnection() as java.net.HttpURLConnection
             try {
@@ -52,12 +60,18 @@ object OAuthUsageClient {
                 conn.setRequestProperty("Authorization", "Bearer $token")
                 conn.setRequestProperty("anthropic-beta", "oauth-2025-04-20")
                 conn.setRequestProperty("Accept", "application/json")
-                if (conn.responseCode != 200) return SubscriptionUsage.UNAVAILABLE
+                val code = conn.responseCode
+                if (code != 200) {
+                    log.info("oauth/usage: HTTP $code; reporting unavailable")
+                    return SubscriptionUsage.UNAVAILABLE
+                }
                 parse(conn.inputStream.bufferedReader().use { it.readText() })
             } finally {
                 conn.disconnect()
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            // Token never logged; only the failure class/message (e.g. SocketTimeoutException).
+            log.info("oauth/usage: ${t.javaClass.simpleName}: ${t.message}")
             SubscriptionUsage.UNAVAILABLE
         }
     }

@@ -14,9 +14,12 @@ package com.adobe.clawdea.cost
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 
-/** Starts the single per-project oauth/usage poller on project open. */
+/**
+ * On project open, subscribes this project's CostTracker to the single application-level
+ * oauth/usage poll (and starts that poll, idempotently). See [OAuthUsageProjectLink].
+ */
 class OAuthUsagePollerStartupActivity : ProjectActivity {
     override suspend fun execute(project: Project) {
-        OAuthUsagePoller.getInstance(project).start()
+        OAuthUsageProjectLink.getInstance(project).connect()
     }
 }
