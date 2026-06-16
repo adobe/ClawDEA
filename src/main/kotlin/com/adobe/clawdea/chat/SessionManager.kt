@@ -92,6 +92,11 @@ class SessionManager(
                 renderer.renderCostInfo(resumeCost.lastModel, null, resumeCost.totalUsd, 0),
             )
         }
+        val savingsReco = com.adobe.clawdea.cost.TranscriptSavingsReader.reconstructFile(
+            com.adobe.clawdea.cost.TranscriptCostReader.sessionTranscriptFile(basePath, sessionId),
+        )
+        com.adobe.clawdea.cost.SavingsTracker.getInstance(project)
+            .seedFromResume(chatId, savingsReco.band, savingsReco.turns)
         bridge.stop()
         scope.launch {
             try {
