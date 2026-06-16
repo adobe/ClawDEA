@@ -115,6 +115,15 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.9.0</h3>
+<h4>See whether ClawDEA is saving you money</h4>
+<ul>
+  <li><b>Estimated Savings / Cost in the Cost Control panel.</b> A new section estimates the net dollar effect of ClawDEA&rsquo;s knowledge layer and IDE integration versus a standard Claude Code setup &mdash; the wiki librarian keeping exploration out of the main context, the IDE index replacing file reads &mdash; netted against what the layer costs to run (wiki/workspace upkeep and the per-turn primer). It shows this chat, this month, and all-time, each with a confidence range.</li>
+  <li><b>Honest by design.</b> The estimate is a directional comparison against a baseline we don&rsquo;t actually run, and it can go negative: a short, one-shot session may cost more than it saves, and the panel says so &mdash; the section title flips to &ldquo;ClawDEA Estimated Cost&rdquo; when the all-time net is negative. Estimated lines carry a &plusmn; range; measured costs do not.</li>
+  <li><b>Refines on resume.</b> Live sessions show a conservative floor (per-subagent costs aren&rsquo;t observable mid-stream); reopening a conversation reconstructs the full session from its transcript for a sharper estimate.</li>
+  <li><b>Knowledge upkeep moved.</b> The standalone &ldquo;Knowledge upkeep&rdquo; card is now a line inside the new section, so its cost is netted in one place instead of shown separately.</li>
+</ul>
+
 <h3>1.8.1</h3>
 <h4>Windows: chat starts reliably again</h4>
 <ul>
