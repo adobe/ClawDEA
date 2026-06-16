@@ -107,13 +107,9 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         })
         root.add(gap())
 
-        // (3) Knowledge-upkeep card — GLOBAL across all projects/chats, so it stands alone.
-        root.add(card("Knowledge upkeep") { body ->
-            body.add(mutedLabel("Wiki & workspace maintenance, all projects"))
-            for (bucket in KnowledgeBucket.entries) {
-                body.add(kvRow(bucketLabel(bucket), money2(s.knowledgeUsd[bucket] ?: 0.0)))
-            }
-        })
+        // (3) ClawDEA Estimated Savings / Cost — sign-driven section. Absorbs knowledge upkeep
+        // as a cost line so users never double-subtract it from a separate figure.
+        root.add(savingsCard(s))
         root.add(gap())
 
         // (4) Daily-budget footer card.
@@ -162,6 +158,67 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         "anthropic" -> "Anthropic API"
         "vertex" -> "Vertex AI"
         else -> providerId.replaceFirstChar { it.uppercase() }
+    }
+
+    // ---- savings card --------------------------------------------------------------------------
+
+    private fun money2signed(v: Double): String {
+        val sign = if (v >= 0) "+" else "−"
+        return sign + "$" + String.format(Locale.US, "%.2f", kotlin.math.abs(v))
+    }
+
+    private fun rangeText(b: com.adobe.clawdea.cost.SavingsBand): String =
+        "${money2signed(b.low)} … ${money2signed(b.high)}"
+
+    private fun leverLabel(id: com.adobe.clawdea.cost.LeverId) = when (id) {
+        com.adobe.clawdea.cost.LeverId.LIBRARIAN -> "Librarian routing"
+        com.adobe.clawdea.cost.LeverId.INDEX_TOOLS -> "IDE index tools"
+        com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP -> "Knowledge upkeep"
+        com.adobe.clawdea.cost.LeverId.PRIMER_OVERHEAD -> "Primer overhead"
+    }
+
+    private fun savingsCard(costSnap: CostSnapshot): JComponent {
+        val tracker = com.adobe.clawdea.cost.SavingsTracker.getInstance(project)
+        val snap = tracker.snapshot(chatId)
+        // Fold measured knowledge-upkeep dollars (from the existing CostSnapshot) into the
+        // displayed cost breakdown so it lives inside this one section, never a separate card.
+        val upkeep = costSnap.knowledgeUsd.values.sum()
+        val title = if (snap.isNetSaving) "ClawDEA Estimated Savings" else "ClawDEA Estimated Cost"
+        return card(title) { body ->
+            if (snap.isCollecting) {
+                body.add(mutedLabel("Collecting… run a few turns to see an estimate."))
+                return@card
+            }
+            // Scope rows.
+            body.add(kvRow("This chat", money2signed(snap.sessionBand.expected), bold = true))
+            body.add(mutedLabel("  " + rangeText(snap.sessionBand)))
+            body.add(kvRow("This month", money2signed(snap.cumulative.mtd.expected)))
+            body.add(kvRow("All time", money2signed(snap.cumulative.allTime.expected)))
+            body.add(mutedLabel("  since ${snap.cumulative.sinceDate.ifBlank { "—" }}"))
+
+            body.add(sectionLabel("Saved (this chat)"))
+            for (c in snap.components.filter { !it.measured }) {
+                val pm = String.format(Locale.US, "%.2f", (c.band.high - c.band.low) / 2.0)
+                body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected) + "  (±$pm)"))
+            }
+            body.add(sectionLabel("Cost (this chat)"))
+            for (c in snap.components.filter { it.measured && it.leverId != com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP }) {
+                body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected)))
+            }
+            // Knowledge upkeep (global, measured) shown explicitly as a single cost line.
+            body.add(kvRow("  Knowledge upkeep", money2signed(-upkeep)))
+
+            val conf = com.adobe.clawdea.cost.SavingsEstimator.confidence(snap.sessionBand)
+            val confLabel = if (conf == com.adobe.clawdea.cost.Confidence.ESTIMATE) "estimate" else "rough estimate"
+            body.add(kvRow("Net (expected)", money2signed(snap.sessionBand.expected) + " · $confLabel", bold = true))
+
+            val reset = JButton("Reset all-time").apply {
+                isOpaque = false
+                addActionListener { tracker.resetCumulative(); isEnabled = false; text = "Reset ✓" }
+            }
+            body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
+            body.add(mutedLabel("Estimated vs standard Claude Code; directional, not exact."))
+        }
     }
 
     // ---- budget card ---------------------------------------------------------------------------
@@ -284,13 +341,6 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         val name = parts.first().replaceFirstChar { it.uppercase() }
         val ver = parts.drop(1).joinToString(".")
         return if (ver.isBlank()) name else "$name $ver"
-    }
-
-    private fun bucketLabel(b: KnowledgeBucket) = when (b) {
-        KnowledgeBucket.WIKI_CREATE -> "Wiki · create"
-        KnowledgeBucket.WIKI_UPDATE -> "Wiki · update"
-        KnowledgeBucket.WORKSPACE_CREATE -> "Workspace · create"
-        KnowledgeBucket.WORKSPACE_UPDATE -> "Workspace · update"
     }
 
     /** Rounded, slightly-raised card background that adapts to the IDE theme. */
