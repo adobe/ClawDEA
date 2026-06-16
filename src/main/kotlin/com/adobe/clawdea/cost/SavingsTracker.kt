@@ -38,10 +38,11 @@ class SavingsTracker(private val project: Project) {
 
     @Synchronized
     fun recordTurn(chatId: String, obs: TurnObservation) {
-        val net = SavingsEstimator.aggregate(obs)
+        val comps = SavingsEstimator.components(obs)
+        val net = comps.fold(SavingsBand.ZERO) { acc, c -> acc + c.band }
         val c = chat(chatId)
         c.band += net
-        c.lastComponents = SavingsEstimator.components(obs)
+        c.lastComponents = comps
         c.turnCount += 1
         accrueCumulative(net)
         publish()
@@ -53,7 +54,7 @@ class SavingsTracker(private val project: Project) {
         publish()
     }
 
-    /** Reset session then add a reconstructed band from a resumed transcript (turn count seeded). */
+    /** Replace the session with a fresh chat seeded from a resumed transcript's reconstructed band. */
     @Synchronized
     fun seedFromResume(chatId: String, reconstructed: SavingsBand, turns: Int) {
         val c = ChatSavings()
