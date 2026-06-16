@@ -229,4 +229,18 @@ class SavingsEstimatorTest {
         val sum = SavingsEstimator.components(obs).sumOf { it.band.expected }
         assertEquals(sum, SavingsEstimator.aggregate(obs).expected, 1e-9)
     }
+
+    @Test
+    fun `snapshot exposes session band, cumulative, and components`() {
+        val snap = SavingsSnapshot(
+            sessionBand = SavingsBand(0.1, 0.2, 0.3),
+            cumulative = SavingsTotal.empty(),
+            components = listOf(SavingsComponent(LeverId.PRIMER_OVERHEAD, SavingsBand.exact(-0.02), true)),
+            turnCount = 5,
+        )
+        assertEquals(0.2, snap.sessionBand.expected, 1e-9)
+        assertEquals(1, snap.components.size)
+        assertEquals(5, snap.turnCount)
+        assertEquals(true, snap.isNetSaving)
+    }
 }

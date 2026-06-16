@@ -70,3 +70,21 @@ data class SavingsComponent(val leverId: LeverId, val band: SavingsBand, val mea
 
 /** Confidence label shown next to a net figure. */
 enum class Confidence { ESTIMATE, ROUGH }
+
+/**
+ * Immutable savings view for one chat tab. [sessionBand] is this chat's running net; [cumulative]
+ * is the persisted MTD/all-time; [components] is the per-lever breakdown for this chat; [turnCount]
+ * gates the "collecting…" state. [isNetSaving] drives the section title (savings vs cost) off the
+ * all-time expected net — the long-term verdict.
+ */
+data class SavingsSnapshot(
+    val sessionBand: SavingsBand,
+    val cumulative: SavingsTotal,
+    val components: List<SavingsComponent>,
+    val turnCount: Int,
+) {
+    val isNetSaving: Boolean get() = cumulative.allTime.expected >= 0.0
+
+    /** Too little data to show a number yet. */
+    val isCollecting: Boolean get() = turnCount < 2
+}

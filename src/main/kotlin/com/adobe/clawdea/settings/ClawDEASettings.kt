@@ -163,6 +163,12 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          * App-level so wiki/workspace upkeep reads as one bill regardless of which project ran it.
          */
         var knowledgeUsd: MutableMap<String, Double> = mutableMapOf(),
+        /**
+         * Persisted cumulative ClawDEA savings estimate (signed; positive = saving). Single
+         * global entry under key "global". Packed via SavingsTotal.format / parse. App-level so
+         * the all-time verdict persists across projects, like knowledgeUsd.
+         */
+        var savingsTotal: MutableMap<String, String> = mutableMapOf(),
     )
 
     private var state = State()
