@@ -90,15 +90,18 @@ class EventStreamHandler(
     ) {
         pendingKnowledgeBucket = explicitBucket
             ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
+        turnIndexToolHits.clear()
+        pendingIndexToolUses.clear()
     }
 
     /**
-     * Conservative primer-overhead proxy: the wiki TOC + REPO_STATE are a small fixed slice of the
-     * cached prefix ClawDEA ships each turn. Attribute a flat fraction of the turn's cache tokens to
-     * the primer — kept small so the cost lever never overstates the debit.
+     * Conservative primer-overhead proxy: the wiki TOC + REPO_STATE are a small, roughly FIXED slice
+     * of the cached prefix ClawDEA ships each turn. We take a flat fraction of the turn's cache tokens
+     * but cap it at [PRIMER_TOKENS_CEILING] — the primer is fixed-size, so on huge-context turns a raw
+     * percentage would overstate it. Kept conservative so the cost lever never overstates the debit.
      */
     private fun primerTokensFrom(turnCacheTokens: Int): Int =
-        (turnCacheTokens * PRIMER_CACHE_FRACTION).toInt()
+        (turnCacheTokens * PRIMER_CACHE_FRACTION).toInt().coerceAtMost(PRIMER_TOKENS_CEILING)
 
     var totalTokensUsed = 0
     // Context window for the model in use, as reported by CC's `result.modelUsage`.
@@ -659,6 +662,9 @@ class EventStreamHandler(
         internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 180_000
 
         private const val PRIMER_CACHE_FRACTION = 0.05
+
+        /** Absolute ceiling on per-turn primer tokens — the wiki TOC + REPO_STATE are a fixed payload. */
+        private const val PRIMER_TOKENS_CEILING = 4000
 
         internal fun shouldRecoverTurnStartStall(
             isStreaming: Boolean,
