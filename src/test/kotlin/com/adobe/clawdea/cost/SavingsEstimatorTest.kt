@@ -137,4 +137,19 @@ class SavingsEstimatorTest {
         val expectedWidth = (lib.high - lib.low) + (idx.high - idx.low)
         assertEquals(expectedWidth, agg.high - agg.low, 1e-9)
     }
+
+    @Test
+    fun `confidence is high when band is narrow relative to magnitude`() {
+        assertEquals(Confidence.ESTIMATE, SavingsEstimator.confidence(SavingsBand(0.98, 1.00, 1.02)))
+    }
+
+    @Test
+    fun `confidence is rough when band is wide relative to magnitude`() {
+        assertEquals(Confidence.ROUGH, SavingsEstimator.confidence(SavingsBand(-0.25, 0.5, 1.25)))
+    }
+
+    @Test
+    fun `confidence near zero magnitude is rough`() {
+        assertEquals(Confidence.ROUGH, SavingsEstimator.confidence(SavingsBand(-0.01, 0.0, 0.01)))
+    }
 }

@@ -67,3 +67,6 @@ data class TurnObservation(
 
 /** A per-lever estimate. [measured] = true → zero-variance (band low==expected==high). */
 data class SavingsComponent(val leverId: LeverId, val band: SavingsBand, val measured: Boolean)
+
+/** Confidence label shown next to a net figure. */
+enum class Confidence { ESTIMATE, ROUGH }

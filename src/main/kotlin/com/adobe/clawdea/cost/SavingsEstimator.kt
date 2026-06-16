@@ -92,4 +92,15 @@ object SavingsEstimator {
 
     /** High end of the grep counterfactual: index tool also avoids a full-tree scan pass. */
     private const val GREP_SCAN_FACTOR = 1.5
+
+    /**
+     * Confidence from band width relative to magnitude. Wide band or near-zero magnitude → ROUGH.
+     * Threshold: relative width <= 0.5 → ESTIMATE, else ROUGH.
+     */
+    fun confidence(band: SavingsBand): Confidence {
+        val mag = kotlin.math.abs(band.expected)
+        if (mag < 1e-6) return Confidence.ROUGH
+        val relWidth = (band.high - band.low) / mag
+        return if (relWidth <= 0.5) Confidence.ESTIMATE else Confidence.ROUGH
+    }
 }
