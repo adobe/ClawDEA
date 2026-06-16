@@ -48,4 +48,51 @@ class TranscriptSavingsReaderTest {
         assertEquals(4, r.turns)
         assertTrue("expected positive net, was ${r.band.expected}", r.band.expected > 0.0)
     }
+
+    @Test
+    fun `duplicate streamed result lines with same message id count as one turn`() {
+        // Claude Code rewrites the same logical message up to ~4x; same message.id must count once.
+        val dup = """{"type":"result","message":{"id":"msg_1"},"total_cost_usd":0.01}"""
+        val lines = listOf(
+            """{"type":"assistant","message":{"id":"msg_a","model":"claude-opus-4-8","usage":{"input_tokens":10}}}""",
+            dup, dup, dup,
+        )
+        assertEquals(1, TranscriptSavingsReader.countTopLevelTurns(lines))
+    }
+
+    @Test
+    fun `result lines without a message id each count once`() {
+        // Fixture-style lines with no message.id fall back to counting once each (no dedup).
+        val lines = listOf(
+            """{"type":"result","total_cost_usd":0.01}""",
+            """{"type":"result","total_cost_usd":0.01}""",
+        )
+        assertEquals(2, TranscriptSavingsReader.countTopLevelTurns(lines))
+    }
+
+    @Test
+    fun `duplicate subagent lines with same message id are not double counted`() {
+        val subDup = """{"parentToolUseId":"toolu_1","type":"assistant","message":{"id":"msg_sub","model":"claude-opus-4-8","usage":{"input_tokens":20000}}}"""
+        val linesDup = listOf(
+            """{"type":"assistant","message":{"id":"msg_top","model":"claude-opus-4-8","usage":{"input_tokens":50}}}""",
+            subDup, subDup, subDup,
+            """{"type":"result","message":{"id":"msg_r1"},"total_cost_usd":0.02}""",
+            """{"type":"assistant","message":{"id":"msg_t2","model":"claude-opus-4-8","usage":{"input_tokens":50}}}""",
+            """{"type":"result","message":{"id":"msg_r2"},"total_cost_usd":0.01}""",
+        )
+        val linesSingle = listOf(
+            """{"type":"assistant","message":{"id":"msg_top","model":"claude-opus-4-8","usage":{"input_tokens":50}}}""",
+            subDup,
+            """{"type":"result","message":{"id":"msg_r1"},"total_cost_usd":0.02}""",
+            """{"type":"assistant","message":{"id":"msg_t2","model":"claude-opus-4-8","usage":{"input_tokens":50}}}""",
+            """{"type":"result","message":{"id":"msg_r2"},"total_cost_usd":0.01}""",
+        )
+        // The triple-written subagent must yield the SAME band as the single-written one.
+        assertEquals(
+            TranscriptSavingsReader.reconstruct(linesSingle).band.expected,
+            TranscriptSavingsReader.reconstruct(linesDup).band.expected,
+            1e-9,
+        )
+        assertEquals(2, TranscriptSavingsReader.reconstruct(linesDup).turns)
+    }
 }

@@ -17,8 +17,9 @@ import java.io.File
  * Reconstructs a session's savings band from its `.jsonl` transcript for resume seeding.
  * Unlike the live path (which cannot see the future and uses a single-turn re-ride floor),
  * the full session is on disk here, so each turn's REAL remaining-turns count drives the
- * librarian re-ride multiplier — the accurate estimate. Manual line parsing + dedup mirror
- * [TranscriptCostReader].
+ * librarian re-ride multiplier — the accurate estimate. Manual line parsing and message.id
+ * dedup mirror [TranscriptCostReader] — Claude Code rewrites streamed lines, so each
+ * message.id is counted once.
  */
 object TranscriptSavingsReader {
 
@@ -33,9 +34,22 @@ object TranscriptSavingsReader {
         }
     }
 
-    /** A top-level turn ends on a `result` line. */
-    fun countTopLevelTurns(lines: List<String>): Int =
-        lines.count { it.contains("\"type\":\"result\"") }
+    /**
+     * A top-level turn ends on a `result` line. Streamed duplicate result lines sharing one
+     * `message.id` count once; result lines without a `message.id` (fixtures, system lines)
+     * each count once (per-line fallback, mirroring [TranscriptCostReader]).
+     */
+    fun countTopLevelTurns(lines: List<String>): Int {
+        val seen = HashSet<String>()
+        var count = 0
+        for (line in lines) {
+            if (!line.contains("\"type\":\"result\"")) continue
+            val id = messageId(line)
+            if (id != null && !seen.add(id)) continue // duplicate streamed result → skip
+            count++
+        }
+        return count
+    }
 
     /** A line belongs to a subagent when it carries a non-null `parentToolUseId`. */
     fun isSubagentLine(line: String): Boolean {
@@ -57,27 +71,39 @@ object TranscriptSavingsReader {
         val totalTurns = countTopLevelTurns(lines)
         if (totalTurns == 0) return Reconstruction(SavingsBand.ZERO, 0)
 
+        val seenResultIds = HashSet<String>()
+        val seenSubagentIds = HashSet<String>()
         var band = SavingsBand.ZERO
         var turnIndex = 0
         val current = mutableListOf<String>()
         for (line in lines) {
-            current.add(line)
-            if (line.contains("\"type\":\"result\"")) {
+            val isResult = line.contains("\"type\":\"result\"")
+            if (isResult) {
+                val id = messageId(line)
+                if (id != null && !seenResultIds.add(id)) continue // duplicate streamed result → ignore
                 val remaining = totalTurns - turnIndex - 1
-                band += SavingsEstimator.aggregate(buildTurn(current, remaining))
+                band += SavingsEstimator.aggregate(buildTurn(current, remaining, seenSubagentIds))
                 current.clear()
                 turnIndex++
+            } else {
+                current.add(line)
             }
         }
         return Reconstruction(band, totalTurns)
     }
 
-    private fun buildTurn(turnLines: List<String>, remainingTurns: Int): TurnObservation {
+    private fun buildTurn(
+        turnLines: List<String>,
+        remainingTurns: Int,
+        seenSubagentIds: HashSet<String>,
+    ): TurnObservation {
         var model = "claude-opus-4-8"
         val subagents = mutableListOf<SubagentObservation>()
         for (line in turnLines) {
             val lineModel = extractString(line, "\"model\"")
             if (isSubagentLine(line)) {
+                val id = messageId(line)
+                if (id != null && !seenSubagentIds.add(id)) continue // duplicate streamed subagent line → skip
                 val input = extractUsageInt(line, "\"input_tokens\"")
                 if (input > 0) {
                     val cost = ModelPricing.costFor(
@@ -102,6 +128,13 @@ object TranscriptSavingsReader {
             }
         }
         return TurnObservation(model = model, remainingTurns = remainingTurns, subagents = subagents)
+    }
+
+    /** message.id for dedup of streamed duplicate lines, or null if absent. */
+    private fun messageId(line: String): String? {
+        val m = line.indexOf("\"message\"")
+        if (m == -1) return null
+        return extractString(line.substring(m), "\"id\"")
     }
 
     private fun extractString(s: String, key: String): String? {
