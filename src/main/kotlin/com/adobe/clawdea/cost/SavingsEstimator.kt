@@ -20,6 +20,9 @@ package com.adobe.clawdea.cost
  */
 object SavingsEstimator {
 
+    /** High end of the grep counterfactual: index tool also avoids a full-tree scan pass. */
+    private const val GREP_SCAN_FACTOR = 1.5
+
     /**
      * Lever 1 — wiki-librarian / subagent routing. Net = estimated avoided inline cost minus the
      * subagent's real measured cost. CAN BE NEGATIVE (one-shot question: subagent burned tokens,
@@ -31,12 +34,13 @@ object SavingsEstimator {
         val perInputToken = ModelPricing.rateFor(obs.model).inputPerM / 1_000_000.0
         var band = SavingsBand.ZERO
         for (s in obs.subagents) {
+            val rideTurns = 1 + obs.remainingTurns.coerceAtLeast(0)
             val inlineTokens = if (s.filesReadTokens > 0) s.filesReadTokens else s.inputTokens
             val cacheRead = perInputToken * ModelPricing.CACHE_READ_MULTIPLIER
             val cacheCreate = perInputToken * ModelPricing.CACHE_CREATION_MULTIPLIER
-            val avoidedLow = inlineTokens * cacheRead * 1
-            val avoidedExpected = inlineTokens * cacheRead * (1 + obs.remainingTurns)
-            val avoidedHigh = inlineTokens * cacheCreate * (1 + obs.remainingTurns)
+            val avoidedLow = inlineTokens * cacheRead   // one turn only (no re-ride)
+            val avoidedExpected = inlineTokens * cacheRead * rideTurns
+            val avoidedHigh = inlineTokens * cacheCreate * rideTurns
             val net = SavingsBand(
                 low = avoidedLow - s.costUsd,
                 expected = avoidedExpected - s.costUsd,
@@ -90,9 +94,6 @@ object SavingsEstimator {
     fun aggregate(obs: TurnObservation): SavingsBand =
         components(obs).fold(SavingsBand.ZERO) { acc, c -> acc + c.band }
 
-    /** High end of the grep counterfactual: index tool also avoids a full-tree scan pass. */
-    private const val GREP_SCAN_FACTOR = 1.5
-
     /**
      * Confidence from band width relative to magnitude. Wide band or near-zero magnitude → ROUGH.
      * Threshold: relative width <= 0.5 → ESTIMATE, else ROUGH.
@@ -100,7 +101,7 @@ object SavingsEstimator {
     fun confidence(band: SavingsBand): Confidence {
         val mag = kotlin.math.abs(band.expected)
         if (mag < 1e-6) return Confidence.ROUGH
-        val relWidth = (band.high - band.low) / mag
+        val relWidth = kotlin.math.abs(band.high - band.low) / mag
         return if (relWidth <= 0.5) Confidence.ESTIMATE else Confidence.ROUGH
     }
 }

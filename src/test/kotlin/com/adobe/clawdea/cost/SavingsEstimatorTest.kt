@@ -152,4 +152,81 @@ class SavingsEstimatorTest {
     fun `confidence near zero magnitude is rough`() {
         assertEquals(Confidence.ROUGH, SavingsEstimator.confidence(SavingsBand(-0.01, 0.0, 0.01)))
     }
+
+    @Test
+    fun `confidence at exact boundary relWidth one half is estimate`() {
+        // width 0.5 on expected 1.0 → relWidth exactly 0.5 → ESTIMATE (boundary is inclusive).
+        assertEquals(Confidence.ESTIMATE, SavingsEstimator.confidence(SavingsBand(0.75, 1.0, 1.25)))
+    }
+
+    @Test
+    fun `librarian sums across multiple subagents`() {
+        val s = SubagentObservation("wiki-librarian", 0.01, 500, 15_000, 16_000)
+        val one = TurnObservation(model = "claude-opus-4-8", remainingTurns = 4, subagents = listOf(s))
+        val two = TurnObservation(model = "claude-opus-4-8", remainingTurns = 4, subagents = listOf(s, s))
+        val bandOne = SavingsEstimator.librarian(one).band
+        val bandTwo = SavingsEstimator.librarian(two).band
+        assertEquals(bandOne.expected * 2, bandTwo.expected, 1e-9)
+        assertEquals(bandOne.low * 2, bandTwo.low, 1e-9)
+        assertEquals(bandOne.high * 2, bandTwo.high, 1e-9)
+    }
+
+    @Test
+    fun `index tools sum across multiple tools`() {
+        val t = IndexToolObservation("find_symbol", 3, 9000)
+        val one = TurnObservation(model = "claude-opus-4-8", indexTools = listOf(t))
+        val two = TurnObservation(model = "claude-opus-4-8", indexTools = listOf(t, t))
+        val a = SavingsEstimator.indexTools(one).band
+        val b = SavingsEstimator.indexTools(two).band
+        assertEquals(a.expected * 2, b.expected, 1e-9)
+    }
+
+    @Test
+    fun `librarian prefers filesReadTokens over inputTokens when present`() {
+        // filesReadTokens dominates; inputTokens must be ignored when files were read.
+        val withFiles = SubagentObservation("wiki-librarian", 0.0, 0, 10_000, 99_999)
+        val obs = TurnObservation(model = "claude-opus-4-8", remainingTurns = 0, subagents = listOf(withFiles))
+        val band = SavingsEstimator.librarian(obs).band
+        // Compare against an explicit observation that reads the SAME 10_000 tokens but tiny input.
+        val control = SubagentObservation("wiki-librarian", 0.0, 0, 10_000, 1)
+        val controlBand = SavingsEstimator.librarian(
+            TurnObservation(model = "claude-opus-4-8", remainingTurns = 0, subagents = listOf(control)),
+        ).band
+        assertEquals(controlBand.expected, band.expected, 1e-9)
+    }
+
+    @Test
+    fun `index tools zero hit count falls back to full file tokens`() {
+        val obs = TurnObservation(
+            model = "claude-opus-4-8",
+            indexTools = listOf(IndexToolObservation("get_diagnostics", hitCount = 0, hitFilesTokens = 8000)),
+        )
+        val band = SavingsEstimator.indexTools(obs).band
+        // With hitCount 0, perHit == hitFilesTokens, so low == expected.
+        assertEquals(band.low, band.expected, 1e-9)
+    }
+
+    @Test
+    fun `components returns the four levers in display order`() {
+        val obs = TurnObservation(model = "claude-opus-4-8")
+        val ids = SavingsEstimator.components(obs).map { it.leverId }
+        assertEquals(
+            listOf(LeverId.LIBRARIAN, LeverId.INDEX_TOOLS, LeverId.KNOWLEDGE_UPKEEP, LeverId.PRIMER_OVERHEAD),
+            ids,
+        )
+    }
+
+    @Test
+    fun `aggregate expected equals sum of component expecteds`() {
+        val obs = TurnObservation(
+            model = "claude-opus-4-8",
+            remainingTurns = 2,
+            subagents = listOf(SubagentObservation("wiki-librarian", 0.02, 600, 20_000, 22_000)),
+            indexTools = listOf(IndexToolObservation("find_symbol", 3, 9000)),
+            primerCacheReadTokens = 4000,
+            knowledgeUpkeepUsd = 0.03,
+        )
+        val sum = SavingsEstimator.components(obs).sumOf { it.band.expected }
+        assertEquals(sum, SavingsEstimator.aggregate(obs).expected, 1e-9)
+    }
 }
