@@ -87,4 +87,54 @@ class SavingsEstimatorTest {
         val obs = TurnObservation(model = "claude-opus-4-8")
         assertEquals(SavingsBand.ZERO, SavingsEstimator.librarian(obs).band)
     }
+
+    @Test
+    fun `index tools save the avoided file reads`() {
+        val obs = TurnObservation(
+            model = "claude-opus-4-8",
+            indexTools = listOf(IndexToolObservation("find_usages", hitCount = 5, hitFilesTokens = 12_000)),
+        )
+        val c = SavingsEstimator.indexTools(obs)
+        assert(c.band.expected > 0.0)
+        assert(c.band.low <= c.band.expected && c.band.expected <= c.band.high)
+        assertEquals(false, c.measured)
+    }
+
+    @Test
+    fun `primer overhead is a measured cost`() {
+        val obs = TurnObservation(
+            model = "claude-opus-4-8",
+            primerCacheReadTokens = 4000,
+            primerCacheCreationTokens = 500,
+        )
+        val c = SavingsEstimator.primerOverhead(obs)
+        assert(c.band.expected < 0.0)
+        assertEquals(c.band.low, c.band.high, 1e-12)
+        assertEquals(true, c.measured)
+    }
+
+    @Test
+    fun `knowledge upkeep is a measured cost equal to the dollars spent`() {
+        val obs = TurnObservation(model = "claude-opus-4-8", knowledgeUpkeepUsd = 0.05)
+        val c = SavingsEstimator.knowledgeUpkeep(obs)
+        assertEquals(-0.05, c.band.expected, 1e-9)
+        assertEquals(true, c.measured)
+    }
+
+    @Test
+    fun `aggregate sums all levers and only modeled levers widen the band`() {
+        val obs = TurnObservation(
+            model = "claude-opus-4-8",
+            remainingTurns = 3,
+            subagents = listOf(SubagentObservation("wiki-librarian", 0.02, 600, 20_000, 22_000)),
+            indexTools = listOf(IndexToolObservation("find_symbol", 3, 9000)),
+            primerCacheReadTokens = 4000,
+            knowledgeUpkeepUsd = 0.0,
+        )
+        val agg = SavingsEstimator.aggregate(obs)
+        val lib = SavingsEstimator.librarian(obs).band
+        val idx = SavingsEstimator.indexTools(obs).band
+        val expectedWidth = (lib.high - lib.low) + (idx.high - idx.low)
+        assertEquals(expectedWidth, agg.high - agg.low, 1e-9)
+    }
 }
