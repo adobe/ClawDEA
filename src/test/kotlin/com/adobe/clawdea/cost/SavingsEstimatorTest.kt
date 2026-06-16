@@ -49,4 +49,42 @@ class SavingsEstimatorTest {
         assertEquals(0.2, c.band.expected, 1e-9)
         assertEquals(false, c.measured)
     }
+
+    @Test
+    fun `librarian on a one-shot question nets negative`() {
+        val sub = SubagentObservation(
+            agentType = "wiki-librarian",
+            costUsd = 0.04,
+            summaryTokens = 600,
+            filesReadTokens = 0,
+            inputTokens = 4000,
+        )
+        val obs = TurnObservation(model = "claude-opus-4-8", remainingTurns = 0, subagents = listOf(sub))
+        val c = SavingsEstimator.librarian(obs)
+        assert(c.band.expected < 0.0) { "expected net should be negative, was ${c.band.expected}" }
+        assertEquals(false, c.measured)
+        assertEquals(LeverId.LIBRARIAN, c.leverId)
+    }
+
+    @Test
+    fun `librarian in a long exploratory session nets positive`() {
+        val sub = SubagentObservation(
+            agentType = "wiki-librarian",
+            costUsd = 0.04,
+            summaryTokens = 600,
+            filesReadTokens = 30_000,
+            inputTokens = 35_000,
+        )
+        val obs = TurnObservation(model = "claude-opus-4-8", remainingTurns = 8, subagents = listOf(sub))
+        val c = SavingsEstimator.librarian(obs)
+        assert(c.band.expected > 0.0) { "expected net should be positive, was ${c.band.expected}" }
+        assert(c.band.low <= c.band.expected) { "${c.band.low} <= ${c.band.expected}" }
+        assert(c.band.expected <= c.band.high) { "${c.band.expected} <= ${c.band.high}" }
+    }
+
+    @Test
+    fun `librarian with no subagents is zero`() {
+        val obs = TurnObservation(model = "claude-opus-4-8")
+        assertEquals(SavingsBand.ZERO, SavingsEstimator.librarian(obs).band)
+    }
 }

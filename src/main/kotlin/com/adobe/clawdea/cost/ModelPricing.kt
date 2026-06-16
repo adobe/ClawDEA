@@ -41,8 +41,8 @@ object ModelPricing {
     /** Conservative fallback for unrecognized ids: never price to 0 (that hides cost). */
     private val fallback = Rate(5.0, 25.0)
 
-    private const val CACHE_READ_MULTIPLIER = 0.1
-    private const val CACHE_CREATION_MULTIPLIER = 1.25
+    const val CACHE_READ_MULTIPLIER = 0.1
+    const val CACHE_CREATION_MULTIPLIER = 1.25
 
     fun rateFor(model: String): Rate {
         val id = model.lowercase()
