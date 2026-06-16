@@ -205,9 +205,14 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             for (c in snap.components.filter { it.measured && it.leverId != com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP }) {
                 body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected)))
             }
-            // Knowledge upkeep (global, measured) shown explicitly as a single cost line.
-            body.add(kvRow("  Knowledge upkeep", money2signed(-upkeep)))
+            // Knowledge upkeep is the GLOBAL (all-projects) measured wiki/workspace cost, shown here
+            // as context. It is informational: it is NOT folded into the per-chat "Net (expected)"
+            // below, which is this chat's estimate only. Labeled "(all projects)" so it doesn't read
+            // as a this-chat cost.
+            body.add(kvRow("  Knowledge upkeep (all projects)", money2signed(-upkeep)))
 
+            // Net = this chat's estimated session band only (the upkeep line above is global context,
+            // intentionally excluded), so the breakdown lines won't arithmetically sum to this Net.
             val conf = com.adobe.clawdea.cost.SavingsEstimator.confidence(snap.sessionBand)
             val confLabel = if (conf == com.adobe.clawdea.cost.Confidence.ESTIMATE) "estimate" else "rough estimate"
             body.add(kvRow("Net (expected)", money2signed(snap.sessionBand.expected) + " · $confLabel", bold = true))
