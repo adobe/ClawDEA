@@ -42,4 +42,29 @@ class SavingsTotalTest {
         assertEquals(SavingsBand.ZERO, e.allTime)
         assertEquals(SavingsBand.ZERO, e.mtd)
     }
+
+    @Test
+    fun `format produces the documented pipe-delimited column order`() {
+        val t = SavingsTotal(
+            sinceDate = "2026-03-14",
+            mtd = SavingsBand(1.0, 2.0, 3.0),
+            allTime = SavingsBand(4.0, 5.0, 6.0),
+            mtdMonth = "2026-06",
+        )
+        assertEquals("2026-03-14|1.0|2.0|3.0|4.0|5.0|6.0|2026-06", SavingsTotal.format(t))
+    }
+
+    @Test
+    fun `signed cost bands round trip through format and parse`() {
+        // A net-cost session: negative expected, edges ordered. Must survive persistence intact.
+        val t = SavingsTotal(
+            sinceDate = "2026-06-01",
+            mtd = SavingsBand(-0.30, -0.12, 0.05),
+            allTime = SavingsBand(-1.25, -0.80, -0.10),
+            mtdMonth = "2026-06",
+        )
+        val back = SavingsTotal.parse(SavingsTotal.format(t))
+        assertEquals(t, back)
+        assertEquals(-0.80, back.allTime.expected, 1e-9)
+    }
 }
