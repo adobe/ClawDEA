@@ -31,4 +31,22 @@ class SavingsEstimatorTest {
         assertEquals(-0.05, e.expected, 1e-9)
         assertEquals(-0.05, e.high, 1e-9)
     }
+
+    @Test
+    fun `turn observation defaults are empty and zero`() {
+        val t = TurnObservation(model = "claude-opus-4-8")
+        assertEquals("claude-opus-4-8", t.model)
+        assertEquals(0, t.remainingTurns)
+        assertEquals(0, t.primerCacheReadTokens)
+        assert(t.subagents.isEmpty())
+        assert(t.indexTools.isEmpty())
+    }
+
+    @Test
+    fun `component carries lever id and band`() {
+        val c = SavingsComponent(LeverId.LIBRARIAN, SavingsBand(-0.1, 0.2, 0.5), measured = false)
+        assertEquals(LeverId.LIBRARIAN, c.leverId)
+        assertEquals(0.2, c.band.expected, 1e-9)
+        assertEquals(false, c.measured)
+    }
 }

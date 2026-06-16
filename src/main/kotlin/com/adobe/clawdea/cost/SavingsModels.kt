@@ -28,3 +28,42 @@ data class SavingsBand(val low: Double, val expected: Double, val high: Double) 
         fun exact(v: Double) = SavingsBand(v, v, v)
     }
 }
+
+/** The four modeled levers. Order is the display order in the panel. */
+enum class LeverId { LIBRARIAN, INDEX_TOOLS, KNOWLEDGE_UPKEEP, PRIMER_OVERHEAD }
+
+/**
+ * One subagent dispatch observed in a turn. [costUsd] is the subagent's own real turn cost
+ * (effectiveTurnCost over its result event). [summaryTokens] is the size of the text it
+ * returned to the main loop. [filesReadTokens] is the token size of the files the subagent
+ * itself read (proxy for what inline exploration would have pulled); 0 when it read none.
+ * [inputTokens] is the subagent's own input volume — the fallback proxy when filesReadTokens is 0.
+ */
+data class SubagentObservation(
+    val agentType: String,
+    val costUsd: Double,
+    val summaryTokens: Int,
+    val filesReadTokens: Int,
+    val inputTokens: Int,
+)
+
+/** One IDE index tool call. [hitCount] result rows; [hitFilesTokens] estimated token size of those files. */
+data class IndexToolObservation(val toolName: String, val hitCount: Int, val hitFilesTokens: Int)
+
+/** Everything the estimator needs about a single turn. Built by TurnObservationBuilder. */
+data class TurnObservation(
+    val model: String,
+    /** Turns remaining in the session AFTER this one — drives the re-ride multiplier. */
+    val remainingTurns: Int = 0,
+    val subagents: List<SubagentObservation> = emptyList(),
+    val indexTools: List<IndexToolObservation> = emptyList(),
+    /** Primer (wiki TOC + REPO_STATE) tokens read from cache this turn (billed at 0.1x). */
+    val primerCacheReadTokens: Int = 0,
+    /** Primer tokens written to cache this turn (billed at 1.25x) — first turn / cache miss. */
+    val primerCacheCreationTokens: Int = 0,
+    /** Knowledge-upkeep dollars this turn (read from KnowledgeBucket accounting; already measured). */
+    val knowledgeUpkeepUsd: Double = 0.0,
+)
+
+/** A per-lever estimate. [measured] = true → zero-variance (band low==expected==high). */
+data class SavingsComponent(val leverId: LeverId, val band: SavingsBand, val measured: Boolean)
