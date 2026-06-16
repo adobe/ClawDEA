@@ -24,29 +24,34 @@ object SavingsEstimator {
     private const val GREP_SCAN_FACTOR = 1.5
 
     /**
-     * Lever 1 — wiki-librarian / subagent routing. Net = estimated avoided inline cost minus the
-     * subagent's real measured cost. CAN BE NEGATIVE (one-shot question: subagent burned tokens,
-     * nothing compounding was avoided). The avoided counterfactual = inline read tokens that would
-     * have ridden the main context for (1 + remainingTurns) turns.
+     * Lever 1 — wiki-librarian / subagent routing. The honest counterfactual: had the main loop
+     * explored inline, it would have paid the FIRST read of those tokens at full input rate (the
+     * same as the subagent did) and then RE-RIDDEN them in the main context for the remaining turns
+     * at cache-read rate. The saving is therefore the avoided re-rides, net of the subagent's own
+     * real cost. CAN BE NEGATIVE: a one-shot question (remainingTurns 0) avoids no re-rides, and an
+     * expensive subagent that read little nets negative — both honest outcomes.
+     *
+     * Band: low = no re-rides materialise (first read only); expected = re-rides at cache-read rate
+     * for the remaining turns; high = re-rides at cache-creation rate (context kept being rewritten).
      */
     fun librarian(obs: TurnObservation): SavingsComponent {
         if (obs.subagents.isEmpty()) return SavingsComponent(LeverId.LIBRARIAN, SavingsBand.ZERO, measured = false)
         val perInputToken = ModelPricing.rateFor(obs.model).inputPerM / 1_000_000.0
+        val cacheRead = perInputToken * ModelPricing.CACHE_READ_MULTIPLIER
+        val cacheCreate = perInputToken * ModelPricing.CACHE_CREATION_MULTIPLIER
+        val reRides = obs.remainingTurns.coerceAtLeast(0)
         var band = SavingsBand.ZERO
         for (s in obs.subagents) {
-            val rideTurns = 1 + obs.remainingTurns.coerceAtLeast(0)
             val inlineTokens = if (s.filesReadTokens > 0) s.filesReadTokens else s.inputTokens
-            val cacheRead = perInputToken * ModelPricing.CACHE_READ_MULTIPLIER
-            val cacheCreate = perInputToken * ModelPricing.CACHE_CREATION_MULTIPLIER
-            val avoidedLow = inlineTokens * cacheRead   // one turn only (no re-ride)
-            val avoidedExpected = inlineTokens * cacheRead * rideTurns
-            val avoidedHigh = inlineTokens * cacheCreate * rideTurns
-            val net = SavingsBand(
+            val firstRead = inlineTokens * perInputToken
+            val avoidedLow = firstRead
+            val avoidedExpected = firstRead + inlineTokens * cacheRead * reRides
+            val avoidedHigh = firstRead + inlineTokens * cacheCreate * reRides
+            band += SavingsBand(
                 low = avoidedLow - s.costUsd,
                 expected = avoidedExpected - s.costUsd,
                 high = avoidedHigh - s.costUsd,
             )
-            band += net
         }
         return SavingsComponent(LeverId.LIBRARIAN, band, measured = false)
     }
