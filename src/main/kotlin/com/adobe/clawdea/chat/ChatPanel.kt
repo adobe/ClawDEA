@@ -394,6 +394,7 @@ class ChatPanel(
                     !toolName.startsWith("mcp__clawdea-intellij__")
             },
             costTracker = project.getService(com.adobe.clawdea.cost.CostTracker::class.java),
+            savingsTracker = com.adobe.clawdea.cost.SavingsTracker.getInstance(project),
             chatId = chatId,
             resolveEffort = {
                 ClawDEASettings.getInstance()

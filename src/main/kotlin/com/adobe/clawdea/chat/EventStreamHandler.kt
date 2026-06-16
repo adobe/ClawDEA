@@ -52,6 +52,7 @@ class EventStreamHandler(
     private val consumeAutoAllow: (toolUseId: String, toolName: String, inputJson: String) -> Boolean = { _, _, _ -> false },
     private val isToolAutoAllowed: (toolName: String) -> Boolean = { _ -> false },
     private val costTracker: com.adobe.clawdea.cost.CostTracker,
+    private val savingsTracker: com.adobe.clawdea.cost.SavingsTracker,
     /** Stable per-tab id for per-chat cost accounting. */
     private val chatId: String,
     private val resolveEffort: () -> String,
@@ -69,6 +70,13 @@ class EventStreamHandler(
      */
     private var pendingKnowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null
 
+    // --- Savings-estimation per-turn accumulators (top-level only; reset each Result) ---
+    // Index-tool hits surfaced this turn. The live path cannot see per-subagent tokens, so the
+    // librarian lever is left empty here and computed accurately from the transcript on resume.
+    private val turnIndexToolHits = mutableListOf<com.adobe.clawdea.cost.IndexToolObservation>()
+    // toolUseId -> index-tool name, for sizing the matching ToolResult.
+    private val pendingIndexToolUses = mutableMapOf<String, String>()
+
     /**
      * Called by the panel right before a user-originated prompt is sent to the bridge.
      * [explicitBucket] lets the caller name the knowledge bucket directly — required for
@@ -83,6 +91,14 @@ class EventStreamHandler(
         pendingKnowledgeBucket = explicitBucket
             ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
     }
+
+    /**
+     * Conservative primer-overhead proxy: the wiki TOC + REPO_STATE are a small fixed slice of the
+     * cached prefix ClawDEA ships each turn. Attribute a flat fraction of the turn's cache tokens to
+     * the primer — kept small so the cost lever never overstates the debit.
+     */
+    private fun primerTokensFrom(turnCacheTokens: Int): Int =
+        (turnCacheTokens * PRIMER_CACHE_FRACTION).toInt()
 
     var totalTokensUsed = 0
     // Context window for the model in use, as reported by CC's `result.modelUsage`.
@@ -248,6 +264,11 @@ class EventStreamHandler(
                 if (event.model.isNotBlank()) {
                     currentModel = event.model
                 }
+                for (tu in event.toolUses) {
+                    if (com.adobe.clawdea.cost.TurnObservationBuilder.isIndexTool(tu.name)) {
+                        pendingIndexToolUses[tu.id] = tu.name
+                    }
+                }
                 if (messageBuffer.isNotEmpty()) {
                     val bufText = messageBuffer.toString()
                     browserRenderer.appendHtml(renderer.renderAssistantText(bufText))
@@ -314,6 +335,16 @@ class EventStreamHandler(
                 onContextLabelUpdate()
             }
             is CliEvent.ToolResult -> {
+                // Size any top-level index-tool result this turn. Runs before the sub-agent
+                // early-return, but the map only ever holds top-level ids (populated in the
+                // top-level AssistantMessage path), so removing by id is safe here.
+                pendingIndexToolUses.remove(event.toolUseId)?.let { idxName ->
+                    val tokens = com.adobe.clawdea.cost.TurnObservationBuilder.estimateTokens(event.content)
+                    // hitCount unknown from result text alone; approximate ~1 row / 100 tokens, min 1.
+                    // Conservative: undercounts hits rather than over.
+                    val hits = (tokens / 100).coerceAtLeast(1)
+                    turnIndexToolHits.add(com.adobe.clawdea.cost.IndexToolObservation(idxName, hits, tokens))
+                }
                 // The sub-agent's own result: collapse its card to a summary.
                 if (subAgentController.isActive(event.toolUseId)) {
                     val status = if (event.isError) SubAgentController.Status.ERROR else SubAgentController.Status.DONE
@@ -475,6 +506,21 @@ class EventStreamHandler(
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
                 pendingKnowledgeBucket = null
+                // Live savings observation: index-tools + primer overhead only. Subagents are empty
+                // (per-subagent tokens aren't observable live); the librarian lever and the real
+                // remaining-turns re-ride are reconstructed from the transcript on resume.
+                val savingsObs = com.adobe.clawdea.cost.TurnObservationBuilder.build(
+                    model = currentModel,
+                    remainingTurns = 0,
+                    subagents = emptyList(),
+                    indexTools = turnIndexToolHits.toList(),
+                    primerCacheReadTokens = primerTokensFrom(event.cacheReadTokens),
+                    primerCacheCreationTokens = primerTokensFrom(event.cacheCreationTokens),
+                    knowledgeUpkeepUsd = 0.0,
+                )
+                savingsTracker.recordTurn(chatId, savingsObs)
+                turnIndexToolHits.clear()
+                pendingIndexToolUses.clear()
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()
@@ -611,6 +657,8 @@ class EventStreamHandler(
         // 180s absorbs slow API responses without false-positives.
         internal const val TURN_START_STALL_TIMEOUT_MS = 180_000
         internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 180_000
+
+        private const val PRIMER_CACHE_FRACTION = 0.05
 
         internal fun shouldRecoverTurnStartStall(
             isStreaming: Boolean,
