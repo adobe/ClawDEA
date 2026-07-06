@@ -16,8 +16,13 @@ package com.adobe.clawdea.cost
  * figure, and subscription/bedrock plans report total_cost_usd = 0, so cost is
  * computed from token usage with these published per-million-token rates.
  *
- * Rates current as of 2026-06. DRIFT-WATCHED: scripts/drift/watchlist.yaml entry
- * `model-pricing` flags this table when the published pricing page changes.
+ * Rates verified against the Anthropic pricing page (Claude Code v2.1.201,
+ * 2026-07, issue #139): Fable 5 & Mythos 5 (10/50), Opus 4.8/4.7/4.6/4.5 (5/25),
+ * Sonnet 4.6/4.5 (3/15), Haiku 4.5 (1/5). Claude Sonnet 5 carries introductory
+ * pricing (2/10) through 2026-08-31 and standard pricing (3/15) from 2026-09-01,
+ * modeled by the date-aware branch in [rateFor]. Mythos Preview shares the Mythos
+ * tier. DRIFT-WATCHED: scripts/drift/watchlist.yaml entry `model-pricing` flags
+ * this table when the published pricing page changes.
  * Cache-read tokens bill at 0.1x input; cache-creation (5-min) at 1.25x input.
  */
 object ModelPricing {
@@ -26,13 +31,19 @@ object ModelPricing {
     data class Rate(val inputPerM: Double, val outputPerM: Double)
 
     // Longest-prefix match wins; keep more specific ids before generic ones if overlap.
+    // Sonnet 5 is matched ahead of this list in [rateFor] because its introductory
+    // pricing is date-dependent.
     private val rates: List<Pair<String, Rate>> = listOf(
         "claude-fable-5" to Rate(10.0, 50.0),
+        "claude-mythos-5" to Rate(10.0, 50.0),
+        "claude-mythos" to Rate(10.0, 50.0), // Mythos Preview shares the Mythos tier
         "claude-opus-4-8" to Rate(5.0, 25.0),
         "claude-opus-4-7" to Rate(5.0, 25.0),
         "claude-opus-4-6" to Rate(5.0, 25.0),
+        "claude-opus-4-5" to Rate(5.0, 25.0),
         "claude-opus" to Rate(5.0, 25.0),
         "claude-sonnet-4-6" to Rate(3.0, 15.0),
+        "claude-sonnet-4-5" to Rate(3.0, 15.0),
         "claude-sonnet" to Rate(3.0, 15.0),
         "claude-haiku-4-5" to Rate(1.0, 5.0),
         "claude-haiku" to Rate(1.0, 5.0),
@@ -41,11 +52,23 @@ object ModelPricing {
     /** Conservative fallback for unrecognized ids: never price to 0 (that hides cost). */
     private val fallback = Rate(5.0, 25.0)
 
+    // Sonnet 5 launched with introductory pricing (2/10) that reverts to the
+    // standard Sonnet tier (3/15) on 2026-09-01. Both windows are modeled so cost
+    // estimates stay accurate as the switchover date passes.
+    private val sonnet5Intro = Rate(2.0, 10.0)
+    private val sonnet5Standard = Rate(3.0, 15.0)
+    private val sonnet5StandardStart: java.time.LocalDate = java.time.LocalDate.of(2026, 9, 1)
+
     const val CACHE_READ_MULTIPLIER = 0.1
     const val CACHE_CREATION_MULTIPLIER = 1.25
 
-    fun rateFor(model: String): Rate {
+    fun rateFor(model: String): Rate = rateFor(model, java.time.LocalDate.now())
+
+    internal fun rateFor(model: String, today: java.time.LocalDate): Rate {
         val id = model.lowercase()
+        if (id.startsWith("claude-sonnet-5")) {
+            return if (today.isBefore(sonnet5StandardStart)) sonnet5Intro else sonnet5Standard
+        }
         return rates.firstOrNull { id.startsWith(it.first) }?.second ?: fallback
     }
 

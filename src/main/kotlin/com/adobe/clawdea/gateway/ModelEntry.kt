@@ -22,6 +22,10 @@ data class ModelEntry(
 )
 
 val DEFAULT_MODEL_CATALOG: List<ModelEntry> = listOf(
+    ModelEntry(id = "claude-opus-4-8",   displayName = "Claude Opus 4.8"),
+    ModelEntry(id = "claude-sonnet-5",   displayName = "Claude Sonnet 5"),
+    ModelEntry(id = "claude-fable-5",    displayName = "Claude Fable 5"),
+    ModelEntry(id = "claude-mythos-5",   displayName = "Claude Mythos 5"),
     ModelEntry(id = "claude-opus-4-7",   displayName = "Claude Opus 4.7"),
     ModelEntry(id = "claude-sonnet-4-6", displayName = "Claude Sonnet 4.6"),
     ModelEntry(id = "claude-haiku-4-5",  displayName = "Claude Haiku 4.5"),
