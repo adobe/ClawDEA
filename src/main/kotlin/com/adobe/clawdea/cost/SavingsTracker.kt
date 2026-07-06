@@ -18,9 +18,9 @@ import java.time.LocalDate
 
 /**
  * Owns the ClawDEA savings estimate. Project-scoped, session ("chat") band tracked per chatId
- * (mirrors CostTracker). Cumulative MTD/all-time is GLOBAL (app settings), like knowledgeUsd.
- * Fed live from EventStreamHandler and reseeded from a transcript on resume. Publishes the
- * existing CostSnapshotListener topic so the panel re-snapshots.
+ * (mirrors CostTracker). Cumulative MTD/all-time and per-lever totals are GLOBAL (app settings),
+ * like knowledgeUsd. Fed live from EventStreamHandler and reseeded from a transcript on resume.
+ * Publishes the existing CostSnapshotListener topic so the panel re-snapshots.
  */
 @Service(Service.Level.PROJECT)
 class SavingsTracker(private val project: Project) {
@@ -45,6 +45,7 @@ class SavingsTracker(private val project: Project) {
         c.lastComponents = comps
         c.turnCount += 1
         accrueCumulative(net)
+        accrueLevers(comps)
         publish()
     }
 
@@ -66,7 +67,10 @@ class SavingsTracker(private val project: Project) {
 
     @Synchronized
     fun resetCumulative() {
-        synchronized(settings) { settings.state.savingsTotal.remove(GLOBAL_KEY) }
+        synchronized(settings) {
+            settings.state.savingsTotal.remove(GLOBAL_KEY)
+            settings.state.savingsByLever.clear()
+        }
         publish()
     }
 
@@ -76,6 +80,7 @@ class SavingsTracker(private val project: Project) {
         return SavingsSnapshot(
             sessionBand = c?.band ?: SavingsBand.ZERO,
             cumulative = readCumulative(),
+            leverBands = readLeverBands(),
             components = c?.lastComponents ?: emptyList(),
             turnCount = c?.turnCount ?: 0,
         )
@@ -90,8 +95,21 @@ class SavingsTracker(private val project: Project) {
         }
     }
 
+    private fun accrueLevers(components: List<SavingsComponent>) {
+        synchronized(settings) {
+            for (c in components) {
+                if (c.measured) continue
+                LeverBandStore.accrue(settings.state.savingsByLever, c.leverId, c.band)
+            }
+        }
+    }
+
     private fun readCumulative(): SavingsTotal = synchronized(settings) {
         SavingsTotal.parse(settings.state.savingsTotal[GLOBAL_KEY].orEmpty())
+    }
+
+    private fun readLeverBands(): Map<LeverId, SavingsBand> = synchronized(settings) {
+        LeverBandStore.readAll(settings.state.savingsByLever)
     }
 
     private fun publish() {

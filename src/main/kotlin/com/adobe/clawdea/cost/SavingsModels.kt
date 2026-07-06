@@ -73,13 +73,16 @@ enum class Confidence { ESTIMATE, ROUGH }
 
 /**
  * Immutable savings view for one chat tab. [sessionBand] is this chat's running net; [cumulative]
- * is the persisted MTD/all-time; [components] is the per-lever breakdown for this chat; [turnCount]
- * gates the "collecting…" state. [isNetSaving] drives the section title (savings vs cost) off the
- * all-time expected net — the long-term verdict.
+ * is the persisted MTD/all-time; [leverBands] is the global (all-projects) per-lever accumulator;
+ * [components] is the last turn's per-lever breakdown (diagnostic); [turnCount] gates the
+ * "collecting…" state. [isNetSaving] drives the section title (savings vs cost) off the all-time
+ * expected net — the long-term verdict.
  */
 data class SavingsSnapshot(
     val sessionBand: SavingsBand,
     val cumulative: SavingsTotal,
+    /** All-projects cumulative per estimated lever (Librarian, IDE index tools, …). */
+    val leverBands: Map<LeverId, SavingsBand>,
     val components: List<SavingsComponent>,
     val turnCount: Int,
 ) {

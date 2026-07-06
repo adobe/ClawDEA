@@ -23,7 +23,12 @@ import java.io.File
  */
 object TranscriptSavingsReader {
 
-    data class Reconstruction(val band: SavingsBand, val turns: Int)
+    data class Reconstruction(
+        val band: SavingsBand,
+        val turns: Int,
+        /** Per-lever bands summed across every turn in the transcript (for global seeding on resume). */
+        val leverBands: Map<LeverId, SavingsBand> = emptyMap(),
+    )
 
     fun reconstructFile(file: File): Reconstruction {
         if (!file.isFile) return Reconstruction(SavingsBand.ZERO, 0)
@@ -51,16 +56,21 @@ object TranscriptSavingsReader {
         return count
     }
 
-    /** A line belongs to a subagent when it carries a non-null `parentToolUseId`. */
+    /** A line belongs to a subagent when it carries a non-null parent tool-use id (snake or camel). */
     fun isSubagentLine(line: String): Boolean {
-        val i = line.indexOf("\"parentToolUseId\"")
-        if (i == -1) return false
-        val after = line.substring(i + "\"parentToolUseId\"".length)
-        val colon = after.indexOf(':')
-        if (colon == -1) return false
-        val rest = after.substring(colon + 1).trimStart()
-        return !rest.startsWith("null")
+        for (key in PARENT_TOOL_USE_KEYS) {
+            val i = line.indexOf(key)
+            if (i == -1) continue
+            val after = line.substring(i + key.length)
+            val colon = after.indexOf(':')
+            if (colon == -1) continue
+            val rest = after.substring(colon + 1).trimStart()
+            if (!rest.startsWith("null")) return true
+        }
+        return false
     }
+
+    private val PARENT_TOOL_USE_KEYS = listOf("\"parent_tool_use_id\"", "\"parentToolUseId\"")
 
     /**
      * Group lines into top-level turns (split on `result` lines), build a [TurnObservation] per
@@ -74,6 +84,7 @@ object TranscriptSavingsReader {
         val seenResultIds = HashSet<String>()
         val seenSubagentIds = HashSet<String>()
         var band = SavingsBand.ZERO
+        var leverBands = emptyMap<LeverId, SavingsBand>()
         var turnIndex = 0
         val current = mutableListOf<String>()
         for (line in lines) {
@@ -82,14 +93,21 @@ object TranscriptSavingsReader {
                 val id = messageId(line)
                 if (id != null && !seenResultIds.add(id)) continue // duplicate streamed result → ignore
                 val remaining = totalTurns - turnIndex - 1
-                band += SavingsEstimator.aggregate(buildTurn(current, remaining, seenSubagentIds))
+                val obs = buildTurn(current, remaining, seenSubagentIds)
+                val turnBand = SavingsEstimator.aggregate(obs)
+                band += turnBand
+                for (c in SavingsEstimator.components(obs)) {
+                    if (c.measured) continue
+                    val prev = leverBands[c.leverId] ?: SavingsBand.ZERO
+                    leverBands = leverBands + (c.leverId to (prev + c.band))
+                }
                 current.clear()
                 turnIndex++
             } else {
                 current.add(line)
             }
         }
-        return Reconstruction(band, totalTurns)
+        return Reconstruction(band, totalTurns, leverBands)
     }
 
     private fun buildTurn(
@@ -99,6 +117,8 @@ object TranscriptSavingsReader {
     ): TurnObservation {
         var model = "claude-opus-4-8"
         val subagents = mutableListOf<SubagentObservation>()
+        val indexTools = mutableListOf<IndexToolObservation>()
+        val pendingIndex = mutableMapOf<String, String>()
         for (line in turnLines) {
             val lineModel = extractString(line, "\"model\"")
             if (isSubagentLine(line)) {
@@ -115,7 +135,7 @@ object TranscriptSavingsReader {
                     )
                     subagents.add(
                         SubagentObservation(
-                            agentType = "subagent",
+                            agentType = extractString(line, "\"subagent_type\"") ?: "subagent",
                             costUsd = cost,
                             summaryTokens = 0,
                             filesReadTokens = input,
@@ -123,11 +143,71 @@ object TranscriptSavingsReader {
                         ),
                     )
                 }
-            } else if (lineModel != null) {
-                model = lineModel
+            } else {
+                extractToolUses(line).forEach { (id, name) ->
+                    if (TurnObservationBuilder.isIndexTool(name)) pendingIndex[id] = name
+                }
+                extractToolResult(line)?.let { (toolUseId, content) ->
+                    pendingIndex.remove(toolUseId)?.let { name ->
+                        val tokens = TurnObservationBuilder.estimateTokens(content)
+                        val hits = (tokens / 100).coerceAtLeast(1)
+                        indexTools.add(IndexToolObservation(name, hits, tokens))
+                    }
+                }
+                if (lineModel != null && !isSubagentLine(line)) {
+                    model = lineModel
+                }
             }
         }
-        return TurnObservation(model = model, remainingTurns = remainingTurns, subagents = subagents)
+        return TurnObservation(
+            model = model,
+            remainingTurns = remainingTurns,
+            subagents = subagents,
+            indexTools = indexTools,
+        )
+    }
+
+    /** tool_use id → name pairs from an assistant/user line's content array. */
+    private fun extractToolUses(line: String): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        var searchFrom = 0
+        while (true) {
+            val typeIdx = line.indexOf("\"type\":\"tool_use\"", searchFrom)
+            if (typeIdx == -1) break
+            val blockStart = line.lastIndexOf('{', typeIdx)
+            val blockEnd = line.indexOf('}', typeIdx)
+            if (blockStart == -1 || blockEnd == -1) break
+            val block = line.substring(blockStart, blockEnd + 1)
+            val id = extractString(block, "\"id\"") ?: ""
+            val name = extractString(block, "\"name\"") ?: ""
+            if (id.isNotBlank() && name.isNotBlank()) out.add(id to name)
+            searchFrom = blockEnd + 1
+        }
+        return out
+    }
+
+    /** tool_use_id + text content when this line is a tool_result block. */
+    private fun extractToolResult(line: String): Pair<String, String>? {
+        if (!line.contains("\"type\":\"tool_result\"")) return null
+        val toolUseId = extractString(line, "\"tool_use_id\"") ?: return null
+        val content = extractToolResultContent(line)
+        return toolUseId to content
+    }
+
+    private fun extractToolResultContent(line: String): String {
+        extractString(line, "\"content\"")?.let { return it }
+        val parts = mutableListOf<String>()
+        var searchFrom = 0
+        while (true) {
+            val typeIdx = line.indexOf("\"type\":\"text\"", searchFrom)
+            if (typeIdx == -1) break
+            val blockStart = line.lastIndexOf('{', typeIdx)
+            val blockEnd = line.indexOf('}', typeIdx)
+            if (blockStart == -1 || blockEnd == -1) break
+            extractString(line.substring(blockStart, blockEnd + 1), "\"text\"")?.let { parts.add(it) }
+            searchFrom = blockEnd + 1
+        }
+        return parts.joinToString("\n")
     }
 
     /** message.id for dedup of streamed duplicate lines, or null if absent. */

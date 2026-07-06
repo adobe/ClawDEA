@@ -235,6 +235,7 @@ class SavingsEstimatorTest {
         val snap = SavingsSnapshot(
             sessionBand = SavingsBand(0.1, 0.2, 0.3),
             cumulative = SavingsTotal.empty(),
+            leverBands = mapOf(LeverId.INDEX_TOOLS to SavingsBand(0.05, 0.1, 0.15)),
             components = listOf(SavingsComponent(LeverId.PRIMER_OVERHEAD, SavingsBand.exact(-0.02), true)),
             turnCount = 5,
         )

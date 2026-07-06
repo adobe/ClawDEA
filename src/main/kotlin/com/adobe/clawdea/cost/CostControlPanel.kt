@@ -192,6 +192,22 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             body.add(sectionLabel("Measured cost (all projects)"))
             body.add(kvRow("  Knowledge upkeep", money2signed(-upkeep)))
 
+            // Estimated levers are global (all projects) — show whenever we have data, not gated
+            // on this chat's turn count and not limited to the last turn's components.
+            val savedLevers = listOf(
+                com.adobe.clawdea.cost.LeverId.LIBRARIAN,
+                com.adobe.clawdea.cost.LeverId.INDEX_TOOLS,
+            )
+            val hasSavedLeverData = savedLevers.any { (snap.leverBands[it] ?: com.adobe.clawdea.cost.SavingsBand.ZERO).expected != 0.0 }
+            if (hasSavedLeverData) {
+                body.add(sectionLabel("Saved (all projects)"))
+                for (id in savedLevers) {
+                    val band = snap.leverBands[id] ?: com.adobe.clawdea.cost.SavingsBand.ZERO
+                    val pm = String.format(Locale.US, "%.2f", (band.high - band.low) / 2.0)
+                    body.add(kvRow("  " + leverLabel(id), money2signed(band.expected) + "  (±$pm)"))
+                }
+            }
+
             if (snap.isCollecting) {
                 body.add(mutedLabel("Savings estimate: collecting… run a few turns."))
                 return@card
@@ -203,19 +219,12 @@ class CostControlPanel(private val project: Project, private val chatId: String)
             body.add(kvRow("All time", money2signed(snap.cumulative.allTime.expected)))
             body.add(mutedLabel("  since ${snap.cumulative.sinceDate.ifBlank { "—" }}"))
 
-            body.add(sectionLabel("Saved (this chat)"))
-            for (c in snap.components.filter { !it.measured }) {
-                val pm = String.format(Locale.US, "%.2f", (c.band.high - c.band.low) / 2.0)
-                body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected) + "  (±$pm)"))
-            }
             body.add(sectionLabel("Cost (this chat)"))
             for (c in snap.components.filter { it.measured && it.leverId != com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP }) {
                 body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected)))
             }
 
-            // Net = this chat's estimated session band only. The measured knowledge-upkeep cost shown
-            // at the top is global (all-projects) context, intentionally excluded from this per-chat
-            // Net, so the breakdown lines won't arithmetically sum to it.
+            // Net = this chat's estimated session band only.
             val conf = com.adobe.clawdea.cost.SavingsEstimator.confidence(snap.sessionBand)
             val confLabel = if (conf == com.adobe.clawdea.cost.Confidence.ESTIMATE) "estimate" else "rough estimate"
             body.add(kvRow("Net (expected)", money2signed(snap.sessionBand.expected) + " · $confLabel", bold = true))

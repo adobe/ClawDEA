@@ -169,6 +169,12 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          * the all-time verdict persists across projects, like knowledgeUsd.
          */
         var savingsTotal: MutableMap<String, String> = mutableMapOf(),
+        /**
+         * GLOBAL per-lever estimated savings (Librarian routing, IDE index tools, …), keyed by
+         * [LeverId.name] → packed "low|expected|high". App-level so lever breakdowns aggregate
+         * across every project and chat tab, like knowledgeUsd.
+         */
+        var savingsByLever: MutableMap<String, String> = mutableMapOf(),
     )
 
     private var state = State()

@@ -71,11 +71,13 @@ class EventStreamHandler(
     private var pendingKnowledgeBucket: com.adobe.clawdea.cost.KnowledgeBucket? = null
 
     // --- Savings-estimation per-turn accumulators (top-level only; reset each Result) ---
-    // Index-tool hits surfaced this turn. The live path cannot see per-subagent tokens, so the
-    // librarian lever is left empty here and computed accurately from the transcript on resume.
     private val turnIndexToolHits = mutableListOf<com.adobe.clawdea.cost.IndexToolObservation>()
     // toolUseId -> index-tool name, for sizing the matching ToolResult.
     private val pendingIndexToolUses = mutableMapOf<String, String>()
+    // Subagent dispatches this turn (wiki-librarian, etc.) for the librarian lever.
+    private val turnSubagents = mutableListOf<com.adobe.clawdea.cost.SubagentObservation>()
+    // Subagent card id -> tokens read by inner tool results (Read / MCP) this turn.
+    private val subagentReadTokens = mutableMapOf<String, Int>()
 
     /**
      * Called by the panel right before a user-originated prompt is sent to the bridge.
@@ -92,6 +94,8 @@ class EventStreamHandler(
             ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
         turnIndexToolHits.clear()
         pendingIndexToolUses.clear()
+        turnSubagents.clear()
+        subagentReadTokens.clear()
     }
 
     /**
@@ -338,21 +342,37 @@ class EventStreamHandler(
                 onContextLabelUpdate()
             }
             is CliEvent.ToolResult -> {
-                // Size any top-level index-tool result this turn. Runs before the sub-agent
-                // early-return, but the map only ever holds top-level ids (populated in the
-                // top-level AssistantMessage path), so removing by id is safe here.
-                pendingIndexToolUses.remove(event.toolUseId)?.let { idxName ->
+                // Accumulate inner reads for an active subagent (feeds librarian lever).
+                val subagentCard = event.parentToolUseId?.takeIf { subAgentController.isActive(it) }
+                if (subagentCard != null && !subAgentController.isActive(event.toolUseId)) {
                     val tokens = com.adobe.clawdea.cost.TurnObservationBuilder.estimateTokens(event.content)
-                    // hitCount unknown from result text alone; approximate ~1 row / 100 tokens, min 1.
-                    // Conservative: undercounts hits rather than over.
+                    subagentReadTokens.merge(subagentCard, tokens) { a, b -> a + b }
+                }
+                // Size any top-level index-tool result this turn.
+                val idxName = pendingIndexToolUses.remove(event.toolUseId)
+                    ?: toolNameById[event.toolUseId]?.takeIf { com.adobe.clawdea.cost.TurnObservationBuilder.isIndexTool(it) }
+                idxName?.let { name ->
+                    val tokens = com.adobe.clawdea.cost.TurnObservationBuilder.estimateTokens(event.content)
                     val hits = (tokens / 100).coerceAtLeast(1)
-                    turnIndexToolHits.add(com.adobe.clawdea.cost.IndexToolObservation(idxName, hits, tokens))
+                    turnIndexToolHits.add(com.adobe.clawdea.cost.IndexToolObservation(name, hits, tokens))
                 }
                 // The sub-agent's own result: collapse its card to a summary.
                 if (subAgentController.isActive(event.toolUseId)) {
                     val status = if (event.isError) SubAgentController.Status.ERROR else SubAgentController.Status.DONE
                     val state = subAgentController.finalize(event.toolUseId, status)
                     if (state != null) {
+                        val summaryTokens = com.adobe.clawdea.cost.TurnObservationBuilder.estimateTokens(event.content)
+                        val readTokens = subagentReadTokens.remove(event.toolUseId) ?: 0
+                        val inputProxy = readTokens.coerceAtLeast(summaryTokens * 5)
+                        turnSubagents.add(
+                            com.adobe.clawdea.cost.SubagentObservation(
+                                agentType = state.agentType,
+                                costUsd = 0.0,
+                                summaryTokens = summaryTokens,
+                                filesReadTokens = readTokens,
+                                inputTokens = inputProxy,
+                            ),
+                        )
                         browserRenderer.finalizeSubAgent(
                             event.toolUseId,
                             renderer.renderSubAgentSummary(status, state.stepCount, event.content),
@@ -509,13 +529,11 @@ class EventStreamHandler(
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
                 pendingKnowledgeBucket = null
-                // Live savings observation: index-tools + primer overhead only. Subagents are empty
-                // (per-subagent tokens aren't observable live); the librarian lever and the real
-                // remaining-turns re-ride are reconstructed from the transcript on resume.
+                val priorTurns = savingsTracker.snapshot(chatId).turnCount
                 val savingsObs = com.adobe.clawdea.cost.TurnObservationBuilder.build(
                     model = currentModel,
-                    remainingTurns = 0,
-                    subagents = emptyList(),
+                    remainingTurns = priorTurns,
+                    subagents = turnSubagents.toList(),
                     indexTools = turnIndexToolHits.toList(),
                     primerCacheReadTokens = primerTokensFrom(event.cacheReadTokens),
                     primerCacheCreationTokens = primerTokensFrom(event.cacheCreationTokens),
@@ -524,6 +542,8 @@ class EventStreamHandler(
                 savingsTracker.recordTurn(chatId, savingsObs)
                 turnIndexToolHits.clear()
                 pendingIndexToolUses.clear()
+                turnSubagents.clear()
+                subagentReadTokens.clear()
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()

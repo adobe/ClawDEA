@@ -20,8 +20,10 @@ class TranscriptSavingsReaderTest {
     @Test
     fun `isSubagentLine detects parentToolUseId`() {
         assertTrue(TranscriptSavingsReader.isSubagentLine("""{"parentToolUseId":"toolu_123","type":"assistant"}"""))
+        assertTrue(TranscriptSavingsReader.isSubagentLine("""{"parent_tool_use_id":"toolu_123","type":"assistant"}"""))
         assertEquals(false, TranscriptSavingsReader.isSubagentLine("""{"type":"assistant","message":{}}"""))
         assertEquals(false, TranscriptSavingsReader.isSubagentLine("""{"parentToolUseId":null,"type":"assistant"}"""))
+        assertEquals(false, TranscriptSavingsReader.isSubagentLine("""{"parent_tool_use_id":null,"type":"assistant"}"""))
     }
 
     @Test
@@ -94,5 +96,17 @@ class TranscriptSavingsReaderTest {
             1e-9,
         )
         assertEquals(2, TranscriptSavingsReader.reconstruct(linesDup).turns)
+    }
+
+    @Test
+    fun `reconstruct attributes index tool savings from tool results`() {
+        val lines = listOf(
+            """{"type":"assistant","message":{"model":"claude-opus-4-8","content":[{"type":"tool_use","id":"tu_1","name":"mcp__clawdea-intellij__find_usages","input":{}}]}}""",
+            """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_1","content":"${"x".repeat(400)}"}]}}""",
+            """{"type":"result","total_cost_usd":0.01}""",
+        )
+        val r = TranscriptSavingsReader.reconstruct(lines)
+        val indexBand = r.leverBands[LeverId.INDEX_TOOLS] ?: SavingsBand.ZERO
+        assert(indexBand.expected > 0.0) { "expected index-tool savings, was ${indexBand.expected}" }
     }
 }
