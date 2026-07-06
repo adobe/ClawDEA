@@ -123,6 +123,20 @@
   triage: issue
   clawdea: 'CliEventParser.kt (manual NDJSON parsing of the stream-json schema)'
 
+# Dynamic workflows (/deep-research, /workflows, the `ultracode` keyword) are NOT
+# reachable over the headless `-p --input-format stream-json` protocol ClawDEA
+# wraps: the slash commands return "isn't available in this environment" and
+# `ultracode` runs as an ordinary turn with no workflow/phase/orchestration
+# events on the stream (re-confirmed at CLI 2.1.197). The unblock signal is a
+# workflow event hierarchy (workflow → phase → agent → result) or a way to
+# launch a workflow run appearing on the SDK/headless surface. Narrow tokens keep
+# it `issue`; they should not match until orchestration ships over stream-json.
+- id: dynamic-workflows
+  source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/sdk-reference' }
+  match: '\b(deep[-_]research|workflow_(start|step|stop|event)|phase_(start|stop)|orchestrat)\b'
+  triage: issue
+  clawdea: 'Blocked (#125): CliEventParser.kt would gain workflow event types; the sub-agent card UI (#121) is the likely fit for rendering workflow progress.'
+
 - id: mcp-config-schema
   source: { type: url, url: 'https://docs.claude.com/en/docs/claude-code/mcp' }
   match: 'mcpServers|alwaysLoad|"command"|"url"|"type"|"transport"|"headers"'
