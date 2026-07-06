@@ -180,6 +180,10 @@ Requires an **Anthropic API key** — set in Settings or via `ANTHROPIC_API_KEY`
 
 Configure debounce delay and token budget in Settings.
 
+### Manual (hotkey) trigger
+
+If you'd rather not spend API tokens on incidental typing, enable **Only request completions on hotkey** in Settings. Automatic as-you-type completions are then suppressed and a suggestion is requested only when you invoke **Trigger Inline Completion** (default **Alt+\\**, ⌥\\ on macOS). The action always works — even with automatic completions on — so you can force a fresh suggestion on demand. Rebind the shortcut in **Settings → Keymap → "Trigger Inline Completion"**.
+
 ---
 
 ## MCP Tools

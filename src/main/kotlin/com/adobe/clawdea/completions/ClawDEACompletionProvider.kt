@@ -53,6 +53,10 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
     override fun isEnabled(event: InlineCompletionEvent): Boolean {
         val settings = ClawDEASettings.getInstance()
         if (!settings.state.completionsEnabled) return false
+        // Manual-only mode: suppress automatic (typing/caret) triggers so we
+        // only spend tokens when the user explicitly asks for a completion via
+        // the hotkey/action. See issue #146.
+        if (settings.state.completionsManualOnly && !isManualTrigger(event)) return false
         val provider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
         if (provider != "anthropic") return true
         val anthropic = com.adobe.clawdea.auth.AuthManager.getInstance()
@@ -124,6 +128,18 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
 
     companion object {
         private val EMPTY_SUGGESTION = InlineCompletionSingleSuggestion.build { _ -> }
+
+        /**
+         * True when [event] originates from an explicit user request rather than
+         * incidental editor activity. `DirectCall` is our own action / hotkey
+         * (see [com.adobe.clawdea.completions.TriggerCompletionAction]);
+         * `ManualCall` is the platform's built-in "Call Inline Completion".
+         * Everything else (document changes, caret moves, editor focus, lookup)
+         * is automatic and must be suppressed in manual-only mode.
+         */
+        fun isManualTrigger(event: InlineCompletionEvent): Boolean =
+            event is InlineCompletionEvent.DirectCall ||
+                event is InlineCompletionEvent.ManualCall
 
         private val MODEL_MAP = mapOf(
             "haiku" to "claude-haiku-4-5",

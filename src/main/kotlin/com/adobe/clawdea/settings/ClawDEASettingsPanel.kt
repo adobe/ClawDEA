@@ -127,6 +127,9 @@ class ClawDEASettingsPanel {
     private val COMPLETION_MODEL_KEYS = arrayOf("sonnet", "haiku")
     val completionsModelCombo = ComboBox(DefaultComboBoxModel(COMPLETION_MODELS))
     val completionsDebounceField = JBTextField("300", 6)
+    val completionsManualOnlyCheckbox = JBCheckBox("Only request completions on hotkey (Trigger Inline Completion, default Alt+\\)", false).apply {
+        toolTipText = "When on, completions never fire automatically as you type — they are requested only when you invoke the \"Trigger Inline Completion\" action. Rebind the hotkey in Settings → Keymap."
+    }
     val toolApprovalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
         toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
         ToolApprovalModeUi.installRenderer(this)
@@ -205,6 +208,7 @@ class ClawDEASettingsPanel {
         .addComponent(completionsEnabledCheckbox, 1)
         .addLabeledComponent(JBLabel("Completions model:"), completionsModelCombo, 1, false)
         .addLabeledComponent(JBLabel("Completions debounce (ms):"), completionsDebounceField, 1, false)
+        .addComponent(completionsManualOnlyCheckbox, 1)
         .addLabeledComponent(JBLabel("Tool approval:"), toolApprovalCombo, 1, false)
         .addComponent(autoAcceptEditsCheckbox, 1)
         .addSeparator()
@@ -403,6 +407,7 @@ class ClawDEASettingsPanel {
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         selectCompletionsModel(state.completionsModel)
         completionsDebounceField.text = state.completionsDebounceMs.toString()
+        completionsManualOnlyCheckbox.isSelected = state.completionsManualOnly
         toolApprovalCombo.selectedIndex = ToolApprovalModeUi.indexForKey(state.toolApprovalMode)
         autoAcceptEditsCheckbox.isSelected = state.autoAcceptEdits
         bedrockRegionField.text = state.bedrockRegion
@@ -445,6 +450,7 @@ class ClawDEASettingsPanel {
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsModel = selectedCompletionsModelKey()
         state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
+        state.completionsManualOnly = completionsManualOnlyCheckbox.isSelected
         state.toolApprovalMode = ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex)
         state.autoAcceptEdits = autoAcceptEditsCheckbox.isSelected
         state.bedrockRegion = bedrockRegionField.text
@@ -484,6 +490,7 @@ class ClawDEASettingsPanel {
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             selectedCompletionsModelKey() != state.completionsModel ||
             completionsDebounceField.text != state.completionsDebounceMs.toString() ||
+            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly ||
             ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex) != state.toolApprovalMode ||
             autoAcceptEditsCheckbox.isSelected != state.autoAcceptEdits ||
             bedrockRegionField.text != state.bedrockRegion ||

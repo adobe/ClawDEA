@@ -503,6 +503,14 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
+        <action id="ClawDEA.TriggerCompletion"
+                class="com.adobe.clawdea.completions.TriggerCompletionAction"
+                text="Trigger Inline Completion"
+                description="Request a ClawDEA inline completion at the caret on demand (works with 'manual trigger only' mode)">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="alt BACK_SLASH"/>
+        </action>
+
         <action id="ClawDEA.ProfileRun" class="com.adobe.clawdea.profiling.ui.ProfilingRunAction"
             text="Run with ClawDEA Profiler" description="Profile the selected Run configuration">
             <add-to-group group-id="RunMenu" anchor="last"/>
