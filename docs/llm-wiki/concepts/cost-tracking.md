@@ -63,3 +63,7 @@
 - [TranscriptCostReader.kt](../../../src/main/kotlin/com/adobe/clawdea/cost/TranscriptCostReader.kt) — `readResumeCost`/`sumCost`: best-effort token-priced (`priceLine` → `ModelPricing`) transcript summing for resume seeding, de-duplicated by `message.id`; returns `ResumeCost(totalUsd, lastModel)`; `SessionScanner`-mirrored path scheme
 - [EventStreamHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/EventStreamHandler.kt) — `currentModel` seeded from `SystemInit`, then refreshed from each top-level `AssistantMessage.model`; per-turn footer, `recordTurn` on `Result`
 - [SessionManager.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/SessionManager.kt) — `seedFromResume` call site on resume; renders the resumed-session cost footer from the returned `ResumeCost`
+
+## Related
+
+- [Savings estimation](savings-estimation.md) — a parallel accounting path off the same turn events that estimates the ClawDEA-vs-standard-CC *delta* (signed savings/cost), sharing `CostSnapshotListener`, `ModelPricing`, the transcript-dedup approach, and the Cost Control panel. Knowledge upkeep is one of its measured levers.

@@ -18,7 +18,8 @@ The chat input supports two distinct completion mechanisms. **Mentions** (`@`) a
 - [IndexQueryHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/IndexQueryHandler.kt) — backs the `/callers`, `/usages`, `/implementations`, `/supertypes` slash commands
 
 ### Inline completions (Tab in editor)
-- [ClawDEACompletionProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/ClawDEACompletionProvider.kt) — IntelliJ `InlineCompletionProvider` registration
+- [ClawDEACompletionProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/ClawDEACompletionProvider.kt) — IntelliJ `DebouncedInlineCompletionProvider` registration; `isEnabled` gate
+- [TriggerCompletionAction.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/TriggerCompletionAction.kt) — the explicit hotkey/action ("Trigger Inline Completion", default `Alt+\`) that fires a `DirectCall` event
 - [CompletionPromptBuilder.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/CompletionPromptBuilder.kt) — assembles editor context (file, surrounding lines, imports)
 - [CompletionSanitizer.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/CompletionSanitizer.kt) — strips fences, trims to one suggestion
 - [ContextEngine.kt](../../../src/main/kotlin/com/adobe/clawdea/context/ContextEngine.kt) — gathers PSI / files / git / index context per `ContextProfile`
@@ -29,3 +30,4 @@ The chat input supports two distinct completion mechanisms. **Mentions** (`@`) a
 - `RefParser`'s `{[ref:...|...]}` syntax is **chat-only**. It must not be written into wiki markdown — concept pages use standard Markdown links.
 - `MentionAutocompleteManager.checkForMention` early-returns when the placeholder is showing; the placeholder is not user text and triggering the popup on it would emit ghost completions.
 - Inline completions hit the `ClaudeGateway` which prefers the direct Anthropic API when an API key is present, falling back to `claude -p`. Subscription users always go through the CLI fallback path.
+- **Manual-only mode** (`ClawDEASettings.state.completionsManualOnly`, off by default; toggle in Settings → the "Only request completions on hotkey" checkbox) suppresses *automatic* triggers so tokens are spent only when the user explicitly asks. `ClawDEACompletionProvider.isEnabled` returns false for any event that is not a manual trigger, where `isManualTrigger(event)` is `event is InlineCompletionEvent.DirectCall` (our own `TriggerCompletionAction` hotkey) **or** `InlineCompletionEvent.ManualCall` (the platform's built-in "Call Inline Completion"). Everything else — document changes, caret moves, focus, lookup — is automatic and dropped. This is independent of `completionsEnabled` (which switches the provider off entirely) — see issue #146.

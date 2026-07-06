@@ -20,6 +20,7 @@ Use these pages to ground reasoning before touching code. Invariants and resolut
 - [Mentions and completions](concepts/mentions-and-completions.md) — `@` autocomplete and inline completion gateway
 - [Gateway completions](concepts/gateway-completions.md) — direct API vs CLI fallback for latency-sensitive features
 - [Cost tracking and session model](concepts/cost-tracking.md) — per-turn spend accounting, resume seeding, captured model is display-only (never feeds `--model`)
+- [Savings estimation](concepts/savings-estimation.md) — ClawDEA-vs-standard-CC savings/cost delta, four levers, signed confidence bands
 - [Usage metrics](concepts/usage-metrics.md) — what turn/tool data is captured today, available event hooks, and gaps (no analytics subsystem exists)
 - [Subagents](concepts/subagents.md) — `Agent` tool dispatch, `parentToolUseId` card routing, static `--agents` definitions, per-agent tool allowlisting
 
