@@ -46,6 +46,52 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `page has a pinned bottom dock for active agents and the thinking indicator`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // Dock structure: a sticky container holding the active-agents stack
+        // and the thinking-indicator slot.
+        assertContains(html, "id=\"dock\"")
+        assertContains(html, "id=\"active-agents\"")
+        assertContains(html, "id=\"thinking-slot\"")
+        assertContains(html, "#dock {")
+        assertContains(html, "position: sticky;")
+    }
+
+    @Test
+    fun `active sub-agent cards start pinned in the dock`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // startActiveAgent appends the card into #active-agents (the pinned dock)
+        // rather than the scrolling message flow.
+        assertContains(html, "function startActiveAgent(html)")
+        assertContains(html, "getElementById('active-agents')")
+    }
+
+    @Test
+    fun `finished sub-agent card is released from the dock back into the flow`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // finalizeSubAgent collapses the card and moves it from the dock into
+        // #messages so it can scroll away only once finished + collapsed.
+        assertContains(html, "function finalizeSubAgent(parentId, summaryHtml)")
+        assertContains(html, "block.classList.remove('expanded')")
+        assertContains(html, "messages.appendChild(block)")
+    }
+
+    @Test
+    fun `thinking indicator is rendered into the pinned slot not the message flow`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        assertContains(html, "function showThinking()")
+        assertContains(html, "getElementById('thinking-slot')")
+    }
+
+    @Test
     fun `buildBridgeScripts includes all bridge functions`() {
         val template = ChatHtmlTemplate()
         val js = template.buildBridgeScripts(

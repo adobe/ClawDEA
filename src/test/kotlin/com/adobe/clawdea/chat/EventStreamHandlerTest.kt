@@ -45,6 +45,18 @@ class EventStreamHandlerTest {
     }
 
     @Test
+    fun `only null-parent text streams into the main bubble buffer`() {
+        // Main agent text (no parent) is buffered into the main bubble.
+        assertTrue(EventStreamHandler.isMainAgentStream(null))
+        // A depth-1 sub-agent's text carries the dispatching Agent's id — it
+        // must route to that card, not the main stream.
+        assertFalse(EventStreamHandler.isMainAgentStream("toolu_agent_1"))
+        // A deeper nested sub-agent we don't track a card for must also be kept
+        // out of the main stream (previously leaked and broke output mid-phrase).
+        assertFalse(EventStreamHandler.isMainAgentStream("toolu_nested_deep"))
+    }
+
+    @Test
     fun `tool result stall recovery waits for streaming running bridge and no newer progress`() {
         assertTrue(EventStreamHandler.shouldRecoverToolResultStall(
             isStreaming = true,

@@ -441,10 +441,34 @@ em { color: var(--subtext0); }
     margin-left: 8px;
 }
 
-/* Thinking indicator */
-#thinking-indicator {
+/* Bottom dock: pins live sub-agent panels and the thinking indicator to the
+   bottom of the viewport so ongoing activity is always visible. Active
+   sub-agent cards live in #active-agents (stacked when several run in
+   parallel); a card is released back into the normal message flow only once it
+   finishes and collapses (finalizeSubAgent). */
+#dock {
     position: sticky;
     bottom: 0;
+    z-index: 8;
+    background: var(--base);
+}
+#active-agents {
+    display: flex;
+    flex-direction: column;
+    max-height: 45vh;
+    overflow-y: auto;
+}
+#active-agents:not(:empty) {
+    padding-top: 4px;
+    border-top: 1px solid rgba(137, 180, 250, 0.12);
+}
+/* Stacked active cards keep a small gap; the last one has no bottom margin so
+   it sits flush above the thinking indicator. */
+#active-agents > .subagent-block { margin: 4px 0; }
+#active-agents > .subagent-block:first-child { margin-top: 0; }
+
+/* Thinking indicator — pinned by its #dock parent, no own sticky needed. */
+#thinking-indicator {
     background: var(--base);
 }
 .thinking-dots {
@@ -1002,6 +1026,10 @@ em { color: var(--subtext0); }
 <div id="goal-banner" style="display:none;"></div>
 <div id="messages">{{INITIAL_CONTENT}}</div>
 <script>if (document.getElementById('messages').children.length > 0) window.scrollTo(0, document.body.scrollHeight);</script>
+<div id="dock">
+  <div id="active-agents"></div>
+  <div id="thinking-slot"></div>
+</div>
 <div id="paused-banner" class="paused-banner" style="display:none;">
   &#9208; Paused &mdash; Enter to continue, type to steer, ESC to abort
 </div>
@@ -1009,8 +1037,15 @@ em { color: var(--subtext0); }
 function appendMessage(html) {
     var container = document.getElementById('messages');
     container.insertAdjacentHTML('beforeend', html);
-    var indicator = document.getElementById('thinking-indicator');
-    if (indicator) container.appendChild(indicator);
+    // The thinking indicator and active sub-agent cards live in the pinned
+    // #dock at the bottom of the page, so there is nothing to re-append here.
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+function startActiveAgent(html) {
+    var dock = document.getElementById('active-agents');
+    if (!dock) { appendMessage(html); return; }   // fallback: never lose the card
+    dock.insertAdjacentHTML('beforeend', html);
+    dock.scrollTop = dock.scrollHeight;
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function toggleToolBody(header) {
@@ -1039,6 +1074,10 @@ function appendIntoSubAgent(parentId, html) {
     if (!block) { appendMessage(html); return; }   // fallback: never lose content
     var children = block.querySelector('.subagent-children');
     if (children) children.insertAdjacentHTML('beforeend', html);
+    // If the card is still pinned in the dock, keep its newest step in view
+    // within the (independently scrollable) dock.
+    var dock = document.getElementById('active-agents');
+    if (dock && dock.contains(block)) { dock.scrollTop = dock.scrollHeight; }
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function updateSubAgentStatus(parentId, statusText) {
@@ -1055,6 +1094,15 @@ function finalizeSubAgent(parentId, summaryHtml) {
     var header = block.querySelector('.subagent-header');
     if (header) header.insertAdjacentHTML('afterend', summaryHtml);
     block.classList.remove('expanded');   // auto-collapse on completion
+    // Release the finished, collapsed card from the pinned dock back into the
+    // normal message flow so it scrolls away with the conversation. Only
+    // finished cards leave the dock — active ones stay pinned and visible.
+    var messages = document.getElementById('messages');
+    var dock = document.getElementById('active-agents');
+    if (messages && dock && dock.contains(block)) {
+        messages.appendChild(block);
+    }
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function toggleSubAgent(header) {
     var block = header.closest('.subagent-block');
@@ -1094,8 +1142,10 @@ function showThinking() {
         '<button class="thinking-control-btn" type="button" data-action="turn-pause" title="Pause response" aria-label="Pause response">' +
         '<span class="thinking-control-icon pause" aria-hidden="true"></span></button>' +
         '</div></div></div>';
-    var container = document.getElementById('messages');
-    container.insertAdjacentHTML('beforeend', html);
+    // The indicator lives in the pinned #dock (below any active sub-agent
+    // cards) so it stays visible while agents run and never scrolls off.
+    var slot = document.getElementById('thinking-slot') || document.getElementById('messages');
+    slot.insertAdjacentHTML('beforeend', html);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
 function hideThinking() {

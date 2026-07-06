@@ -201,18 +201,25 @@ class EventStreamHandler(
                 statusLabel.text = "Connected"
             }
             is CliEvent.TextDelta -> {
-                // Sub-agent reasoning tokens must not leak into the main bubble;
-                // the child `assistant` message carries the full text and is
-                // rendered into the sub-agent card instead.
-                if (subAgentController.parentCardFor(event.parentToolUseId) == null) {
+                // Only the main agent (null parent) streams into the shared main
+                // buffer. Any delta that carries a parent — a depth-1 sub-agent
+                // OR a deeper nested one whose card we don't track — must never
+                // leak into the main bubble: the child `assistant` message
+                // carries the full text and is rendered into its own card. This
+                // keeps parallel sub-agent output from corrupting the main
+                // stream mid-phrase.
+                if (isMainAgentStream(event.parentToolUseId)) {
                     messageBuffer.append(event.text)
                 }
             }
             is CliEvent.AssistantMessage -> {
                 val parentCard = subAgentController.parentCardFor(event.parentToolUseId)
                 if (parentCard != null) {
-                    // Inner content of a running sub-agent.
-                    if (messageBuffer.isNotEmpty()) messageBuffer.clear()  // guard: discard any buffered main-agent text before rendering inner content
+                    // Inner content of a running sub-agent. Do NOT touch the
+                    // main buffer here — a parallel main-agent phrase may be
+                    // mid-stream, and clearing it would truncate the main
+                    // output. Main text flushes in order at the next top-level
+                    // assistant message or at Result.
                     if (event.text.isNotBlank()) {
                         browserRenderer.appendIntoSubAgent(parentCard, renderer.renderAssistantText(event.text))
                     }
@@ -306,7 +313,11 @@ class EventStreamHandler(
                         val agentType = MessageRenderer.extractJsonString(toolUse.input, "subagent_type") ?: "agent"
                         val description = MessageRenderer.extractJsonString(toolUse.input, "description") ?: ""
                         subAgentController.register(toolUse.id, agentType, description, System.currentTimeMillis())
-                        browserRenderer.appendHtml(renderer.renderSubAgentCard(agentType, description, toolUse.id))
+                        // Live sub-agent cards are pinned in the bottom dock
+                        // (stacked when several run in parallel) so they stay
+                        // visible while active; finalizeSubAgent releases the
+                        // card back into the message flow once it completes.
+                        browserRenderer.startActiveAgent(renderer.renderSubAgentCard(agentType, description, toolUse.id))
                         continue
                     }
 
@@ -475,12 +486,17 @@ class EventStreamHandler(
                     goalController.onClear()
                     browserRenderer.hideGoalBanner()
                 }
-                // Any sub-agent still active at turn end was aborted/interrupted —
-                // finalize its card into an aborted state (stays expanded).
+                // Any sub-agent still active at turn end was aborted/interrupted.
+                // Finalize each card so it collapses and is released from the
+                // pinned bottom dock back into the normal message flow — an
+                // active card must never linger pinned after the turn ends.
                 for (id in subAgentController.activeIds()) {
                     val state = subAgentController.finalize(id, SubAgentController.Status.ABORTED)
                     if (state != null) {
-                        browserRenderer.updateSubAgentStatus(id, "&#9632; aborted")
+                        browserRenderer.finalizeSubAgent(
+                            id,
+                            renderer.renderSubAgentSummary(SubAgentController.Status.ABORTED, state.stepCount, ""),
+                        )
                     }
                 }
                 if (messageBuffer.isNotEmpty()) {
@@ -715,6 +731,18 @@ class EventStreamHandler(
                 currentProgressSequence,
                 observedProgressSequence,
             )
+
+        /**
+         * True when streamed text belongs to the main agent and may be appended
+         * to the shared main-bubble buffer. Only a null parent qualifies: any
+         * text carrying a `parent_tool_use_id` originates from a sub-agent
+         * (whether a depth-1 card we track or a deeper nested one we don't) and
+         * must be rendered into that agent's own panel — never merged into the
+         * main stream, which would break the main output mid-phrase when
+         * sub-agents run in parallel.
+         */
+        internal fun isMainAgentStream(parentToolUseId: String?): Boolean =
+            parentToolUseId == null
 
         internal fun isTurnProgressEvent(event: CliEvent): Boolean =
             when (event) {

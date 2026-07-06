@@ -84,7 +84,27 @@ class ChatBrowserRenderer(
     fun clearMessages() {
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript(
-            "document.getElementById('messages').innerHTML = '';",
+            """(function(){
+                document.getElementById('messages').innerHTML = '';
+                var dock = document.getElementById('active-agents');
+                if (dock) dock.innerHTML = '';
+                var thinking = document.getElementById('thinking-indicator');
+                if (thinking) thinking.remove();
+            })();""",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    /**
+     * Append a live sub-agent card into the pinned bottom dock (`#active-agents`).
+     * Cards stack there while active (multiple parallel agents) and stay visible
+     * regardless of scroll position. [finalizeSubAgent] moves a finished card
+     * back into the normal message flow.
+     */
+    fun startActiveAgent(html: String) {
+        if (!browserReady || html.isBlank()) return
+        browser.cefBrowser.executeJavaScript(
+            "startActiveAgent('${escapeForJs(html)}');",
             browser.cefBrowser.url, 0,
         )
     }
