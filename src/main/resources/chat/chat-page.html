@@ -1130,9 +1130,26 @@ function updateTaskWidget(html) {
     }
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
+var thinkingHeartbeat = null;
+function startThinkingHeartbeat() {
+    if (thinkingHeartbeat !== null) return;
+    // JCEF can stop compositing the pulsing dots during long, event-sparse
+    // stretches (e.g. a slow sub-agent that emits no events for a while). A
+    // periodic layout read forces a repaint so the activity hint keeps
+    // animating until the turn ends. Self-clears once the node is gone.
+    thinkingHeartbeat = setInterval(function () {
+        var el = document.getElementById('thinking-indicator');
+        if (!el) { stopThinkingHeartbeat(); return; }
+        void el.offsetHeight;
+    }, 1000);
+}
+function stopThinkingHeartbeat() {
+    if (thinkingHeartbeat !== null) { clearInterval(thinkingHeartbeat); thinkingHeartbeat = null; }
+}
 function showThinking() {
     if (document.getElementById('thinking-indicator')) {
         setTurnControlButton('pause');
+        startThinkingHeartbeat();
         return;
     }
     var html = '<div id="thinking-indicator" class="message">' +
@@ -1146,9 +1163,25 @@ function showThinking() {
     // cards) so it stays visible while agents run and never scrolls off.
     var slot = document.getElementById('thinking-slot') || document.getElementById('messages');
     slot.insertAdjacentHTML('beforeend', html);
+    startThinkingHeartbeat();
+    // Force JCEF to paint the freshly inserted node even when the view is
+    // already at the bottom (a no-op scrollTo won't trigger a redraw, so the
+    // dots can otherwise stay invisible until the next user scroll).
+    void document.body.offsetHeight;
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    requestAnimationFrame(function () { window.scrollBy(0, 0); });
+}
+function pokeThinking() {
+    // Re-assert the activity hint while the turn is still live: recreate it if a
+    // mid-turn restart/resume/stall path removed it, and nudge a repaint so the
+    // dots keep showing during a long sub-agent run. Callers gate this on the
+    // streaming state, so it never resurrects the hint after the turn ends.
+    if (!document.getElementById('thinking-indicator')) { showThinking(); return; }
+    startThinkingHeartbeat();
+    void document.body.offsetHeight;
 }
 function hideThinking() {
+    stopThinkingHeartbeat();
     var el = document.getElementById('thinking-indicator');
     if (!el) return;
     // Stop the pulse animation before removal — JCEF sometimes leaves the

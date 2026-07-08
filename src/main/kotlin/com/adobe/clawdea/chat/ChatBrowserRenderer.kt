@@ -135,6 +135,18 @@ class ChatBrowserRenderer(
         browser.cefBrowser.executeJavaScript("hideThinking();", browser.cefBrowser.url, 0)
     }
 
+    /**
+     * Re-assert the activity indicator while a turn is still live: recreates it
+     * if a mid-turn restart/resume/stall path removed it, and nudges a repaint so
+     * the dots keep showing during long, event-sparse sub-agent runs. Idempotent
+     * and cheap; callers must gate on streaming state so it can never resurrect
+     * the indicator after the turn ends.
+     */
+    fun pokeThinkingIndicator() {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript("pokeThinking();", browser.cefBrowser.url, 0)
+    }
+
     fun showPausedBanner() {
         if (!browserReady) return
         browser.cefBrowser.executeJavaScript("showPausedBanner();", browser.cefBrowser.url, 0)

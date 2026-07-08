@@ -92,6 +92,21 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `activity indicator can be re-asserted and self-heals during long turns`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // pokeThinking recreates the hint if a mid-turn path removed it.
+        assertContains(html, "function pokeThinking()")
+        assertContains(html, "{ showThinking(); return; }")
+        // A repaint heartbeat keeps JCEF compositing the dots during event-sparse
+        // stretches, and is cleaned up when the indicator is hidden.
+        assertContains(html, "function startThinkingHeartbeat()")
+        assertContains(html, "function stopThinkingHeartbeat()")
+        assertContains(html, "stopThinkingHeartbeat();")
+    }
+
+    @Test
     fun `buildBridgeScripts includes all bridge functions`() {
         val template = ChatHtmlTemplate()
         val js = template.buildBridgeScripts(

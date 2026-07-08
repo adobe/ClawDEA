@@ -195,6 +195,16 @@ class EventStreamHandler(
         if (isTurnProgressEvent(event)) {
             progressSequence += 1
         }
+        // Re-assert the activity indicator on any agent activity while the turn is
+        // still live. It is shown once at submit and removed at turn end, but
+        // several mid-session paths (resume, wake recovery, restart, stall) can
+        // drop it — and JCEF can stop painting it during a long sub-agent run —
+        // leaving activity with no visible hint. Poking on each message/tool
+        // result heals it without resurrecting it after the turn (Result is
+        // excluded and the gate is streaming && !paused).
+        if (shouldPokeIndicator(event, turnController.isStreaming, turnController.isPaused)) {
+            browserRenderer.pokeThinkingIndicator()
+        }
         when (event) {
             is CliEvent.SystemInit -> {
                 currentModel = event.model
@@ -743,6 +753,21 @@ class EventStreamHandler(
          */
         internal fun isMainAgentStream(parentToolUseId: String?): Boolean =
             parentToolUseId == null
+
+        /**
+         * True when an incoming event represents live agent activity that should
+         * re-assert the thinking/activity indicator. Coarse events only (a
+         * message or a tool result — never per-token [CliEvent.TextDelta], to
+         * avoid a JCEF round-trip per token), and only while the turn is actively
+         * streaming and not paused. [CliEvent.Result] is deliberately excluded:
+         * it ends the turn and hides the indicator, so poking on it would fight
+         * the hide. Sub-agent activity qualifies because its inner
+         * [CliEvent.AssistantMessage]/[CliEvent.ToolResult] events flow through
+         * here too, keeping the hint alive for the whole delegated run.
+         */
+        internal fun shouldPokeIndicator(event: CliEvent, isStreaming: Boolean, isPaused: Boolean): Boolean =
+            isStreaming && !isPaused &&
+                (event is CliEvent.AssistantMessage || event is CliEvent.ToolResult)
 
         internal fun isTurnProgressEvent(event: CliEvent): Boolean =
             when (event) {

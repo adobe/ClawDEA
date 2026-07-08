@@ -45,6 +45,37 @@ class EventStreamHandlerTest {
     }
 
     @Test
+    fun `activity indicator is re-asserted on messages and tool results while streaming`() {
+        // Coarse activity events re-assert the hint so it survives a long
+        // sub-agent run or a mid-session resume that dropped it.
+        assertTrue(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.AssistantMessage("", emptyList()), isStreaming = true, isPaused = false,
+        ))
+        assertTrue(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.ToolResult("toolu_1", ""), isStreaming = true, isPaused = false,
+        ))
+    }
+
+    @Test
+    fun `activity indicator is not poked per-token, when paused, or when idle`() {
+        // Per-token deltas would spam a JCEF round-trip — excluded.
+        assertFalse(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.TextDelta("hi"), isStreaming = true, isPaused = false,
+        ))
+        // Result ends the turn and hides the indicator — must not fight the hide.
+        assertFalse(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.Result("", false, 0.0, "session"), isStreaming = true, isPaused = false,
+        ))
+        // Never resurrect the hint after the turn ended or while paused.
+        assertFalse(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.AssistantMessage("", emptyList()), isStreaming = false, isPaused = false,
+        ))
+        assertFalse(EventStreamHandler.shouldPokeIndicator(
+            CliEvent.AssistantMessage("", emptyList()), isStreaming = true, isPaused = true,
+        ))
+    }
+
+    @Test
     fun `only null-parent text streams into the main bubble buffer`() {
         // Main agent text (no parent) is buffered into the main bubble.
         assertTrue(EventStreamHandler.isMainAgentStream(null))
