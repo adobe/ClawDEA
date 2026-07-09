@@ -41,6 +41,12 @@ class SessionManager(
     private val getDiscoveredSkills: () -> List<SkillInfo>,
     private val onResetUi: () -> Unit,
     private val onRestartAfterTerminal: (sessionId: String?) -> Unit,
+    /**
+     * Recover the (possibly frozen) chat view after a detected sleep/wake gap.
+     * Owned by [ChatPanel] because it must recreate the JBCefBrowser + swap the
+     * Swing component (issue #36); the manager only decides *when* to trigger it.
+     */
+    private val onWakeRecovery: () -> Unit,
 ) {
 
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(SessionManager::class.java)
@@ -175,18 +181,16 @@ class SessionManager(
      * a sleep/wake cycle.
      */
     fun onWakeDetected() {
-        // The JS-based health probe passes even when JCEF's rendering
-        // pipeline is frozen (JS engine ≠ compositor), so we can't rely on
-        // it as a gate. Two-step recovery (issue #36):
-        //   1. Kick the CEF compositor so post-wake JS-driven appends can
-        //      actually paint. This is the part that was missing — without
-        //      it, /refresh-view shows a fresh frame once but goes stale
-        //      again the moment new content arrives.
-        //   2. Reload the page with the latest history so the chat reflects
-        //      anything that happened during the suspend window.
-        log.info("view-health: wake detected, kicking compositor and reloading chat view")
-        browserRenderer.forceRedraw()
-        reloadAndReplay("wake-recovery")
+        // The JS-based health probe passes even when JCEF's rendering pipeline
+        // is frozen (JS engine ≠ compositor), so we can't rely on it as a gate.
+        // Soft compositor kicks (notifyScreenInfoChanged / wasResized /
+        // invalidate) don't recover a stuck OSR surface either — a page reload
+        // paints one fresh frame and then freezes again the moment new content
+        // arrives. The only reliable fix (issue #36) is to recreate the browser
+        // and replay history into the fresh surface, which [onWakeRecovery]
+        // (ChatPanel.recreateBrowserAndReplay) does.
+        log.info("view-health: wake detected, recreating chat view")
+        onWakeRecovery()
     }
 
     /**

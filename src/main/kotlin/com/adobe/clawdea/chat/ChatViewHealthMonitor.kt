@@ -35,9 +35,10 @@ internal object ChatViewHealthMonitor {
      * Any change between ticks indicates the user (un)plugged a monitor,
      * dragged the IDE window between displays with different DPI, or
      * resumed onto a different display layout than they slept on. JCEF's
-     * OSR backing surface does not pick those changes up on its own —
-     * we have to call notifyScreenInfoChanged + wasResized on the CEF
-     * browser, which is what ChatBrowserRenderer.forceRedraw() does.
+     * OSR backing surface does not pick those changes up on its own, and
+     * soft repaint kicks do not recover a frozen surface — the browser has
+     * to be torn down and recreated, which ChatPanel.recreateBrowserAndReplay
+     * does (issue #36).
      */
     data class DisplaySnapshot(
         val deviceId: String,

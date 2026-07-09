@@ -90,7 +90,14 @@ class ChatPanel(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ChatPanel::class.java)
 
-    private val browser: JBCefBrowser = JBCefBrowser()
+    // Wall-clock of the last browser recreation, to coalesce the suspend-gap and
+    // display-change detectors both firing on the same post-wake tick (issue #36).
+    private var lastBrowserRecreateAtMs = 0L
+
+    // var (not val) so the whole JBCefBrowser can be recreated when the JCEF
+    // compositor freezes after sleep/wake or a display change (issue #36). See
+    // [recreateBrowser].
+    private var browser: JBCefBrowser = JBCefBrowser()
 
     override val inputArea = JTextArea(3, 40).apply {
         lineWrap = true
@@ -116,10 +123,12 @@ class ChatPanel(
     private var currentMode = "Auto"
     private lateinit var modeButtons: Map<String, JToggleButton>
 
+    // JS→Kotlin bridges. All var (not val) so they can be recreated alongside
+    // the browser they are bound to (issue #36 — see [recreateBrowser]).
     // JS→Kotlin bridge for stop button in JCEF
-    private val abortQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var abortQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for the thinking pause/stop control
-    private val turnControlQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var turnControlQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     // Task widget
     private val taskWidget = TaskWidgetController()
@@ -127,26 +136,26 @@ class ChatPanel(
     private val goalController = GoalController()
 
     // JS→Kotlin bridge for opening diff editor from chat link
-    private val openDiffQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var openDiffQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for Layer 2 Accept/Reject button clicks
-    private val editActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var editActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     // Round-trip probe used by the view-health monitor to detect a frozen CEF renderer.
-    private val healthQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var healthQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for opening a file in the editor from Read links
-    private val openFileQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var openFileQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for navigating to code references in assistant text
-    private val navigateQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var navigateQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for Allow/Deny button clicks on permission approval cards
-    private val permissionDecisionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var permissionDecisionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for drift banner action clicks (refresh / dismiss)
-    private val driftActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var driftActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for clickable slash-command links inside chat messages.
     // Used by SessionManager's /seed-wiki suggestion and could power any future
     // "click here to run /foo" affordance.
-    private val runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
     // JS→Kotlin bridge for the wiki-git-state banner (fix / dismiss).
-    private val wikiGitStateActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+    private var wikiGitStateActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
 
     private val htmlTemplate = ChatHtmlTemplate()
     private val browserRenderer = ChatBrowserRenderer(
@@ -341,22 +350,6 @@ class ChatPanel(
         // Bottom: input + status
         add(createBottomPanel(), BorderLayout.SOUTH)
 
-        // Abort bridge: JS stopTool() → Kotlin abort()
-        abortQuery.addHandler {
-            ApplicationManager.getApplication().invokeLater { abort() }
-            JBCefJSQuery.Response("ok")
-        }
-
-        turnControlQuery.addHandler { action ->
-            ApplicationManager.getApplication().invokeLater {
-                when (action) {
-                    "pause" -> handleEscape()
-                    "stop" -> abort()
-                }
-            }
-            JBCefJSQuery.Response("ok")
-        }
-
         // Event stream handler: processes CLI events from the bridge
         eventHandler = EventStreamHandler(
             bridge = bridge,
@@ -444,14 +437,13 @@ class ChatPanel(
                     }
                 }
             },
+            onWakeRecovery = { recreateBrowserAndReplay("wake-recovery") },
         )
 
-        // Edit review bridges: openDiff and editAction JS queries
-        editReviewHandler.setupOpenDiffHandler(openDiffQuery)
-        editReviewHandler.setupEditActionHandler(editActionQuery)
-
-        // Permission approval bridge: Allow/Deny buttons from permission cards.
-        permissionRequestHandler.install(permissionDecisionQuery)
+        // Register all JS→Kotlin query handlers against the current bridge set.
+        // Factored out (and re-runnable) so [recreateBrowser] can rewire the
+        // handlers onto freshly created queries after a compositor recovery.
+        registerBrowserBridges()
 
         // Register this panel as a permission router so the project-level
         // McpServer can route `request_permission` calls to whichever panel
@@ -468,53 +460,6 @@ class ChatPanel(
             },
             dispatcher = permissionDispatcher,
         )
-
-        // Open-file bridge: Read tool links open the file in the editor
-        openFileQuery.addHandler { filePath ->
-            ApplicationManager.getApplication().invokeLater {
-                val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
-                if (vf != null) {
-                    FileEditorManager.getInstance(project).openFile(vf, true)
-                }
-            }
-            JBCefJSQuery.Response("ok")
-        }
-
-        // Navigate bridge: code reference links in assistant text
-        navigateQuery.addHandler { ref ->
-            ApplicationManager.getApplication().executeOnPooledThread {
-                navigateToRef(ref)
-            }
-            JBCefJSQuery.Response("ok")
-        }
-
-        // Drift banner action bridge: /refresh-wiki / dismiss clicks
-        driftActionQuery.addHandler { action ->
-            ApplicationManager.getApplication().invokeLater {
-                driftBanner.handleAction(action)
-            }
-            JBCefJSQuery.Response("ok")
-        }
-
-        // Wiki-git-state banner action bridge: fix / dismiss clicks
-        wikiGitStateActionQuery.addHandler { action ->
-            log.info("wiki-git-state action click received: action=$action")
-            ApplicationManager.getApplication().invokeLater {
-                wikiGitStateBanner.handleAction(action)
-            }
-            JBCefJSQuery.Response("ok")
-        }
-
-        // Slash-command link bridge: lets in-message links run a slash command
-        // verbatim through the standard send pipeline (queueing, expansion,
-        // dispatch). The JS side reads `data-slash` from the clicked element
-        // and passes its value here unchanged.
-        runSlashCommandQuery.addHandler { slash ->
-            if (!slash.isNullOrBlank() && slash.startsWith("/")) {
-                ApplicationManager.getApplication().invokeLater { submitCommand(slash) }
-            }
-            JBCefJSQuery.Response("ok")
-        }
 
         // Listen for drift detection events: update banner + emit auto-apply notifications.
         val driftService = project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
@@ -750,20 +695,21 @@ class ChatPanel(
                 // Display configuration change recovery (issue #36): when the
                 // user (un)plugs an external monitor or drags the IDE window
                 // between displays with different DPI, JCEF's OSR surface
-                // keeps its old screen info and renders at the wrong scale
-                // ("half resolution") until something forces a re-acquire.
-                // We sample the current GraphicsConfiguration here and kick
-                // the compositor whenever it changes. Reading
-                // graphicsConfiguration / its device + transform is
-                // thread-safe and cheap enough to run from the heartbeat
-                // dispatcher without bouncing through the EDT.
+                // freezes / renders at the wrong scale ("half resolution") and
+                // never recovers on its own. Soft kicks (notifyScreenInfoChanged
+                // / wasResized / invalidate) do not fix a stuck surface — like
+                // the IDE's own Markdown preview, only removing and recreating
+                // the browser does. We sample the current GraphicsConfiguration
+                // here and recreate the browser whenever it changes. Reading
+                // graphicsConfiguration / its device + transform is thread-safe
+                // and cheap enough to run from the heartbeat dispatcher.
                 val snapshot = runCatching { sampleDisplay() }.getOrNull()
                 if (snapshot != null && ChatViewHealthMonitor.isDisplayChanged(lastDisplay, snapshot)) {
                     log.info(
                         "view-health: display config changed " +
-                            "(was=$lastDisplay, now=$snapshot), kicking compositor",
+                            "(was=$lastDisplay, now=$snapshot), recreating browser",
                     )
-                    ApplicationManager.getApplication().invokeLater { browserRenderer.forceRedraw() }
+                    recreateBrowserAndReplay("display-change")
                 }
                 if (snapshot != null) lastDisplay = snapshot
             }
@@ -786,6 +732,157 @@ class ChatPanel(
             scaleY = tx.scaleY,
             bounds = gc.bounds,
         )
+    }
+
+    /**
+     * Register every JS→Kotlin query handler against the current bridge set.
+     * Called once from init and again from [recreateBrowser] after the queries
+     * are recreated. Every handler here must be idempotent w.r.t. re-running on
+     * a fresh query (each just installs a single handler on that query), and
+     * must not touch one-time wiring like the [PermissionRouterRegistry]
+     * registration, which lives in init.
+     */
+    private fun registerBrowserBridges() {
+        // Abort bridge: JS stopTool() → Kotlin abort()
+        abortQuery.addHandler {
+            ApplicationManager.getApplication().invokeLater { abort() }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Thinking pause/stop control
+        turnControlQuery.addHandler { action ->
+            ApplicationManager.getApplication().invokeLater {
+                when (action) {
+                    "pause" -> handleEscape()
+                    "stop" -> abort()
+                }
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Edit review bridges: openDiff and editAction JS queries
+        editReviewHandler.setupOpenDiffHandler(openDiffQuery)
+        editReviewHandler.setupEditActionHandler(editActionQuery)
+
+        // Permission approval bridge: Allow/Deny buttons from permission cards.
+        permissionRequestHandler.install(permissionDecisionQuery)
+
+        // Open-file bridge: Read tool links open the file in the editor
+        openFileQuery.addHandler { filePath ->
+            ApplicationManager.getApplication().invokeLater {
+                val vf = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
+                if (vf != null) {
+                    FileEditorManager.getInstance(project).openFile(vf, true)
+                }
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Navigate bridge: code reference links in assistant text
+        navigateQuery.addHandler { ref ->
+            ApplicationManager.getApplication().executeOnPooledThread {
+                navigateToRef(ref)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Drift banner action bridge: /refresh-wiki / dismiss clicks
+        driftActionQuery.addHandler { action ->
+            ApplicationManager.getApplication().invokeLater {
+                driftBanner.handleAction(action)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Wiki-git-state banner action bridge: fix / dismiss clicks
+        wikiGitStateActionQuery.addHandler { action ->
+            log.info("wiki-git-state action click received: action=$action")
+            ApplicationManager.getApplication().invokeLater {
+                wikiGitStateBanner.handleAction(action)
+            }
+            JBCefJSQuery.Response("ok")
+        }
+
+        // Slash-command link bridge: lets in-message links run a slash command
+        // verbatim through the standard send pipeline (queueing, expansion,
+        // dispatch). The JS side reads `data-slash` from the clicked element
+        // and passes its value here unchanged.
+        runSlashCommandQuery.addHandler { slash ->
+            if (!slash.isNullOrBlank() && slash.startsWith("/")) {
+                ApplicationManager.getApplication().invokeLater { submitCommand(slash) }
+            }
+            JBCefJSQuery.Response("ok")
+        }
+    }
+
+    /**
+     * Recover a frozen JCEF surface (issue #36) by disposing the stuck
+     * [JBCefBrowser] and building a fresh one — the only reliable fix for a
+     * dead OSR compositor after sleep/wake or a display change (soft kicks like
+     * `wasResized`/`invalidate` don't recover it; this mirrors how the IDE's
+     * Markdown preview only unfreezes when its panel is recreated). Rebinds the
+     * stable [browserRenderer] onto the new browser so collaborators keep their
+     * reference, swaps the component into the layout, and re-registers the JS
+     * bridges. The caller is responsible for repopulating the page (via
+     * [reloadAndReplay]); see [recreateBrowserAndReplay]. Must run on the EDT.
+     */
+    private fun recreateBrowser() {
+        val oldBrowser = browser
+        val oldComponent = oldBrowser.component
+
+        // Build a fresh browser + JS query bridges. Disposing oldBrowser below
+        // cascades to the old queries (created as its Disposer children), so we
+        // only reassign the fields to the new instances here.
+        browser = JBCefBrowser()
+        abortQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        turnControlQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        openDiffQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        editActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        healthQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        openFileQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        navigateQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        permissionDecisionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        driftActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        runSlashCommandQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+        wikiGitStateActionQuery = JBCefJSQuery.create(browser as JBCefBrowserBase)
+
+        browserRenderer.rebind(
+            browser, abortQuery, turnControlQuery, openDiffQuery, editActionQuery,
+            healthQuery, openFileQuery, navigateQuery, permissionDecisionQuery,
+            driftActionQuery, runSlashCommandQuery, wikiGitStateActionQuery,
+        )
+        registerBrowserBridges()
+
+        // Swap the dead component out of the center slot for the fresh one.
+        remove(oldComponent)
+        add(browser.component, BorderLayout.CENTER)
+        revalidate()
+        repaint()
+
+        // Disposing the old browser also disposes its child JS queries.
+        oldBrowser.dispose()
+    }
+
+    /**
+     * EDT-safe recovery entry point: recreate the frozen browser and replay the
+     * session history into the fresh surface. Coalesces bursts (a sleep/wake
+     * often fires both the suspend-gap and display-change detectors on the same
+     * tick) unless [force] is set (the manual `/refresh-view` path always
+     * recreates).
+     */
+    fun recreateBrowserAndReplay(reason: String, force: Boolean = false) {
+        ApplicationManager.getApplication().invokeLater {
+            val now = System.currentTimeMillis()
+            if (!force && now - lastBrowserRecreateAtMs < BROWSER_RECREATE_COALESCE_MS) {
+                log.info("view-health: recreate ($reason) coalesced; replaying only")
+                sessionManager.reloadAndReplay(reason)
+                return@invokeLater
+            }
+            lastBrowserRecreateAtMs = now
+            log.info("view-health: recreating browser ($reason)")
+            recreateBrowser()
+            sessionManager.reloadAndReplay(reason)
+        }
     }
 
     // ── Title bar ──────────────────────────────────────────────────
@@ -1136,11 +1233,12 @@ class ChatPanel(
         commandRegistry.register("/refresh-view", LocalHandler(
             CommandInfo("/refresh-view", "Rebuild the chat view from session history", CommandCategory.LOCAL),
         ) { _, _ ->
-            // Kick the JCEF compositor first (issue #36): on its own, a page
-            // reload only paints once and then the surface freezes again
-            // because the post-wake CEF rendering loop never recovers.
-            browserRenderer.forceRedraw()
-            sessionManager.reloadAndReplay("manual")
+            // Recreate the JCEF browser and replay history (issue #36): on its
+            // own, a page reload only paints once and then the surface freezes
+            // again because the post-wake CEF compositor never recovers — the
+            // stuck native browser has to be torn down and rebuilt. force=true
+            // so the manual command always rebuilds, bypassing burst coalescing.
+            recreateBrowserAndReplay("manual", force = true)
         })
 
         commandRegistry.register("/mode", LocalHandler(
@@ -2264,6 +2362,11 @@ class ChatPanel(
         // value (200K Sonnet vs 1M Opus 4.7). The CLI's auto-compaction kicks in
         // around ~80% of the actual window.
         private const val DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
+
+        // Coalesce window for browser recreation (issue #36): a sleep/wake often
+        // trips both the suspend-gap and display-change detectors on the same
+        // heartbeat tick, and we only want to rebuild the surface once.
+        private const val BROWSER_RECREATE_COALESCE_MS = 5000L
 
         private val GOAL_CLEAR_ALIASES = setOf("clear", "stop", "off", "reset", "none", "cancel")
 

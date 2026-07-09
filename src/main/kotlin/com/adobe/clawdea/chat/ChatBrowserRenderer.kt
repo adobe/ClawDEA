@@ -19,26 +19,57 @@ import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
 
 class ChatBrowserRenderer(
-    private val browser: JBCefBrowser,
+    browser: JBCefBrowser,
     private val template: ChatHtmlTemplate,
-    private val abortQuery: JBCefJSQuery,
-    private val turnControlQuery: JBCefJSQuery,
-    private val openDiffQuery: JBCefJSQuery,
-    private val editActionQuery: JBCefJSQuery,
-    private val healthQuery: JBCefJSQuery,
-    private val openFileQuery: JBCefJSQuery,
-    private val navigateQuery: JBCefJSQuery,
-    private val permissionDecisionQuery: JBCefJSQuery,
-    private val driftActionQuery: JBCefJSQuery,
-    private val runSlashCommandQuery: JBCefJSQuery,
-    private val wikiGitStateActionQuery: JBCefJSQuery,
+    abortQuery: JBCefJSQuery,
+    turnControlQuery: JBCefJSQuery,
+    openDiffQuery: JBCefJSQuery,
+    editActionQuery: JBCefJSQuery,
+    healthQuery: JBCefJSQuery,
+    openFileQuery: JBCefJSQuery,
+    navigateQuery: JBCefJSQuery,
+    permissionDecisionQuery: JBCefJSQuery,
+    driftActionQuery: JBCefJSQuery,
+    runSlashCommandQuery: JBCefJSQuery,
+    wikiGitStateActionQuery: JBCefJSQuery,
 ) {
+    // The browser and its JS bridges are swappable so the whole JBCefBrowser
+    // can be recreated when the JCEF compositor freezes after sleep/wake or a
+    // display change (issue #36) — soft "kick" signals (notifyScreenInfoChanged
+    // / wasResized / invalidate) do not recover a stuck OSR surface; only a
+    // fresh native browser does. This renderer keeps its identity across the
+    // swap so collaborators that hold a reference to it (EventStreamHandler,
+    // SessionManager, banners) keep working; [ChatPanel.recreateBrowser] builds
+    // the new browser + queries and calls [rebind].
+    private var browser = browser
+    private var abortQuery = abortQuery
+    private var turnControlQuery = turnControlQuery
+    private var openDiffQuery = openDiffQuery
+    private var editActionQuery = editActionQuery
+    private var healthQuery = healthQuery
+    private var openFileQuery = openFileQuery
+    private var navigateQuery = navigateQuery
+    private var permissionDecisionQuery = permissionDecisionQuery
+    private var driftActionQuery = driftActionQuery
+    private var runSlashCommandQuery = runSlashCommandQuery
+    private var wikiGitStateActionQuery = wikiGitStateActionQuery
+
     var browserReady = false
         private set
 
     private val pendingHtml = ArrayDeque<String>(MAX_PENDING)
 
     init {
+        attachLoadHandler()
+    }
+
+    /**
+     * Register the load handler that injects the JS↔Kotlin bridge scripts and
+     * drains any HTML buffered while the page was loading. Runs against the
+     * current [browser]/query fields, so it is re-invoked after [rebind] swaps
+     * in a freshly created browser.
+     */
+    private fun attachLoadHandler() {
         browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
             override fun onLoadEnd(cefBrowser: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                 browserReady = true
@@ -64,6 +95,43 @@ class ChatBrowserRenderer(
                 }
             }
         }, browser.cefBrowser)
+    }
+
+    /**
+     * Swap in a freshly created [newBrowser] and its JS-query bridges after the
+     * old JCEF compositor froze (issue #36). Resets readiness and re-attaches
+     * the load handler; the caller must then call [loadPage] to populate the
+     * new surface (e.g. `SessionManager.reloadAndReplay`). Must run on the EDT.
+     */
+    fun rebind(
+        newBrowser: JBCefBrowser,
+        abortQuery: JBCefJSQuery,
+        turnControlQuery: JBCefJSQuery,
+        openDiffQuery: JBCefJSQuery,
+        editActionQuery: JBCefJSQuery,
+        healthQuery: JBCefJSQuery,
+        openFileQuery: JBCefJSQuery,
+        navigateQuery: JBCefJSQuery,
+        permissionDecisionQuery: JBCefJSQuery,
+        driftActionQuery: JBCefJSQuery,
+        runSlashCommandQuery: JBCefJSQuery,
+        wikiGitStateActionQuery: JBCefJSQuery,
+    ) {
+        browserReady = false
+        pendingHtml.clear()
+        this.browser = newBrowser
+        this.abortQuery = abortQuery
+        this.turnControlQuery = turnControlQuery
+        this.openDiffQuery = openDiffQuery
+        this.editActionQuery = editActionQuery
+        this.healthQuery = healthQuery
+        this.openFileQuery = openFileQuery
+        this.navigateQuery = navigateQuery
+        this.permissionDecisionQuery = permissionDecisionQuery
+        this.driftActionQuery = driftActionQuery
+        this.runSlashCommandQuery = runSlashCommandQuery
+        this.wikiGitStateActionQuery = wikiGitStateActionQuery
+        attachLoadHandler()
     }
 
     fun loadPage(initialContent: String = "") {
@@ -372,49 +440,6 @@ class ChatBrowserRenderer(
             "updateTaskWidget('${escapeForJs(html)}');",
             browser.cefBrowser.url, 0,
         )
-    }
-
-    /**
-     * Recover from a frozen JCEF compositor without disturbing the page DOM.
-     *
-     * Symptoms this addresses (issue #36):
-     *  - After laptop sleep/wake, the page keeps receiving JS updates but the
-     *    visible surface stops repainting. `loadHTML` papers over it for one
-     *    frame because navigation forces a full repaint, but subsequent
-     *    JS-driven appends never reach the screen again.
-     *  - After plugging/unplugging an external monitor, the OSR backing
-     *    surface keeps its old DPI scale and renders at "half resolution".
-     *
-     * The CEF native browser exposes three signals that, together, force the
-     * rendering pipeline to re-acquire screen info and emit a fresh frame:
-     *  - [org.cef.browser.CefBrowser.notifyScreenInfoChanged] re-reads the
-     *    DPI/scale of the current GraphicsConfiguration.
-     *  - [org.cef.browser.CefBrowser.wasResized] makes CEF treat the OSR
-     *    surface as if it had just been resized, which restarts its paint
-     *    loop on both OSR and windowed variants.
-     *  - [org.cef.browser.CefBrowser.invalidate] requests a full repaint of
-     *    the current viewport, which is what we ultimately need.
-     *
-     * On older JCEF builds where any of these methods may behave as no-ops,
-     * the calls are wrapped in `runCatching` so a missing-method failure
-     * never blocks the recovery sequence. The Swing pass at the end is
-     * always run — it ensures the AWT peer notices any GraphicsConfiguration
-     * change too.
-     */
-    fun forceRedraw() {
-        val cef = browser.cefBrowser
-        val component = browser.component
-        runCatching { cef.notifyScreenInfoChanged() }
-        val w = component.width
-        val h = component.height
-        if (w > 0 && h > 0) {
-            runCatching { cef.wasResized(w, h) }
-        }
-        runCatching { cef.invalidate() }
-
-        component.invalidate()
-        component.parent?.revalidate()
-        component.repaint()
     }
 
     companion object {
