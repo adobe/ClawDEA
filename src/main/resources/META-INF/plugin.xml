@@ -123,6 +123,13 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
   <li><b>Refines on resume.</b> Live sessions show a conservative floor (per-subagent costs aren&rsquo;t observable mid-stream); reopening a conversation reconstructs the full session from its transcript for a sharper estimate.</li>
   <li><b>Knowledge upkeep moved.</b> The standalone &ldquo;Knowledge upkeep&rdquo; card is now a line inside the new section, so its cost is netted in one place instead of shown separately.</li>
 </ul>
+<h4>Fixes and polish</h4>
+<ul>
+  <li><b>The activity hint stays put during long and parallel work.</b> The pulsing &ldquo;Thinking&rdquo; dots no longer vanish mid-turn &mdash; they are re-asserted on each message and tool result and kept animating through long, quiet stretches, so a slow or parallel sub-agent run always shows that something is happening.</li>
+  <li><b>Chat view recovers after sleep or a display change.</b> When the machine wakes from sleep or you (un)plug a monitor or move the window between displays, the chat could freeze or render at half resolution and never recover. ClawDEA now rebuilds the view automatically (and <code>/refresh-view</code> forces it), replaying the conversation into a fresh, responsive surface.</li>
+  <li><b>Cost Control numbers reconcile and always show.</b> The savings section now adds up &mdash; estimated per-lever savings, measured upkeep, and a single &ldquo;Overall&rdquo; bottom line &mdash; and the all-projects, all-time aggregates show immediately on a brand-new chat instead of asking you to run a few turns first.</li>
+  <li><b>IDE index-tools savings are no longer stuck at $0.00.</b> The first file read that the IDE index avoids is now priced at the full input rate (not the cache rate), so the estimated saving from index tools reflects the real cost avoided.</li>
+</ul>
 
 <h3>1.8.1</h3>
 <h4>Windows: chat starts reliably again</h4>
