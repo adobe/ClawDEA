@@ -123,6 +123,11 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
   <li><b>Refines on resume.</b> Live sessions show a conservative floor (per-subagent costs aren&rsquo;t observable mid-stream); reopening a conversation reconstructs the full session from its transcript for a sharper estimate.</li>
   <li><b>Knowledge upkeep moved.</b> The standalone &ldquo;Knowledge upkeep&rdquo; card is now a line inside the new section, so its cost is netted in one place instead of shown separately.</li>
 </ul>
+<h4>Spend tokens on completions only when you ask</h4>
+<ul>
+  <li><b>Manual completion hotkey.</b> A new <b>Trigger Inline Completion</b> action (default <b>Alt+\</b>, &#8997;\ on macOS) requests a suggestion on demand &mdash; it always works, even with automatic completions on. Rebind it in <b>Settings &rarr; Keymap &rarr; &ldquo;Trigger Inline Completion&rdquo;</b>.</li>
+  <li><b>Optional manual-only mode.</b> Enable <b>&ldquo;Only request completions on hotkey&rdquo;</b> in Settings to suppress as-you-type completions entirely, so API tokens are spent only when you press the hotkey. Off by default &mdash; automatic completions are unchanged unless you opt in.</li>
+</ul>
 <h4>Fixes and polish</h4>
 <ul>
   <li><b>The activity hint stays put during long and parallel work.</b> The pulsing &ldquo;Thinking&rdquo; dots no longer vanish mid-turn &mdash; they are re-asserted on each message and tool result and kept animating through long, quiet stretches, so a slow or parallel sub-agent run always shows that something is happening.</li>
