@@ -167,67 +167,87 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         return sign + "$" + String.format(Locale.US, "%.2f", kotlin.math.abs(v))
     }
 
-    private fun rangeText(b: com.adobe.clawdea.cost.SavingsBand): String =
+    private fun rangeText(b: SavingsBand): String =
         "${money2signed(b.low)} … ${money2signed(b.high)}"
 
-    private fun leverLabel(id: com.adobe.clawdea.cost.LeverId) = when (id) {
-        com.adobe.clawdea.cost.LeverId.LIBRARIAN -> "Librarian routing"
-        com.adobe.clawdea.cost.LeverId.INDEX_TOOLS -> "IDE index tools"
-        com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP -> "Knowledge upkeep"
-        com.adobe.clawdea.cost.LeverId.PRIMER_OVERHEAD -> "Primer overhead"
+    /** "  (±X.XX)" half-width annotation for a band. */
+    private fun pmText(b: SavingsBand): String =
+        "  (±" + String.format(Locale.US, "%.2f", kotlin.math.abs(b.high - b.low) / 2.0) + ")"
+
+    private fun leverLabel(id: LeverId) = when (id) {
+        LeverId.LIBRARIAN -> "Librarian routing"
+        LeverId.INDEX_TOOLS -> "IDE index tools"
+        LeverId.KNOWLEDGE_UPKEEP -> "Knowledge upkeep"
+        LeverId.PRIMER_OVERHEAD -> "Primer overhead"
     }
 
+    /**
+     * ClawDEA savings/cost card. Reconciles two axes that used to float side by side with no
+     * relationship (which is why the figures "didn't add up"):
+     *   - ESTIMATED savings vs standard Claude Code (Librarian + IDE index + Primer overhead),
+     *     which sum to the estimated net. Primer overhead has no per-lever store, so its all-time
+     *     value is derived as `net − (librarian + index)` — making the section add up exactly.
+     *   - MEASURED extra cost ClawDEA actually incurred (knowledge upkeep dollars from CostTracker).
+     * The two combine into a single "Overall (all time)" bottom line, so every number on the card
+     * belongs to a visible total.
+     *
+     * All global figures (levers, net, upkeep, overall, this month) render UNCONDITIONALLY so a
+     * freshly opened chat still shows the accumulated all-projects history; only the per-chat row
+     * is gated behind the "collecting…" state (it genuinely needs turns in THIS chat).
+     */
     private fun savingsCard(costSnap: CostSnapshot): JComponent {
-        val tracker = com.adobe.clawdea.cost.SavingsTracker.getInstance(project)
+        val tracker = SavingsTracker.getInstance(project)
         val snap = tracker.snapshot(chatId)
-        // Fold measured knowledge-upkeep dollars (from the existing CostSnapshot) into the
-        // displayed cost breakdown so it lives inside this one section, never a separate card.
+
+        val librarian = snap.leverBands[LeverId.LIBRARIAN] ?: SavingsBand.ZERO
+        val indexTools = snap.leverBands[LeverId.INDEX_TOOLS] ?: SavingsBand.ZERO
+        // Measured, already-incurred, all-projects/all-time wiki+workspace upkeep (>= 0).
         val upkeep = costSnap.knowledgeUsd.values.sum()
-        val title = if (snap.isNetSaving) "ClawDEA Estimated Savings" else "ClawDEA Estimated Cost"
+        val allTimeNet = snap.cumulative.allTime.expected
+        // Derived so the estimate reconciles: net == librarian + index + primer (the knowledge
+        // lever is measured separately and contributes 0 to the estimated cumulative).
+        val primerAllTime = allTimeNet - (librarian.expected + indexTools.expected)
+        // The honest bottom line: estimated savings minus the real upkeep dollars.
+        val overall = allTimeNet - upkeep
+
+        val hasGlobalData = upkeep != 0.0 || allTimeNet != 0.0 ||
+            librarian.expected != 0.0 || indexTools.expected != 0.0 ||
+            snap.cumulative.mtd.expected != 0.0
+
+        val title = if (overall >= 0.0) "ClawDEA Estimated Savings" else "ClawDEA Estimated Cost"
         return card(title) { body ->
-            // Knowledge upkeep is a MEASURED, already-incurred global cost (all-projects wiki/workspace
-            // maintenance). It renders UNCONDITIONALLY — never hidden behind the estimate's "collecting"
-            // state — because a real, non-estimated cost must always be visible, even before the savings
-            // estimate has enough turns to show a figure.
-            body.add(sectionLabel("Measured cost (all projects)"))
-            body.add(kvRow("  Knowledge upkeep", money2signed(-upkeep)))
-
-            // Estimated levers are global (all projects) — show whenever we have data, not gated
-            // on this chat's turn count and not limited to the last turn's components.
-            val savedLevers = listOf(
-                com.adobe.clawdea.cost.LeverId.LIBRARIAN,
-                com.adobe.clawdea.cost.LeverId.INDEX_TOOLS,
-            )
-            val hasSavedLeverData = savedLevers.any { (snap.leverBands[it] ?: com.adobe.clawdea.cost.SavingsBand.ZERO).expected != 0.0 }
-            if (hasSavedLeverData) {
-                body.add(sectionLabel("Saved (all projects)"))
-                for (id in savedLevers) {
-                    val band = snap.leverBands[id] ?: com.adobe.clawdea.cost.SavingsBand.ZERO
-                    val pm = String.format(Locale.US, "%.2f", (band.high - band.low) / 2.0)
-                    body.add(kvRow("  " + leverLabel(id), money2signed(band.expected) + "  (±$pm)"))
-                }
-            }
-
-            if (snap.isCollecting) {
+            if (!hasGlobalData && snap.isCollecting) {
                 body.add(mutedLabel("Savings estimate: collecting… run a few turns."))
                 return@card
             }
-            // Scope rows.
-            body.add(kvRow("This chat", money2signed(snap.sessionBand.expected), bold = true))
-            body.add(mutedLabel("  " + rangeText(snap.sessionBand)))
-            body.add(kvRow("This month", money2signed(snap.cumulative.mtd.expected)))
-            body.add(kvRow("All time", money2signed(snap.cumulative.allTime.expected)))
+
+            // Estimated savings vs standard CC (all projects, all time). These three sum to the net.
+            body.add(sectionLabel("Estimated vs standard Claude Code · all projects"))
+            body.add(kvRow("  " + leverLabel(LeverId.LIBRARIAN), money2signed(librarian.expected) + pmText(librarian)))
+            body.add(kvRow("  " + leverLabel(LeverId.INDEX_TOOLS), money2signed(indexTools.expected) + pmText(indexTools)))
+            body.add(kvRow("  " + leverLabel(LeverId.PRIMER_OVERHEAD), money2signed(primerAllTime)))
+            body.add(kvRow("  Estimated net (all time)", money2signed(allTimeNet), bold = true))
             body.add(mutedLabel("  since ${snap.cumulative.sinceDate.ifBlank { "—" }}"))
 
-            body.add(sectionLabel("Cost (this chat)"))
-            for (c in snap.components.filter { it.measured && it.leverId != com.adobe.clawdea.cost.LeverId.KNOWLEDGE_UPKEEP }) {
-                body.add(kvRow("  " + leverLabel(c.leverId), money2signed(c.band.expected)))
-            }
+            // Measured extra cost ClawDEA incurred (real dollars, not an estimate).
+            body.add(sectionLabel("Measured upkeep · all projects"))
+            body.add(kvRow("  " + leverLabel(LeverId.KNOWLEDGE_UPKEEP), money2signed(-upkeep)))
 
-            // Net = this chat's estimated session band only.
-            val conf = com.adobe.clawdea.cost.SavingsEstimator.confidence(snap.sessionBand)
-            val confLabel = if (conf == com.adobe.clawdea.cost.Confidence.ESTIMATE) "estimate" else "rough estimate"
-            body.add(kvRow("Net (expected)", money2signed(snap.sessionBand.expected) + " · $confLabel", bold = true))
+            // Reconciled bottom line: estimated net minus measured upkeep.
+            body.add(kvRow("Overall (all time)", money2signed(overall), bold = true))
+
+            // Narrower estimated scopes. "This month" is global (always shown); "This chat" needs
+            // turns in this tab, so it falls back to the collecting note until there are enough.
+            body.add(sectionLabel("By scope (estimated)"))
+            body.add(kvRow("  This month", money2signed(snap.cumulative.mtd.expected)))
+            if (snap.isCollecting) {
+                body.add(mutedLabel("  This chat: collecting… run a few turns."))
+            } else {
+                val conf = SavingsEstimator.confidence(snap.sessionBand)
+                val confLabel = if (conf == Confidence.ESTIMATE) "estimate" else "rough estimate"
+                body.add(kvRow("  This chat", money2signed(snap.sessionBand.expected) + " · $confLabel"))
+                body.add(mutedLabel("    " + rangeText(snap.sessionBand)))
+            }
 
             val reset = JButton("Reset all-time").apply {
                 isOpaque = false
