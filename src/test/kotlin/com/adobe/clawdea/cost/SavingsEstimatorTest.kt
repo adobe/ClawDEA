@@ -101,6 +101,41 @@ class SavingsEstimatorTest {
     }
 
     @Test
+    fun `index tools price the first read at full input rate not cache rate`() {
+        // Regression: this lever was priced entirely at cache-read rate (0.1x),
+        // so a typical call was a fraction of a cent and always rounded to $0.00.
+        // The first read into the main context is real full-rate input.
+        val tokens = 12_000
+        val obs = TurnObservation(
+            model = "claude-opus-4-8", // Opus input $5/MTok → $5e-6 / token
+            remainingTurns = 0,        // no re-rides: expected is exactly the first read
+            indexTools = listOf(IndexToolObservation("find_usages", hitCount = 5, hitFilesTokens = tokens)),
+        )
+        val perInputToken = 5.0 / 1_000_000.0
+        val fullRateFirstRead = tokens * perInputToken // $0.06
+        val c = SavingsEstimator.indexTools(obs)
+        assertEquals(fullRateFirstRead, c.band.expected, 1e-9)
+        // A meaningful, non-rounding-to-zero figure (10x the old cache-rate value).
+        assert(c.band.expected >= 0.01) { "index-tools saving should be visible, was ${c.band.expected}" }
+    }
+
+    @Test
+    fun `index tools add cache-rate re-rides for the remaining turns`() {
+        val tokens = 10_000
+        val base = TurnObservation(
+            model = "claude-opus-4-8",
+            remainingTurns = 0,
+            indexTools = listOf(IndexToolObservation("find_symbol", hitCount = 2, hitFilesTokens = tokens)),
+        )
+        val withReRides = base.copy(remainingTurns = 3)
+        val perInputToken = 5.0 / 1_000_000.0
+        val cacheRead = perInputToken * ModelPricing.CACHE_READ_MULTIPLIER
+        val delta = SavingsEstimator.indexTools(withReRides).band.expected -
+            SavingsEstimator.indexTools(base).band.expected
+        assertEquals(tokens * cacheRead * 3, delta, 1e-9)
+    }
+
+    @Test
     fun `primer overhead is a measured cost`() {
         val obs = TurnObservation(
             model = "claude-opus-4-8",

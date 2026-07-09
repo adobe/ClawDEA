@@ -57,19 +57,32 @@ object SavingsEstimator {
     }
 
     /**
-     * Lever 2 — IDE index tools replacing grep + reads. Avoided = the token size of the hit files
-     * the tool surfaced (low = 1 file's worth, expected = all hits, high = all hits + a grep scan
-     * pass). Priced at cache-read rate (those reads would have ridden the main context).
+     * Lever 2 — IDE index tools replacing grep + reads. Standard CC would grep and then read the
+     * hit files INTO THE MAIN CONTEXT: the first read at full input rate (same as the librarian
+     * counterfactual), then re-ridden on later turns at cache-read rate. ClawDEA's index tool
+     * returns a compact result instead, so the avoided cost is the first read plus the re-rides.
+     *
+     * Band: low = one hit's first read (full rate, no re-rides); expected = all hits' first read
+     * plus re-rides over the remaining turns at cache-read rate; high = expected scaled by the
+     * grep-scan factor (the avoided full-tree scan pass).
+     *
+     * NOTE: pricing the first read at cache-read rate (0.1x) previously made a typical call worth a
+     * fraction of a cent, so this lever always rounded to $0.00 — the first read is real, full-rate
+     * input, not a cache hit.
      */
     fun indexTools(obs: TurnObservation): SavingsComponent {
         if (obs.indexTools.isEmpty()) return SavingsComponent(LeverId.INDEX_TOOLS, SavingsBand.ZERO, measured = false)
-        val cacheRead = (ModelPricing.rateFor(obs.model).inputPerM / 1_000_000.0) * ModelPricing.CACHE_READ_MULTIPLIER
+        val perInputToken = ModelPricing.rateFor(obs.model).inputPerM / 1_000_000.0
+        val cacheRead = perInputToken * ModelPricing.CACHE_READ_MULTIPLIER
+        val reRides = obs.remainingTurns.coerceAtLeast(0)
         var band = SavingsBand.ZERO
         for (t in obs.indexTools) {
-            val perHit = if (t.hitCount > 0) t.hitFilesTokens.toDouble() / t.hitCount else t.hitFilesTokens.toDouble()
-            val low = perHit * cacheRead
-            val expected = t.hitFilesTokens * cacheRead
-            val high = t.hitFilesTokens * cacheRead * GREP_SCAN_FACTOR
+            val firstReadAll = t.hitFilesTokens * perInputToken
+            val firstReadOne = if (t.hitCount > 0) (t.hitFilesTokens.toDouble() / t.hitCount) * perInputToken else firstReadAll
+            val reRideExpected = t.hitFilesTokens * cacheRead * reRides
+            val low = firstReadOne
+            val expected = firstReadAll + reRideExpected
+            val high = expected * GREP_SCAN_FACTOR
             band += SavingsBand(low, expected, high)
         }
         return SavingsComponent(LeverId.INDEX_TOOLS, band, measured = false)
