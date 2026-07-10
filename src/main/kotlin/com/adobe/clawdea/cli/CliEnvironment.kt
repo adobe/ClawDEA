@@ -116,15 +116,30 @@ object CliEnvironment {
      * If the cache is stale and we're on the EDT, this returns the stale (or empty)
      * cache immediately and refreshes in the background. Off the EDT the caller
      * blocks briefly (≤ 5 s) for a fresh result.
+     *
+     * The shell env is an *enhancement* (extra PATH / cloud creds for Finder/Dock
+     * launches), never a hard requirement — so a slow login shell must never abort
+     * the CLI launch. A timeout (or any capture failure) degrades to the last-known
+     * cache, or an empty map, and lets the (still-running) background capture warm
+     * the cache for next time. Previously the raw `future.get(5s)` let a
+     * TimeoutException bubble out of CliProcess.start → CliBridge.start, hard-failing
+     * every off-EDT (re)start/resume when the user's `.zshrc` was slow.
      */
     private fun getShellEnvironment(): Map<String, String> {
         val future = ensureCaptureStarted()
             ?: return cachedShellEnv ?: emptyMap()
 
-        return if (java.awt.EventQueue.isDispatchThread()) {
-            cachedShellEnv ?: emptyMap()
-        } else {
+        if (java.awt.EventQueue.isDispatchThread()) {
+            return cachedShellEnv ?: emptyMap()
+        }
+        return try {
             future.get(5, TimeUnit.SECONDS)
+        } catch (e: java.util.concurrent.TimeoutException) {
+            log.warn("Shell env capture slow (>5s); using ${cachedShellEnv?.size ?: 0} cached vars, refresh continues in background")
+            cachedShellEnv ?: emptyMap()
+        } catch (e: Exception) {
+            log.warn("Shell env capture failed; falling back to cached/empty env", e)
+            cachedShellEnv ?: emptyMap()
         }
     }
 

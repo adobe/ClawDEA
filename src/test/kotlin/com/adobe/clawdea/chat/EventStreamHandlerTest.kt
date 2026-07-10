@@ -57,6 +57,50 @@ class EventStreamHandlerTest {
     }
 
     @Test
+    fun `streaming state is restored when the CLI keeps streaming after a false teardown`() {
+        // A false-positive stall recovery resets isStreaming and hides the
+        // indicator, but if the (still-alive) CLI keeps emitting coarse events the
+        // turn UI must come back — this is the "still running, no indicator" symptom.
+        assertTrue(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+        ))
+        assertTrue(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.ToolResult("toolu_1", ""),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+        ))
+    }
+
+    @Test
+    fun `streaming state is not restored on a live turn, a stopped bridge, per-token, or a result`() {
+        // Already streaming: nothing to restore.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = true, isPaused = false, bridgeRunning = true,
+        ))
+        // Bridge is down — there is no live turn to restore.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = false, isPaused = false, bridgeRunning = false,
+        ))
+        // Paused is a deliberate user state — do not silently resume it.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = false, isPaused = true, bridgeRunning = true,
+        ))
+        // Per-token deltas are not coarse activity.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.TextDelta("hi"),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+        ))
+        // A Result is terminal — it must never re-open a turn.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.Result("", false, 0.0, "session"),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+        ))
+    }
+
+    @Test
     fun `activity indicator is not poked per-token, when paused, or when idle`() {
         // Per-token deltas would spam a JCEF round-trip — excluded.
         assertFalse(EventStreamHandler.shouldPokeIndicator(

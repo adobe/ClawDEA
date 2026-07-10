@@ -59,6 +59,8 @@ class EventStreamHandler(
     /** True when no explicit model is selected (the CLI uses its Default). */
     private val resolveIsDefaultModel: () -> Boolean = { false },
 ) {
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(EventStreamHandler::class.java)
+
     val messageBuffer = StringBuilder()
     var turnHasContent = false
     var streamStartTime: Long = 0
@@ -194,6 +196,22 @@ class EventStreamHandler(
     private fun handleEvent(event: CliEvent) {
         if (isTurnProgressEvent(event)) {
             progressSequence += 1
+        }
+        // Self-heal a falsely-ended turn. A long silent gap (large context → slow
+        // first byte after a tool result) can trip the stall watchdog, which resets
+        // turn state, hides the indicator, and restarts the bridge. If that restart
+        // fails (e.g. a slow shell-env capture) the ORIGINAL CLI keeps streaming, so
+        // coarse events keep arriving while isStreaming is false — activity with no
+        // visible hint (the exact "still running, no indicator" symptom). Any coarse
+        // event proves the turn is alive, so re-enter streaming and re-arm the
+        // watchdog. Cannot misfire after a genuine Result: that is terminal and no
+        // AssistantMessage/ToolResult follows until the next user send (which sets
+        // streaming true itself).
+        if (shouldRestoreStreaming(event, turnController.isStreaming, turnController.isPaused, bridge.isRunning)) {
+            log.warn("activity after turn end — CLI still streaming; restoring turn UI (recovered false stall)")
+            turnController.setStreaming(true)
+            onSyncStreamingUi()
+            watchForToolResultStall(progressSequence)
         }
         // Re-assert the activity indicator on any agent activity while the turn is
         // still live. It is shown once at submit and removed at turn end, but
@@ -700,12 +718,18 @@ class EventStreamHandler(
     }
 
     companion object {
-        // First-byte latency from Anthropic/Bedrock can spike to 2+ minutes when the
-        // system prompt is large (CLAUDE.md + wiki + skills + workspace + tool results).
-        // The LLM needs to process all prior context before emitting the next token.
-        // 180s absorbs slow API responses without false-positives.
-        internal const val TURN_START_STALL_TIMEOUT_MS = 180_000
-        internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 180_000
+        // First-byte latency from Anthropic/Bedrock can spike to several minutes when
+        // the context is large (CLAUDE.md + wiki + skills + workspace + a long
+        // transcript of tool results): the model must process all prior context
+        // before emitting the next token. 180s was too tight on long-running
+        // conversations — a legitimately-slow turn crossed it, the watchdog tore the
+        // turn down and restarted the bridge mid-flight, and the indicator vanished
+        // while the CLI was actually still working. 300s absorbs those slow turns
+        // with a wide margin; a genuinely hung process is still recovered, just
+        // later. (A false teardown is additionally self-healed in [handleEvent] when
+        // the CLI resumes streaming.)
+        internal const val TURN_START_STALL_TIMEOUT_MS = 300_000
+        internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 300_000
 
         private const val PRIMER_CACHE_FRACTION = 0.05
 
@@ -766,8 +790,32 @@ class EventStreamHandler(
          * here too, keeping the hint alive for the whole delegated run.
          */
         internal fun shouldPokeIndicator(event: CliEvent, isStreaming: Boolean, isPaused: Boolean): Boolean =
-            isStreaming && !isPaused &&
-                (event is CliEvent.AssistantMessage || event is CliEvent.ToolResult)
+            isStreaming && !isPaused && isCoarseActivityEvent(event)
+
+        /**
+         * Coarse, per-message/per-tool activity — the granularity used to re-assert
+         * the indicator. Excludes per-token [CliEvent.TextDelta] (would spam a JCEF
+         * round-trip per token) and [CliEvent.Result] (terminal — ends the turn).
+         */
+        internal fun isCoarseActivityEvent(event: CliEvent): Boolean =
+            event is CliEvent.AssistantMessage || event is CliEvent.ToolResult
+
+        /**
+         * True when a coarse activity event arrives while the turn is NOT marked
+         * streaming even though the bridge is still running and we are not paused —
+         * i.e. the turn was torn down (usually a false-positive stall recovery whose
+         * restart failed) but the CLI is demonstrably still producing output. The
+         * caller re-enters streaming so the activity indicator and turn controls
+         * come back. Safe against a genuine turn end: [CliEvent.Result] is not a
+         * coarse activity event and nothing coarse follows a real Result.
+         */
+        internal fun shouldRestoreStreaming(
+            event: CliEvent,
+            isStreaming: Boolean,
+            isPaused: Boolean,
+            bridgeRunning: Boolean,
+        ): Boolean =
+            !isStreaming && !isPaused && bridgeRunning && isCoarseActivityEvent(event)
 
         internal fun isTurnProgressEvent(event: CliEvent): Boolean =
             when (event) {
