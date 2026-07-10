@@ -123,6 +123,23 @@ class ChatPanel(
     private var currentMode = "Auto"
     private lateinit var modeButtons: Map<String, JToggleButton>
 
+    // ── Responsive chrome (issue #140) ─────────────────────────────────
+    // The chrome leaf controls are constructed once and *reparented* between the
+    // vertical (tall dock) and compact (horizontal / bottom dock) arrangements.
+    // A Swing component can only live in one container, so both layouts share
+    // these instances; [applyResponsiveLayout] rebuilds the surrounding bands.
+    private lateinit var approvalCombo: ComboBox<String>
+    private lateinit var autoAcceptEditsCheck: JCheckBox
+    private lateinit var segmented: JPanel
+    private lateinit var inputScroll: JScrollPane
+    private lateinit var costChip: com.adobe.clawdea.cost.CostChip
+    private var activeApprovalKey: String = ClawDEASettings.getInstance().state.toolApprovalMode
+    // null until the first layout pass; then tracks which arrangement is live so
+    // a resize that doesn't cross the aspect threshold is a no-op.
+    private var compactLayout: Boolean? = null
+    private var topBand: JComponent? = null
+    private var bottomBand: JComponent? = null
+
     // JS→Kotlin bridges. All var (not val) so they can be recreated alongside
     // the browser they are bound to (issue #36 — see [recreateBrowser]).
     // JS→Kotlin bridge for stop button in JCEF
@@ -341,14 +358,22 @@ class ChatPanel(
             },
         )
 
-        // Title bar with mode buttons
-        add(createTitleBar(), BorderLayout.NORTH)
-
-        // JCEF browser for message display
+        // JCEF browser for message display (center; unaffected by chrome relayout)
         add(browser.component, BorderLayout.CENTER)
 
-        // Bottom: input + status
-        add(createBottomPanel(), BorderLayout.SOUTH)
+        // Build the chrome controls once, then arrange them for the current aspect
+        // ratio. When the tool window is docked horizontally (wide and short) the
+        // top and bottom control bands merge into one compact row so the limited
+        // height goes to the conversation (issue #140). A component listener keeps
+        // the arrangement in sync as the user re-docks or drags the splitter.
+        buildTitleControls()
+        buildBottomControls()
+        applyResponsiveLayout(compact = false)
+        addComponentListener(object : java.awt.event.ComponentAdapter() {
+            override fun componentResized(e: java.awt.event.ComponentEvent) {
+                recomputeResponsiveLayout()
+            }
+        })
 
         // Event stream handler: processes CLI events from the bridge
         eventHandler = EventStreamHandler(
@@ -885,28 +910,19 @@ class ChatPanel(
         }
     }
 
-    // ── Title bar ──────────────────────────────────────────────────
+    // ── Chrome controls ────────────────────────────────────────────
 
-    private fun createTitleBar(): JPanel {
-        val bar = JPanel(BorderLayout()).apply {
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(0, 0, 1, 0, UIManager.getColor("Separator.foreground")),
-                BorderFactory.createEmptyBorder(4, 8, 4, 8),
-            )
-        }
-
-        // Left: tool-approval dropdown (quick access to Settings > Tool approval)
+    /**
+     * Construct the top-row controls once — the tool-approval dropdown, the
+     * auto-accept-edits checkbox, and the Auto/Plan/Ask segmented mode toggle —
+     * and store them in fields. Layout (which band they live in) is decided later
+     * by [applyResponsiveLayout]; this method only builds the widgets.
+     */
+    private fun buildTitleControls() {
         val settings = ClawDEASettings.getInstance().state
         val mcpServer = McpServer.getInstance(project)
-        val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
-            isOpaque = false
-        }
-        fun syncRendererAutoAccept() {
-            val effective = mcpServer.activeAutoAcceptEdits || ToolApprovalModeUi.isAllowAll(mcpServer.activeToolApprovalMode)
-            renderer.autoAcceptEdits = effective
-        }
-        var activeApprovalKey = settings.toolApprovalMode
-        val approvalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
+
+        approvalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
             font = font.deriveFont(11f)
             selectedIndex = ToolApprovalModeUi.indexForKey(settings.toolApprovalMode)
             toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
@@ -921,7 +937,7 @@ class ChatPanel(
                 applyToolApprovalModeChange(ToolApprovalModeUi.labelForKey(newKey))
             }
         }
-        val autoAcceptEditsCheck = JCheckBox("Auto-accept edits").apply {
+        autoAcceptEditsCheck = JCheckBox("Auto-accept edits").apply {
             font = font.deriveFont(11f)
             isSelected = settings.autoAcceptEdits
             toolTipText = "Apply edits without showing the diff dialog. Every edit still leaves a clickable diff link in the chat so you can review and revert."
@@ -930,11 +946,8 @@ class ChatPanel(
                 syncRendererAutoAccept()
             }
         }
-        leftPanel.add(approvalCombo)
-        leftPanel.add(autoAcceptEditsCheck)
-        bar.add(leftPanel, BorderLayout.WEST)
 
-        // Right: segmented mode toggle
+        // Segmented mode toggle (Auto / Plan / Ask)
         val borderColor = UIManager.getColor("Component.borderColor")
             ?: UIManager.getColor("Separator.foreground")
             ?: Color(100, 100, 100)
@@ -944,7 +957,7 @@ class ChatPanel(
 
         val modes = listOf("Auto", "Plan", "Ask")
         val arc = 10
-        val segmented = object : JPanel(GridLayout(1, modes.size, 0, 0)) {
+        segmented = object : JPanel(GridLayout(1, modes.size, 0, 0)) {
             init { isOpaque = false }
             override fun paintComponent(g: Graphics) {
                 val g2 = g.create() as Graphics2D
@@ -1000,14 +1013,13 @@ class ChatPanel(
             group.add(btn)
             segmented.add(btn)
         }
-        val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
-            isOpaque = false
-        }
-        rightPanel.add(segmented)
-        bar.add(rightPanel, BorderLayout.EAST)
         setMode(currentMode)
+    }
 
-        return bar
+    private fun syncRendererAutoAccept() {
+        val mcpServer = McpServer.getInstance(project)
+        renderer.autoAcceptEdits =
+            mcpServer.activeAutoAcceptEdits || ToolApprovalModeUi.isAllowAll(mcpServer.activeToolApprovalMode)
     }
 
     private fun applyToolApprovalModeChange(label: String) {
@@ -1104,19 +1116,17 @@ class ChatPanel(
         }
     }
 
-    private fun createBottomPanel(): JPanel {
-        val bottomPanel = JPanel(BorderLayout())
-
-        val inputWrapper = JPanel(BorderLayout()).apply {
-            border = BorderFactory.createMatteBorder(1, 0, 0, 0, UIManager.getColor("Separator.foreground"))
-        }
-        inputWrapper.add(JScrollPane(inputArea).apply {
-            preferredSize = Dimension(0, 80)
+    /**
+     * Construct the bottom-row controls once — the input area (in a scroll pane),
+     * the model/effort combos, and the cost chip — and store them in fields.
+     * [applyResponsiveLayout] decides how they are arranged.
+     */
+    private fun buildBottomControls() {
+        inputScroll = JScrollPane(inputArea).apply {
             verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
             horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
             border = null
-        }, BorderLayout.CENTER)
-        bottomPanel.add(inputWrapper, BorderLayout.CENTER)
+        }
 
         modelComboManager = ModelComboManager(
             project = project,
@@ -1142,22 +1152,110 @@ class ChatPanel(
             appendInfo = { msg -> browserRenderer.appendHtml(renderer.renderInfoMessage(msg)) },
             appendError = { msg -> browserRenderer.appendHtml(renderer.renderError(msg)) },
         )
-        val statusRow = JPanel(BorderLayout()).apply {
-            border = BorderFactory.createEmptyBorder(2, 0, 2, 0)
-        }
-        val westRow = JPanel(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0)).apply {
-            border = BorderFactory.createEmptyBorder(0, 0, 0, 0)
-        }
-        westRow.add(modelCombo)
-        westRow.add(effortCombo)
-        val costChip = com.adobe.clawdea.cost.CostChip(project, chatId, this)
-        westRow.add(costChip)
-        westRow.add(statusLabel)
-        statusRow.add(westRow, BorderLayout.WEST)
-        statusRow.add(contextLabel, BorderLayout.EAST)
-        bottomPanel.add(statusRow, BorderLayout.SOUTH)
+        costChip = com.adobe.clawdea.cost.CostChip(project, chatId, this)
+    }
 
-        return bottomPanel
+    /**
+     * Arrange the chrome for the current dock aspect (issue #140).
+     *
+     * - **Vertical** (tall right/left dock): the classic two-band layout — a title
+     *   bar on top (approval + auto-accept on the left, mode toggle on the right)
+     *   and an input + status band on the bottom (model/effort/cost/status, with
+     *   context on the far right).
+     * - **Compact** (wide, short bottom/top dock): both control bands merge into a
+     *   single top row and the input shrinks, so the scarce vertical space goes to
+     *   the conversation. Spacing is tightened as well.
+     *
+     * Reassembles fresh container panels from the shared leaf controls, which
+     * reparents them out of the previous bands (a component can only have one
+     * parent). No-op if the requested arrangement is already live. Must run on the
+     * EDT.
+     */
+    private fun applyResponsiveLayout(compact: Boolean) {
+        if (compactLayout == compact && topBand != null) return
+
+        topBand?.let { remove(it) }
+        bottomBand?.let { remove(it) }
+
+        val separator = UIManager.getColor("Separator.foreground")
+        if (compact) {
+            val controlRow = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                isOpaque = false
+                add(approvalCombo)
+                add(autoAcceptEditsCheck)
+                add(segmented)
+                add(modelCombo)
+                add(effortCombo)
+                add(costChip)
+                add(statusLabel)
+            }
+            topBand = JPanel(BorderLayout()).apply {
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, separator),
+                    BorderFactory.createEmptyBorder(1, 6, 1, 6),
+                )
+                add(controlRow, BorderLayout.CENTER)
+                add(contextLabel, BorderLayout.EAST)
+            }
+            inputArea.border = BorderFactory.createEmptyBorder(4, 8, 4, 8)
+            inputScroll.preferredSize = Dimension(0, COMPACT_INPUT_HEIGHT)
+            bottomBand = JPanel(BorderLayout()).apply {
+                border = BorderFactory.createMatteBorder(1, 0, 0, 0, separator)
+                add(inputScroll, BorderLayout.CENTER)
+            }
+        } else {
+            val leftPanel = JPanel(FlowLayout(FlowLayout.LEFT, 4, 0)).apply {
+                isOpaque = false
+                add(approvalCombo)
+                add(autoAcceptEditsCheck)
+            }
+            val rightPanel = JPanel(FlowLayout(FlowLayout.RIGHT, 4, 0)).apply {
+                isOpaque = false
+                add(segmented)
+            }
+            topBand = JPanel(BorderLayout()).apply {
+                border = BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, separator),
+                    BorderFactory.createEmptyBorder(4, 8, 4, 8),
+                )
+                add(leftPanel, BorderLayout.WEST)
+                add(rightPanel, BorderLayout.EAST)
+            }
+            inputArea.border = BorderFactory.createEmptyBorder(8, 8, 8, 8)
+            inputScroll.preferredSize = Dimension(0, DEFAULT_INPUT_HEIGHT)
+            val inputWrapper = JPanel(BorderLayout()).apply {
+                border = BorderFactory.createMatteBorder(1, 0, 0, 0, separator)
+                add(inputScroll, BorderLayout.CENTER)
+            }
+            val westRow = JPanel(FlowLayout(FlowLayout.LEFT, 6, 0)).apply {
+                border = BorderFactory.createEmptyBorder(0, 0, 0, 0)
+                add(modelCombo)
+                add(effortCombo)
+                add(costChip)
+                add(statusLabel)
+            }
+            val statusRow = JPanel(BorderLayout()).apply {
+                border = BorderFactory.createEmptyBorder(2, 0, 2, 0)
+                add(westRow, BorderLayout.WEST)
+                add(contextLabel, BorderLayout.EAST)
+            }
+            bottomBand = JPanel(BorderLayout()).apply {
+                add(inputWrapper, BorderLayout.CENTER)
+                add(statusRow, BorderLayout.SOUTH)
+            }
+        }
+
+        add(topBand!!, BorderLayout.NORTH)
+        add(bottomBand!!, BorderLayout.SOUTH)
+        compactLayout = compact
+        revalidate()
+        repaint()
+    }
+
+    /** Re-evaluate the aspect ratio and switch arrangements only when it crosses the threshold. */
+    private fun recomputeResponsiveLayout() {
+        val desired = shouldUseCompactLayout(width, height, compactLayout ?: false)
+        if (desired != compactLayout) applyResponsiveLayout(desired)
     }
 
     private fun setupPlaceholder() {
@@ -2367,6 +2465,30 @@ class ChatPanel(
         // trips both the suspend-gap and display-change detectors on the same
         // heartbeat tick, and we only want to rebuild the surface once.
         private const val BROWSER_RECREATE_COALESCE_MS = 5000L
+
+        // Preferred input-area height (px): full in the vertical dock, shrunk in
+        // the compact horizontal dock so the scarce height goes to the chat (#140).
+        private const val DEFAULT_INPUT_HEIGHT = 80
+        private const val COMPACT_INPUT_HEIGHT = 56
+
+        /**
+         * Decide whether the chat panel should use the compact horizontal layout
+         * (merged control bands, tighter spacing) for the given panel size.
+         *
+         * Keys off aspect ratio: a bottom/top tool-window dock is wide and short,
+         * a right/left dock is tall. A dead-band around square [1.0, 1.2) keeps the
+         * *current* arrangement, so dragging the splitter near square doesn't flap
+         * between layouts. Zero/unknown sizes keep the current state (issue #140).
+         */
+        internal fun shouldUseCompactLayout(width: Int, height: Int, currentlyCompact: Boolean): Boolean {
+            if (width <= 0 || height <= 0) return currentlyCompact
+            val ratio = width.toDouble() / height.toDouble()
+            return when {
+                ratio >= 1.2 -> true
+                ratio <= 1.0 -> false
+                else -> currentlyCompact
+            }
+        }
 
         private val GOAL_CLEAR_ALIASES = setOf("clear", "stop", "off", "reset", "none", "cancel")
 
