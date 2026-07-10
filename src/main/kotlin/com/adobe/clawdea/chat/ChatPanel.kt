@@ -43,6 +43,8 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.openapi.wm.ToolWindowAnchor
+import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.PsiShortNamesCache
@@ -361,11 +363,13 @@ class ChatPanel(
         // JCEF browser for message display (center; unaffected by chrome relayout)
         add(browser.component, BorderLayout.CENTER)
 
-        // Build the chrome controls once, then arrange them for the current aspect
-        // ratio. When the tool window is docked horizontally (wide and short) the
-        // top and bottom control bands merge into one compact row so the limited
-        // height goes to the conversation (issue #140). A component listener keeps
-        // the arrangement in sync as the user re-docks or drags the splitter.
+        // Build the chrome controls once, then arrange them for the current dock.
+        // When the tool window is docked horizontally (bottom/top) the top and
+        // bottom control bands merge into one compact row so the limited height
+        // goes to the conversation (issue #140). A component listener keeps the
+        // arrangement in sync as the user re-docks or drags the splitter; the
+        // first application happens in [addNotify], once the panel has a real size
+        // and the tool-window anchor is resolvable.
         buildTitleControls()
         buildBottomControls()
         applyResponsiveLayout(compact = false)
@@ -1252,10 +1256,34 @@ class ChatPanel(
         repaint()
     }
 
-    /** Re-evaluate the aspect ratio and switch arrangements only when it crosses the threshold. */
+    /**
+     * Re-evaluate the dock and switch arrangements when needed. A horizontal
+     * tool-window anchor (bottom/top) is the authoritative "merge the bands"
+     * signal — that is literally the case issue #140 is about — so it wins
+     * outright. When the anchor isn't horizontal (or can't be resolved, e.g. a
+     * floating window or a test), fall back to the width/height aspect so a very
+     * wide, short window still compacts.
+     */
     private fun recomputeResponsiveLayout() {
-        val desired = shouldUseCompactLayout(width, height, compactLayout ?: false)
+        val desired = isHorizontalDock() || shouldUseCompactLayout(width, height, compactLayout ?: false)
         if (desired != compactLayout) applyResponsiveLayout(desired)
+    }
+
+    /** True when the ClawDEA tool window is docked along the bottom or top edge. */
+    private fun isHorizontalDock(): Boolean {
+        val anchor = runCatching {
+            ToolWindowManager.getInstance(project).getToolWindow("ClawDEA")?.anchor
+        }.getOrNull() ?: return false
+        return anchor == ToolWindowAnchor.BOTTOM || anchor == ToolWindowAnchor.TOP
+    }
+
+    override fun addNotify() {
+        super.addNotify()
+        // The panel now has a peer and a real size, and the tool-window anchor is
+        // resolvable — apply the arrangement that fits the current dock. Needed
+        // because a resize event alone can miss the case where the window is
+        // *already* docked horizontally when the chat first opens (issue #140).
+        ApplicationManager.getApplication().invokeLater { recomputeResponsiveLayout() }
     }
 
     private fun setupPlaceholder() {
