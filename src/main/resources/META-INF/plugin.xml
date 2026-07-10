@@ -123,6 +123,11 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
   <li><b>Refines on resume.</b> Live sessions show a conservative floor (per-subagent costs aren&rsquo;t observable mid-stream); reopening a conversation reconstructs the full session from its transcript for a sharper estimate.</li>
   <li><b>Knowledge upkeep moved.</b> The standalone &ldquo;Knowledge upkeep&rdquo; card is now a line inside the new section, so its cost is netted in one place instead of shown separately.</li>
 </ul>
+<h4>Parallel sub-agents you can actually follow</h4>
+<ul>
+  <li><b>Live sub-agent panels are pinned and stack.</b> When Claude delegates to sub-agents, each one gets its own panel pinned to the bottom of the chat so it stays visible while it works &mdash; and when several run in parallel, their panels stack there instead of scrolling out of view. A panel only rejoins the normal conversation flow (collapsed to a one-line summary with its step count) once that sub-agent finishes.</li>
+  <li><b>No more output broken mid-phrase.</b> Sub-agent reasoning no longer bleeds into the main answer: parallel sub-agent activity used to cut Claude&rsquo;s reply off mid-sentence and could make the progress dots disappear while work was still going. The main reply now stays intact, and each panel shows a live &ldquo;running &middot; N steps&rdquo; progress line.</li>
+</ul>
 <h4>Spend tokens on completions only when you ask</h4>
 <ul>
   <li><b>Manual completion hotkey.</b> A new <b>Trigger Inline Completion</b> action (default <b>Alt+\</b>, &#8997;\ on macOS) requests a suggestion on demand &mdash; it always works, even with automatic completions on. Rebind it in <b>Settings &rarr; Keymap &rarr; &ldquo;Trigger Inline Completion&rdquo;</b>.</li>
