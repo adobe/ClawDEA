@@ -251,7 +251,16 @@ class CostControlPanel(private val project: Project, private val chatId: String)
 
             val reset = JButton("Reset all-time").apply {
                 isOpaque = false
-                addActionListener { tracker.resetCumulative(); isEnabled = false; text = "Reset ✓" }
+                addActionListener {
+                    // This card spans BOTH axes (estimated savings + measured
+                    // upkeep + the reconciled Overall), so "Reset all-time" must
+                    // clear both stores — otherwise the measured upkeep line and
+                    // Overall stayed stale after a reset.
+                    tracker.resetCumulative()
+                    CostTracker.getInstance(project).resetKnowledge()
+                    isEnabled = false
+                    text = "Reset ✓"
+                }
             }
             body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
             body.add(mutedLabel("Estimated vs standard Claude Code; directional, not exact."))

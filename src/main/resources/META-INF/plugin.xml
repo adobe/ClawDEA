@@ -115,6 +115,17 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>1.9.1</h3>
+<h4>The chat adapts when docked horizontally</h4>
+<ul>
+  <li><b>Responsive layout for bottom/top docks.</b> When the ClawDEA tool window is docked along the bottom or top edge (short and wide), the top and bottom control bars merge into a single compact row and the input shrinks, so the scarce height goes to the conversation. Docked left/right it keeps the full two-row layout, and it re-arranges automatically as you re-dock or drag the splitter.</li>
+</ul>
+<h4>Fixes</h4>
+<ul>
+  <li><b>The activity hint no longer disappears on long conversations.</b> On a long-running chat, a slow first response after a tool result could trip an internal watchdog that tore the turn down while the CLI was actually still working &mdash; leaving activity with no visible &ldquo;Thinking&rdquo; hint (with or without sub-agents). The turn now self-heals the moment output resumes, the watchdog is more patient before intervening, and a slow shell-environment probe can no longer fail a session resume or restart.</li>
+  <li><b>&ldquo;Reset all-time&rdquo; in Cost Control now clears everything.</b> The reset button covers both estimated savings and measured knowledge upkeep, but it only cleared the estimate &mdash; leaving a stale upkeep figure and &ldquo;Overall&rdquo; total behind. It now clears both.</li>
+</ul>
+
 <h3>1.9.0</h3>
 <h4>See whether ClawDEA is saving you money</h4>
 <ul>

@@ -160,6 +160,19 @@ class CostTracker(private val project: Project) {
         publish()
     }
 
+    /**
+     * Clear the GLOBAL measured knowledge-upkeep totals (all buckets, all projects).
+     * Paired with [SavingsTracker.resetCumulative] behind the Cost Control "Reset
+     * all-time" button: that button spans both the estimated savings and the
+     * measured upkeep line, so resetting one without the other left a stale upkeep
+     * figure (and a stale "Overall") on the card.
+     */
+    @Synchronized
+    fun resetKnowledge() {
+        synchronized(settings) { settings.state.knowledgeUsd.clear() }
+        publish()
+    }
+
     /** Snapshot for one chat tab: that chat's session/per-model totals + shared daily/window/default. */
     @Synchronized
     fun snapshot(chatId: String): CostSnapshot {
