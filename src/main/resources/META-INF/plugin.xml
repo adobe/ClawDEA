@@ -63,7 +63,9 @@ variables, and mutating runtime state to verify hypotheses.</p>
 
   <li><b>Chat panel.</b> Streams responses with Markdown, tool-use cards, and clickable code references
   that navigate to source. Supports Auto, Plan, and Ask modes. <code>@</code>-mention for inline file and
-  symbol picking, backed by IntelliJ's filename and short-name caches.</li>
+  symbol picking, backed by IntelliJ's filename and short-name caches. <b>Choose your backend:</b> Claude
+  Code or OpenAI Codex &mdash; Codex runs through the same MCP toolset (index, debugger, edit review,
+  primer, skills).</li>
 
   <li><b>Tool-call permissions.</b> Three modes (Confirm all / Allow safe / Allow all), with honoring of
   Claude Code's <code>permissions.allow</code> / <code>permissions.deny</code> rules. Permission cards
@@ -76,7 +78,8 @@ variables, and mutating runtime state to verify hypotheses.</p>
 
   <li><b>Session resume.</b> Pick up a previous session with conversation history replayed in the chat panel.</li>
 
-  <li><b>Auth flexibility.</b> API key, Claude subscription sign-in, AWS Bedrock, or Google Vertex.</li>
+  <li><b>Auth flexibility.</b> Claude via Anthropic API key, Claude subscription sign-in, AWS Bedrock, or
+  Google Vertex; OpenAI via ChatGPT subscription sign-in or an OpenAI API key.</li>
 </ul>
 
 <h2>Staying in sync with Claude Code</h2>
@@ -101,8 +104,9 @@ CI, not by users.</p>
 <ul>
   <li>IntelliJ IDEA 2026.1+</li>
   <li>Java 21 on the IDE's JBR (bundled)</li>
-  <li>Claude Code CLI installed</li>
-  <li>Anthropic API key, Claude subscription, or AWS Bedrock / Google Vertex credentials</li>
+  <li>Claude Code CLI installed (and/or the OpenAI Codex CLI to chat with Codex)</li>
+  <li>Claude auth (Anthropic API key, subscription, AWS Bedrock, or Google Vertex) and/or OpenAI auth
+  (ChatGPT subscription or OpenAI API key)</li>
 </ul>
 
 <p><a href="https://github.com/adobe/ClawDEA">GitHub</a>
@@ -115,6 +119,16 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>2.0.0</h3>
+<h4>Chat with OpenAI Codex, not just Claude</h4>
+<ul>
+  <li><b>OpenAI Codex is now a first-class chat backend.</b> Pick <b>OpenAI (ChatGPT subscription)</b> or <b>OpenAI API</b> as your provider and the chat panel drives the <code>codex</code> CLI instead of <code>claude</code> &mdash; through the same ClawDEA MCP server, so Codex gets the full toolset: the IntelliJ index/search tools, the live debugger, diff-gated edit review (<code>propose_edit</code>/<code>propose_write</code>), the project primer, and your Claude Code skills. Switch backends from the model dropdown; ClawDEA routes to the right CLI automatically.</li>
+  <li><b>ChatGPT sign-in.</b> Set the provider to <b>OpenAI (ChatGPT subscription)</b> and run <code>/login</code> (or use the settings card) to sign in with your ChatGPT account via <code>codex login</code>. An OpenAI API key is also supported.</li>
+  <li><b>Resume across backends.</b> The session picker lists both Claude and Codex conversations (labeled by origin). Resuming a session started with the other backend replays the prior conversation as context so you can continue seamlessly; same-backend resume is native.</li>
+  <li><b>Codex-aware chrome.</b> The assistant label, the &ldquo;&hellip; is thinking&rdquo; status, and the per-turn footer (model &middot; effort &middot; time) reflect whichever backend is active. The Cost Control card shows an honest notional estimate for the flat-rate ChatGPT subscription rather than a per-turn dollar bill.</li>
+</ul>
+<p><i>Inline completions and intention actions remain Claude-only for now; OpenAI support is scoped to the chat panel.</i></p>
+
 <h3>1.9.1</h3>
 <h4>The chat adapts when docked horizontally</h4>
 <ul>
