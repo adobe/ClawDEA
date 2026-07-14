@@ -32,7 +32,7 @@ class CliProcess(
     private val workingDirectory: String,
     private val mcpPort: Int = 0,
     private val project: Project? = null,
-) {
+) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
 
@@ -45,10 +45,10 @@ class CliProcess(
     private var settingsFile: java.io.File? = null
     private val recentStderr = ConcurrentLinkedDeque<String>()
 
-    val isAlive: Boolean
+    override val isAlive: Boolean
         get() = process?.isAlive == true
 
-    fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
+    override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
 
         recentStderr.clear()
@@ -240,11 +240,11 @@ class CliProcess(
         log.info("CLI process started (PID: ${process!!.pid()})")
     }
 
-    fun recentStderrLines(): List<String> = recentStderr.toList()
+    override fun recentStderrLines(): List<String> = recentStderr.toList()
 
     internal fun resolveCliPath(configured: String): String = resolveClaudeCliPath(configured)
 
-    fun readLine(): String? {
+    override fun readLine(): String? {
         return try {
             stdoutReader?.readLine()
         } catch (e: Exception) {
@@ -253,7 +253,7 @@ class CliProcess(
         }
     }
 
-    fun writeLine(line: String) {
+    override fun writeLine(line: String) {
         try {
             stdinWriter?.write(line)
             stdinWriter?.newLine()
@@ -263,7 +263,7 @@ class CliProcess(
         }
     }
 
-    fun sendInterrupt() {
+    override fun sendInterrupt() {
         val proc = process ?: return
         try {
             val pid = proc.pid()
@@ -273,7 +273,7 @@ class CliProcess(
         }
     }
 
-    fun stop() {
+    override fun stop() {
         val proc = process ?: return
         log.info("Stopping CLI process (PID: ${proc.pid()})")
 
