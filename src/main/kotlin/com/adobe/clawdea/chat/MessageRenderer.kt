@@ -32,6 +32,12 @@ class MessageRenderer(
     private val wikiDirResolver: (() -> java.nio.file.Path?)? = null,
 ) {
 
+    /**
+     * Name shown on the assistant bubble. Updated by [ChatPanel] to match the
+     * active backend ("Claude" / "Codex"); defaults to "Claude".
+     */
+    var assistantLabel: String = "Claude"
+
     fun renderUserMessage(text: String): String {
         val html = markdownToHtml(text)
         return """
@@ -46,7 +52,7 @@ class MessageRenderer(
         val html = markdownToHtml(text)
         return """
             <div class="message">
-                <div class="message-label assistant-label">Claude</div>
+                <div class="message-label assistant-label">${escapeHtml(assistantLabel)}</div>
                 <div class="assistant-bubble">$html</div>
             </div>
         """.trimIndent()

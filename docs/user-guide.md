@@ -4,6 +4,8 @@ ClawDEA is native [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 
 
 ClawDEA coexists with IntelliJ's own [bundled MCP server](https://www.jetbrains.com/help/idea/mcp-server.html): when you enable it, ClawDEA automatically stops serving the handful of tools the IDE already covers and keeps serving the ones with no IDE-native equivalent — see [Wiki team mode](#wiki-team-mode) and the feature list in the [README](../README.md#features).
 
+As of **2.0**, the chat panel also supports **OpenAI Codex** as an alternate backend alongside Claude Code — see [OpenAI (Codex) chat backend](#openai-codex-chat-backend). Everything else in this guide (MCP tools, debugger, edit review, knowledge layer) applies to both backends; inline completions and intention actions remain Claude-only.
+
 ## Getting Started
 
 ### Prerequisites
@@ -11,7 +13,10 @@ ClawDEA coexists with IntelliJ's own [bundled MCP server](https://www.jetbrains.
 - **IntelliJ IDEA 2026.1** or later (Community or Ultimate)
 - **Java 21** runtime
 - **Claude Code CLI** — install with `npm install -g @anthropic-ai/claude-code`
-- One of: Anthropic API key, Claude Pro/Max/Team/Enterprise subscription, AWS Bedrock credentials, or Google Vertex credentials
+- **OpenAI Codex CLI** (only to chat with Codex) — install with `npm install -g @openai/codex`
+- Auth for at least one backend:
+  - Claude: Anthropic API key, Claude Pro/Max/Team/Enterprise subscription, AWS Bedrock credentials, or Google Vertex credentials
+  - OpenAI: a ChatGPT subscription (Plus/Pro/Team/Enterprise) or an OpenAI API key
 
 ### Installation
 
@@ -25,9 +30,10 @@ Open **Settings → Tools → ClawDEA** to configure:
 
 | Setting | Description |
 |---------|-------------|
-| **API Provider** | `anthropic` (direct API), `bedrock` (AWS), `vertex` (Google), or `subscription` (Claude account) |
-| **API Key** | Required for `anthropic` provider and inline completions |
+| **API Provider** | Claude: `anthropic` (direct API), `bedrock` (AWS), `vertex` (Google), or `subscription` (Claude account). OpenAI: `OpenAI (ChatGPT subscription)` or `OpenAI API`. The provider decides which CLI the chat drives — `claude` or `codex`. |
+| **API Key** | Required for `anthropic` provider and inline completions; the `OpenAI API` provider takes an OpenAI API key |
 | **CLI Path** | Path to `claude` binary (auto-detected from shell PATH) |
+| **Codex CLI Path** | Path to `codex` binary for the OpenAI backends (auto-detected from shell PATH) |
 | **Auto-accept Edits** | When on, file changes are applied immediately. When off, each edit opens a diff dialog for review. |
 | **Tool approval mode** | `Confirm all` (every tool call asks), `Allow safe` (read-only tools auto-approved), or `Allow all` (silent auto-approve with a chat notice). |
 | **Default Chat Mode** | `Auto`, `Plan`, or `Code` — sets the initial mode for new conversations. |
@@ -42,6 +48,22 @@ Open **Settings → Tools → ClawDEA** to configure:
 3. Chat, skills, and all CLI features use your subscription.
 
 Inline completions still require a separate API key — set it in the same panel or export `ANTHROPIC_API_KEY`.
+
+### OpenAI (Codex) chat backend
+
+ClawDEA can drive the [OpenAI Codex CLI](https://developers.openai.com/codex/) in the chat panel instead of Claude Code. Codex runs through the **same ClawDEA MCP server**, so it gets the full toolset — the IntelliJ index/search tools, the live debugger, diff-gated edit review (`propose_edit`/`propose_write`), the project primer, and your Claude Code skills.
+
+1. Install the Codex CLI: `npm install -g @openai/codex`.
+2. In **Settings → Tools → ClawDEA**, set **API Provider** to one of:
+   - **OpenAI (ChatGPT subscription)** — sign in with your ChatGPT account. Click **Sign in with ChatGPT** on the settings card, or run `/login` in the chat; ClawDEA shells out to `codex login`, which opens your browser to complete authentication.
+   - **OpenAI API** — authenticate with an OpenAI API key.
+3. Open (or start) a chat. The model dropdown now lists your Codex/GPT models; ClawDEA routes the conversation to `codex` automatically. The assistant label, the "… is thinking" status, and the per-turn footer all reflect the Codex backend.
+
+**Switching backends** is just a matter of changing the provider — the chat picks up the right CLI on the next session. Sessions started with either backend show up in `/resume` (see [Session resume](#session-resume)).
+
+**What's Claude-only for now:** inline completions and intention actions still use Claude. OpenAI support is scoped to the chat panel.
+
+**Cost Control** for the ChatGPT subscription shows a notional estimate rather than a per-turn dollar figure — a flat-rate subscription isn't billed per turn, and `codex` doesn't report credit usage to the plugin.
 
 ---
 
@@ -89,7 +111,7 @@ Independent of approval mode: the **Auto-accept Edits** toggle controls whether 
 
 ### Session resume
 
-Use `/resume` to pick up a previous Claude Code session. Conversation history replays in the chat panel.
+Use `/resume` to pick up a previous session. Conversation history replays in the chat panel. The picker lists both Claude and Codex sessions, each labeled by its origin. Resuming a session that matches the active backend is a **native resume**; resuming a session from the other backend replays the prior conversation as **context** on your next message, so the thread continues seamlessly across backends.
 
 ---
 
@@ -105,7 +127,7 @@ Type `/` in the chat input to see available commands.
 | `/clear` | Clear the chat panel                                  |
 | `/mode` | Switch between Auto, Plan, and Code modes             |
 | `/resume` | Resume a previous session                             |
-| `/login` | Sign in with a Claude subscription                    |
+| `/login` | Sign in with a subscription — Claude (`claude`) or, when an OpenAI provider is active, ChatGPT (`codex login`) |
 | `/skills` | Browse and invoke Claude Code skills                  |
 | `/cc` | Open Claude Code popup (same session as ClawDEA chat) |
 | `/refresh-view` | Re-render the chat panel                              |
@@ -464,6 +486,10 @@ ClawDEA auto-detects the `claude` binary from your shell PATH. If IntelliJ was l
 - Setting **CLI Path** in Settings to the full path (e.g., `/usr/local/bin/claude`)
 - Setting **CLI Env Script** to a script that sources your shell profile
 - Launching IntelliJ from terminal: `open -a "IntelliJ IDEA"`
+
+### OpenAI Codex CLI not found
+
+Same PATH caveat as above, for the `codex` binary. Install it with `npm install -g @openai/codex`, then set **Codex CLI Path** in Settings to the full path if auto-detection misses it. If chat still routes to Claude after selecting an OpenAI provider, confirm you're signed in — run `/login` (ChatGPT) or set an OpenAI API key.
 
 ### "Only one instance of IDEA can be run at a time"
 

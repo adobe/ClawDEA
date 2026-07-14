@@ -92,6 +92,18 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `thinking indicator label is dynamic and settable per backend`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // The indicator label is driven by a mutable global (set to the live
+        // backend via setAssistantLabel), never a hardcoded "Claude".
+        assertContains(html, "function setAssistantLabel(name)")
+        assertContains(html, "var assistantLabel = 'Claude';")
+        assertContains(html, "assistant-label\">' + assistantLabel + '<")
+    }
+
+    @Test
     fun `activity indicator can be re-asserted and self-heals during long turns`() {
         val template = ChatHtmlTemplate()
         val html = template.buildPage()

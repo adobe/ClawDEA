@@ -45,6 +45,15 @@ class ModelCatalogProbesTest {
     }
 
     @Test
+    fun `forProvider returns CodexModelProbe for openai-subscription`() {
+        val probe = ModelCatalogProbes.forProvider(
+            providerId = "openai-subscription",
+            anthropicApiKey = "", bedrockRegion = "", bedrockBearerToken = "",
+        )
+        assertTrue(probe is CodexModelProbe)
+    }
+
+    @Test
     fun `forProvider returns null for vertex`() {
         assertNull(
             ModelCatalogProbes.forProvider(

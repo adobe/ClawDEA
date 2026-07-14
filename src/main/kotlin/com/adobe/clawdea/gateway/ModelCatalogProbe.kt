@@ -24,9 +24,10 @@ object ModelCatalogProbes {
         bedrockBearerToken: String,
     ): ModelCatalogProbe? =
         when (providerId) {
-            "anthropic"    -> AnthropicModelProbe(anthropicApiKey)
-            "bedrock"      -> BedrockModelProbe(bedrockRegion, bedrockBearerToken)
-            "subscription" -> SubscriptionModelProbe()
-            else           -> null
+            "anthropic"           -> AnthropicModelProbe(anthropicApiKey)
+            "bedrock"             -> BedrockModelProbe(bedrockRegion, bedrockBearerToken)
+            "subscription"        -> SubscriptionModelProbe()
+            "openai-subscription" -> CodexModelProbe()
+            else                  -> null
         }
 }

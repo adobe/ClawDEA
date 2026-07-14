@@ -32,7 +32,7 @@ class CliProcess(
     private val workingDirectory: String,
     private val mcpPort: Int = 0,
     private val project: Project? = null,
-) {
+) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
 
@@ -45,10 +45,10 @@ class CliProcess(
     private var settingsFile: java.io.File? = null
     private val recentStderr = ConcurrentLinkedDeque<String>()
 
-    val isAlive: Boolean
+    override val isAlive: Boolean
         get() = process?.isAlive == true
 
-    fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
+    override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
 
         recentStderr.clear()
@@ -100,7 +100,7 @@ class CliProcess(
                 // through cmd.exe — which strips inner double quotes and splits on
                 // unquoted spaces. The inline JSON `{"permissions":{"ask":["Bash(ls
                 // *)"]}}` becomes `{permissions:{ask:[Bash(ls` and the CLI treats it
-                // as a file path. The file path form sidesteps the quoting problem
+                // as a file path. The file path form sidesteps /resumethe quoting problem
                 // entirely and matches how we already handle the system prompt.
                 val tmp = java.io.File.createTempFile("clawdea-settings-", ".json")
                 tmp.deleteOnExit()
@@ -240,11 +240,11 @@ class CliProcess(
         log.info("CLI process started (PID: ${process!!.pid()})")
     }
 
-    fun recentStderrLines(): List<String> = recentStderr.toList()
+    override fun recentStderrLines(): List<String> = recentStderr.toList()
 
     internal fun resolveCliPath(configured: String): String = resolveClaudeCliPath(configured)
 
-    fun readLine(): String? {
+    override fun readLine(): String? {
         return try {
             stdoutReader?.readLine()
         } catch (e: Exception) {
@@ -253,7 +253,7 @@ class CliProcess(
         }
     }
 
-    fun writeLine(line: String) {
+    override fun writeLine(line: String) {
         try {
             stdinWriter?.write(line)
             stdinWriter?.newLine()
@@ -263,7 +263,7 @@ class CliProcess(
         }
     }
 
-    fun sendInterrupt() {
+    override fun sendInterrupt() {
         val proc = process ?: return
         try {
             val pid = proc.pid()
@@ -273,7 +273,7 @@ class CliProcess(
         }
     }
 
-    fun stop() {
+    override fun stop() {
         val proc = process ?: return
         log.info("Stopping CLI process (PID: ${proc.pid()})")
 
@@ -656,16 +656,75 @@ internal fun findClaudeOnWindowsPath(
     path: String,
     pathExt: String,
     exists: (String) -> Boolean = { java.io.File(it).isFile },
+): String? = findBinaryOnWindowsPath("claude", path, pathExt, exists)
+
+/**
+ * Generalized cmd.exe PATH + PATHEXT lookup for [binary] (e.g. `claude`, `codex`). Returns the
+ * first launchable fully-qualified shim or null if none is on PATH. See [findClaudeOnWindowsPath].
+ */
+internal fun findBinaryOnWindowsPath(
+    binary: String,
+    path: String,
+    pathExt: String,
+    exists: (String) -> Boolean = { java.io.File(it).isFile },
 ): String? {
     val exts = pathExt.split(';').map { it.trim() }.filter { it.isNotEmpty() }
         .ifEmpty { listOf(".COM", ".EXE", ".BAT", ".CMD") }
     for (dir in path.split(';').map { it.trim() }.filter { it.isNotEmpty() }) {
         for (ext in exts) {
-            val candidate = "$dir\\claude$ext"
+            val candidate = "$dir\\$binary$ext"
             if (exists(candidate)) return candidate
         }
     }
     return null
+}
+
+/**
+ * Resolve the OpenAI `codex` CLI path, mirroring [resolveClaudeCliPath]: honor an explicit
+ * user-configured path (normalizing Windows `.ps1` shims), otherwise probe the well-known npm /
+ * nvm / homebrew install locations, then fall back to a Windows PATH+PATHEXT search, and finally
+ * the bare name `"codex"` (resolved by the OS on Unix).
+ */
+fun resolveCodexCliPath(configured: String): String {
+    if (configured.isNotBlank() && configured != "codex") {
+        return normalizeWindowsShimPath(configured)
+    }
+    val home = System.getProperty("user.home")
+    val candidates = if (isWindows()) {
+        val appDataRoaming = System.getenv("APPDATA").orEmpty()
+        val appDataLocal = System.getenv("LOCALAPPDATA").orEmpty()
+        listOfNotNull(
+            if (appDataRoaming.isNotBlank()) "$appDataRoaming\\npm\\codex.cmd" else null,
+            if (appDataLocal.isNotBlank()) "$appDataLocal\\Volta\\bin\\codex.cmd" else null,
+            "$home\\AppData\\Roaming\\npm\\codex.cmd",
+            "$home\\AppData\\Local\\Volta\\bin\\codex.cmd",
+            "$home\\.local\\bin\\codex.cmd",
+            "C:\\Program Files\\nodejs\\codex.cmd",
+        )
+    } else {
+        listOf(
+            "$home/.local/bin/codex",
+            "$home/.nvm/versions/node/default/bin/codex",
+            "/usr/local/bin/codex",
+            "/opt/homebrew/bin/codex",
+        )
+    }
+    for (candidate in candidates) {
+        val file = java.io.File(candidate)
+        val usable = if (isWindows()) file.isFile else file.canExecute()
+        if (usable) {
+            resolveLog.info("Resolved codex CLI at: $candidate")
+            return candidate
+        }
+    }
+    if (isWindows()) {
+        findBinaryOnWindowsPath("codex", System.getenv("PATH").orEmpty(), System.getenv("PATHEXT").orEmpty())
+            ?.let {
+                resolveLog.info("Resolved codex CLI on PATH: $it")
+                return it
+            }
+    }
+    return "codex"
 }
 
 /**

@@ -51,9 +51,31 @@ val DEFAULT_BEDROCK_CATALOG: List<ModelEntry> = listOf(
  */
 val DEFAULT_SUBSCRIPTION_CATALOG: List<ModelEntry> = DEFAULT_ANTHROPIC_CATALOG
 
+/**
+ * Seed list of OpenAI models shown before a live probe refreshes it in a later phase.
+ */
+// Valid via the OpenAI API-key path (`codex login --with-api-key`).
+val DEFAULT_OPENAI_CATALOG: List<ModelEntry> = listOf(
+    ModelEntry(id = "gpt-5-codex",  displayName = "GPT-5 Codex"),
+    ModelEntry(id = "gpt-5",        displayName = "GPT-5"),
+    ModelEntry(id = "gpt-5-mini",   displayName = "GPT-5 mini"),
+)
+
+/**
+ * ChatGPT-subscription (codex) model catalog. Deliberately **empty**: a ChatGPT account rejects
+ * the API model IDs above with HTTP 400 ("model is not supported when using Codex with a ChatGPT
+ * account"), and the account-eligible model set is per-account/per-version and not statically
+ * knowable (verified in the Phase-2 spike). The model dropdown always offers a working
+ * "Default (account model)" entry (codex uses the account default when no `-m` is passed); the
+ * account-specific models are populated later by the live OpenAI model probe (Phase 3).
+ */
+val DEFAULT_OPENAI_SUBSCRIPTION_CATALOG: List<ModelEntry> = emptyList()
+
 fun defaultModelCatalogsMap(): MutableMap<String, MutableList<ModelEntry>> = mutableMapOf(
     "anthropic"    to DEFAULT_ANTHROPIC_CATALOG.toMutableList(),
     "bedrock"      to DEFAULT_BEDROCK_CATALOG.toMutableList(),
     "vertex"       to mutableListOf(),
     "subscription" to DEFAULT_SUBSCRIPTION_CATALOG.toMutableList(),
+    "openai"       to DEFAULT_OPENAI_CATALOG.toMutableList(),
+    "openai-subscription" to DEFAULT_OPENAI_SUBSCRIPTION_CATALOG.toMutableList(),
 )

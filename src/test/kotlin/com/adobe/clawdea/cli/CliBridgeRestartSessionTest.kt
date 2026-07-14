@@ -20,6 +20,20 @@ import org.junit.Test
 class CliBridgeRestartSessionTest {
 
     @Test
+    fun `openai providers select the codex backend`() {
+        assertTrue(CliBridge.isCodexProvider("openai"))
+        assertTrue(CliBridge.isCodexProvider("openai-subscription"))
+    }
+
+    @Test
+    fun `claude providers do not select the codex backend`() {
+        assertFalse(CliBridge.isCodexProvider("anthropic"))
+        assertFalse(CliBridge.isCodexProvider("bedrock"))
+        assertFalse(CliBridge.isCodexProvider("vertex"))
+        assertFalse(CliBridge.isCodexProvider("subscription"))
+    }
+
+    @Test
     fun `user-triggered restart resumes the current session by default`() {
         assertEquals(
             "current-session",

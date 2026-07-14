@@ -25,3 +25,22 @@ internal const val MCP_CLIENT_INTERACTIVE_TIMEOUT_MS = 600_000
 
 internal fun buildMcpClientConfigJson(port: Int): String =
     """{"mcpServers":{"clawdea-intellij":{"type":"http","url":"http://127.0.0.1:$port/mcp","alwaysLoad":true,"timeout":$MCP_CLIENT_INTERACTIVE_TIMEOUT_MS}}}"""
+
+/**
+ * The MCP server name codex uses to namespace ClawDEA's tools (`mcp__<name>__<tool>`).
+ * Deliberately hyphen-free: codex `-c` overrides parse the key as a dotted TOML path, and a
+ * hyphenated bare segment (`clawdea-intellij`) is not a valid unquoted TOML key.
+ */
+internal const val CODEX_MCP_SERVER_NAME = "clawdea"
+
+/**
+ * Builds the `-c` config-override args that register ClawDEA's local [McpServer] with the
+ * `codex` CLI as a **Streamable HTTP** MCP server. Verified in the Phase-2 spike: codex's `rmcp`
+ * client completes the full handshake against ClawDEA's HTTP server directly — no adapter — as
+ * long as it is reachable at this URL (see 2026-07-14-codex-interface-findings.md → MCP transport).
+ *
+ * Passed as literal ProcessBuilder args (no shell), so the value keeps its embedded quotes:
+ * `mcp_servers.clawdea.url="http://127.0.0.1:<port>/mcp"`.
+ */
+internal fun buildCodexMcpConfigArgs(port: Int): List<String> =
+    listOf("-c", """mcp_servers.$CODEX_MCP_SERVER_NAME.url="http://127.0.0.1:$port/mcp"""")

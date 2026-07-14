@@ -22,6 +22,8 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import com.intellij.util.xmlb.annotations.OptionTag
 import com.adobe.clawdea.CLAUDE_DIR
+import com.adobe.clawdea.gateway.DEFAULT_OPENAI_CATALOG
+import com.adobe.clawdea.gateway.DEFAULT_OPENAI_SUBSCRIPTION_CATALOG
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.gateway.defaultModelCatalogsMap
 import java.util.concurrent.ConcurrentHashMap
@@ -38,6 +40,8 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var apiProvider: String = "anthropic", // "anthropic", "bedrock", "vertex"
         var apiKey: String = "",
         var cliPath: String = "claude",
+        /** Path to the OpenAI `codex` CLI, resolved via [com.adobe.clawdea.cli.resolveCodexCliPath]. */
+        var codexCliPath: String = "codex",
         var completionsEnabled: Boolean = true,
         var completionsModel: String = "sonnet",
         var completionsDebounceMs: Int = 300,
@@ -196,6 +200,7 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
 
     override fun loadState(state: State) {
         this.state = state
+        mergeMissingModelCatalogs(state.modelCatalogs)
         migrateSecretsToPasswordSafe()
         preloadSecrets()
     }
@@ -224,6 +229,9 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
     fun getBedrockBearerToken(): String = getSecret(BEDROCK_TOKEN_ATTR)
     fun setBedrockBearerToken(value: String) = setSecret(BEDROCK_TOKEN_ATTR, value)
 
+    fun getOpenAIApiKey(): String = getSecret(OPENAI_KEY_ATTR)
+    fun setOpenAIApiKey(value: String) = setSecret(OPENAI_KEY_ATTR, value)
+
     private val secretCache = ConcurrentHashMap<String, String>()
 
     fun preloadSecrets() {
@@ -233,6 +241,9 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
             }
             secretCache.getOrPut(BEDROCK_TOKEN_ATTR.serviceName) {
                 PasswordSafe.instance.getPassword(BEDROCK_TOKEN_ATTR).orEmpty()
+            }
+            secretCache.getOrPut(OPENAI_KEY_ATTR.serviceName) {
+                PasswordSafe.instance.getPassword(OPENAI_KEY_ATTR).orEmpty()
             }
         }
     }
@@ -327,6 +338,30 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         private val BEDROCK_TOKEN_ATTR = CredentialAttributes(
             generateServiceName("ClawDEA", "bedrockBearerToken"),
         )
+        private val OPENAI_KEY_ATTR = CredentialAttributes(
+            generateServiceName("ClawDEA", "openAiApiKey"),
+        )
+
+        /**
+         * Seed any provider catalogs that were added after this install's `ClawDEASettings.xml`
+         * was last written. Persisted state wholesale-replaces the [State] defaults, so a user who
+         * first ran an older build has a `modelCatalogs` map missing newer keys (e.g. `openai`,
+         * `openai-subscription`) — leaving their model dropdown empty for those providers. Only
+         * absent keys are added; a provider the user has already customized is never overwritten.
+         */
+        internal fun mergeMissingModelCatalogs(catalogs: MutableMap<String, MutableList<ModelEntry>>) {
+            for ((provider, seed) in defaultModelCatalogsMap()) {
+                catalogs.getOrPut(provider) { seed }
+            }
+            // One-time correction: an earlier build seeded `openai-subscription` from the API-key
+            // catalog (gpt-5-*), but those models return HTTP 400 on a ChatGPT subscription account
+            // ("model is not supported when using Codex with a ChatGPT account"). Reset that exact
+            // stale seed to the subscription default. A catalog the user has since customized (any
+            // list other than the known-bad seed) is left untouched.
+            if (catalogs["openai-subscription"] == DEFAULT_OPENAI_CATALOG) {
+                catalogs["openai-subscription"] = DEFAULT_OPENAI_SUBSCRIPTION_CATALOG.toMutableList()
+            }
+        }
 
         fun getInstance(): ClawDEASettings =
             ApplicationManager.getApplication().getService(ClawDEASettings::class.java)

@@ -24,6 +24,9 @@ package com.adobe.clawdea.cost
  * tier. DRIFT-WATCHED: scripts/drift/watchlist.yaml entry `model-pricing` flags
  * this table when the published pricing page changes.
  * Cache-read tokens bill at 0.1x input; cache-creation (5-min) at 1.25x input.
+ *
+ * OpenAI GPT models (codex backend) are priced by family in [rateFor]: the GPT-5
+ * tier (1.25/10), with cheaper -mini (0.25/2) and -nano (0.05/0.40) variants.
  */
 object ModelPricing {
 
@@ -52,6 +55,16 @@ object ModelPricing {
     /** Conservative fallback for unrecognized ids: never price to 0 (that hides cost). */
     private val fallback = Rate(5.0, 25.0)
 
+    // OpenAI GPT (codex backend) per-million-token rates. The account-eligible slugs
+    // (gpt-5.4/5.5/5.6-{sol,terra,luna}, gpt-5, gpt-5-codex) share the GPT-5 tier; the
+    // -mini / -nano variants are cheaper. Matched by family in [rateFor] (a `contains`
+    // check, since the modifier can sit anywhere in the slug, e.g. "gpt-5.4-mini").
+    // ChatGPT-subscription turns are flat-rate (no per-token charge), so these drive
+    // only the notional cost estimate — same treatment as Claude subscription/bedrock.
+    private val gpt5 = Rate(1.25, 10.0)
+    private val gptMini = Rate(0.25, 2.0)
+    private val gptNano = Rate(0.05, 0.40)
+
     // Sonnet 5 launched with introductory pricing (2/10) that reverts to the
     // standard Sonnet tier (3/15) on 2026-09-01. Both windows are modeled so cost
     // estimates stay accurate as the switchover date passes.
@@ -68,6 +81,13 @@ object ModelPricing {
         val id = model.lowercase()
         if (id.startsWith("claude-sonnet-5")) {
             return if (today.isBefore(sonnet5StandardStart)) sonnet5Intro else sonnet5Standard
+        }
+        if (id.startsWith("gpt")) {
+            return when {
+                id.contains("nano") -> gptNano
+                id.contains("mini") -> gptMini
+                else -> gpt5
+            }
         }
         return rates.firstOrNull { id.startsWith(it.first) }?.second ?: fallback
     }

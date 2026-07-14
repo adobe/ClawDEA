@@ -42,8 +42,10 @@ class ClawDEASettingsPanel {
         "Amazon Bedrock",
         "Google Vertex AI",
         "Claude subscription (Pro / Max / Team / Enterprise)",
+        "OpenAI (direct)",
+        "OpenAI (ChatGPT subscription)",
     )
-    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription")
+    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription")
     val apiProviderCombo = ComboBox(DefaultComboBoxModel(PROVIDERS))
 
     // Anthropic fields
@@ -77,8 +79,18 @@ class ClawDEASettingsPanel {
         font = font.deriveFont(11f)
     }
 
+    // OpenAI fields
+    val openAiApiKeyField = JBPasswordField()
+    private val openAiHint = JBLabel("Leave blank to use OPENAI_API_KEY from your environment.").apply {
+        foreground = java.awt.Color(166, 173, 200) // muted
+        font = font.deriveFont(11f)
+    }
+
     // Subscription card
     private val subscriptionCard = SubscriptionCardPanel()
+
+    // OpenAI (ChatGPT subscription) card
+    private val openAiSubscriptionCard = OpenAiSubscriptionCardPanel()
 
     // Provider-specific sub-panels inside a CardLayout
     private val providerCards = JPanel(CardLayout()).apply {
@@ -107,7 +119,15 @@ class ClawDEASettingsPanel {
                 .panel,
             "vertex"
         )
+        add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(JBLabel("OpenAI API Key:"), openAiApiKeyField, 1, false)
+                .addComponent(openAiHint, 2)
+                .panel,
+            "openai"
+        )
         add(subscriptionCard.panel, "subscription")
+        add(openAiSubscriptionCard.panel, "openai-subscription")
     }
 
     // Check Connection
@@ -122,6 +142,11 @@ class ClawDEASettingsPanel {
 
     // Common fields
     val cliPathField = JBTextField("claude", 30)
+    val codexCliPathField = JBTextField("codex", 30)
+    private val codexCliPathHint = JBLabel("Path to the OpenAI codex CLI (used by the OpenAI ChatGPT subscription provider).").apply {
+        foreground = java.awt.Color(166, 173, 200)
+        font = font.deriveFont(11f)
+    }
     val completionsEnabledCheckbox = JBCheckBox("Enable inline completions", true)
     private val COMPLETION_MODELS = arrayOf("Sonnet", "Haiku")
     private val COMPLETION_MODEL_KEYS = arrayOf("sonnet", "haiku")
@@ -205,6 +230,8 @@ class ClawDEASettingsPanel {
         .addComponent(connectionRow, 1)
         .addLabeledComponent(JBLabel("Claude CLI path:"), cliPathField, 1, false)
         .addComponent(cliPathWarning, 2)
+        .addLabeledComponent(JBLabel("Codex CLI path:"), codexCliPathField, 1, false)
+        .addComponent(codexCliPathHint, 2)
         .addComponent(completionsEnabledCheckbox, 1)
         .addLabeledComponent(JBLabel("Completions model:"), completionsModelCombo, 1, false)
         .addLabeledComponent(JBLabel("Completions debounce (ms):"), completionsDebounceField, 1, false)
@@ -316,6 +343,13 @@ class ClawDEASettingsPanel {
             "subscription" -> SubscriptionAuthProvider(
                 SubscriptionAuth.getInstance().getStatus().isSignedIn(),
             )
+            "openai" -> OpenAIAuthProvider(
+                String(openAiApiKeyField.password),
+                System.getenv("OPENAI_API_KEY"),
+            )
+            "openai-subscription" -> OpenAiSubscriptionAuthProvider(
+                CodexSubscriptionAuth.getInstance().getStatus().isSignedIn(),
+            )
             else -> AnthropicAuthProvider(
                 String(apiKeyField.password),
                 System.getenv("ANTHROPIC_API_KEY"),
@@ -403,7 +437,9 @@ class ClawDEASettingsPanel {
         selectProviderByKey(state.apiProvider)
         apiKeyField.text = settings.getApiKey()
         subscriptionCard.apiKeyField.text = settings.getApiKey()
+        openAiApiKeyField.text = settings.getOpenAIApiKey()
         cliPathField.text = state.cliPath
+        codexCliPathField.text = state.codexCliPath
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         selectCompletionsModel(state.completionsModel)
         completionsDebounceField.text = state.completionsDebounceMs.toString()
@@ -446,7 +482,9 @@ class ClawDEASettingsPanel {
         val settings = ClawDEASettings.getInstance()
         state.apiProvider = selectedProviderKey()
         settings.setApiKey(effectiveApiKey())
+        settings.setOpenAIApiKey(String(openAiApiKeyField.password))
         state.cliPath = cliPathField.text
+        state.codexCliPath = codexCliPathField.text
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsModel = selectedCompletionsModelKey()
         state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
@@ -486,7 +524,9 @@ class ClawDEASettingsPanel {
         val settings = ClawDEASettings.getInstance()
         return selectedProviderKey() != state.apiProvider ||
             effectiveApiKey() != settings.getApiKey() ||
+            String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
             cliPathField.text != state.cliPath ||
+            codexCliPathField.text != state.codexCliPath ||
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             selectedCompletionsModelKey() != state.completionsModel ||
             completionsDebounceField.text != state.completionsDebounceMs.toString() ||
@@ -526,6 +566,7 @@ class ClawDEASettingsPanel {
 
     fun disposeCard() {
         com.intellij.openapi.util.Disposer.dispose(subscriptionCard)
+        com.intellij.openapi.util.Disposer.dispose(openAiSubscriptionCard)
     }
 
     // ------------------------------------------------------------------

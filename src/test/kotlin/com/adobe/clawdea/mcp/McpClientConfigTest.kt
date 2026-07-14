@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.mcp
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -22,5 +23,18 @@ class McpClientConfigTest {
 
         assertTrue(config.contains(""""timeout":$MCP_CLIENT_INTERACTIVE_TIMEOUT_MS"""))
         assertTrue(config.contains("http://127.0.0.1:12345/mcp"))
+    }
+
+    @Test
+    fun `codex mcp args register the local server via a config override`() {
+        val args = buildCodexMcpConfigArgs(23456)
+
+        assertEquals(listOf("-c", """mcp_servers.clawdea.url="http://127.0.0.1:23456/mcp""""), args)
+    }
+
+    @Test
+    fun `codex mcp server name is a valid unquoted TOML key`() {
+        // hyphen-free so the `-c mcp_servers.<name>.url` dotted path parses as TOML.
+        assertTrue(CODEX_MCP_SERVER_NAME.all { it.isLetterOrDigit() || it == '_' })
     }
 }

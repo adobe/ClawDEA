@@ -122,31 +122,51 @@ class CostControlPanel(private val project: Project, private val chatId: String)
     private fun providerCard(tracker: CostTracker, b: ProviderBlock): JComponent {
         val title = providerTitle(b.providerId)
         return card(title) { body ->
-            if (b.providerId == "subscription") {
-                val spend = b.usage.spend
-                if (spend != null) {
-                    body.add(kvRow("${money2(spend.used)} of ${money2(spend.limit)} ${spend.currency}", "${spend.pct}%", bold = true))
-                    body.add(gauge(spend.pct))
-                }
-                b.usage.windows.forEach { w ->
-                    body.add(kvRow(w.label, "${w.pct}%"))
-                    body.add(gauge(w.pct))
-                }
-                if (spend == null && b.usage.windows.isEmpty()) {
-                    body.add(mutedLabel("usage unavailable"))
-                }
-            } else {
-                val t = b.total
-                if (t != null) {
-                    body.add(kvRow("This month", money2(t.monthToDate), bold = true))
-                    body.add(kvRow("Since ${t.sinceDate.ifBlank { "—" }}", money2(t.allTime)))
-                    val reset = JButton("Reset").apply {
-                        isOpaque = false
-                        addActionListener { tracker.resetProvider(b.providerId); isEnabled = false; text = "Reset ✓" }
+            when {
+                b.providerId == "subscription" -> {
+                    val spend = b.usage.spend
+                    if (spend != null) {
+                        body.add(kvRow("${money2(spend.used)} of ${money2(spend.limit)} ${spend.currency}", "${spend.pct}%", bold = true))
+                        body.add(gauge(spend.pct))
                     }
-                    body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
-                } else {
-                    body.add(mutedLabel("no spend tracked yet"))
+                    b.usage.windows.forEach { w ->
+                        body.add(kvRow(w.label, "${w.pct}%"))
+                        body.add(gauge(w.pct))
+                    }
+                    if (spend == null && b.usage.windows.isEmpty()) {
+                        body.add(mutedLabel("usage unavailable"))
+                    }
+                }
+                // Flat-rate ChatGPT plan: turns aren't billed per-dollar, and the codex
+                // CLI (`exec --json`) reports no credit/quota — so a dollar "bill" would be
+                // misleading. Show a clear notional estimate instead of a spend total.
+                b.providerId == "openai-subscription" -> {
+                    body.add(mutedLabel("Flat-rate ChatGPT subscription — not billed per turn."))
+                    body.add(mutedLabel("Codex doesn't report credit usage; the figure below is a notional estimate."))
+                    val t = b.total
+                    if (t != null) {
+                        body.add(kvRow("Notional this month", money2(t.monthToDate)))
+                        body.add(kvRow("Since ${t.sinceDate.ifBlank { "—" }}", money2(t.allTime)))
+                        val reset = JButton("Reset").apply {
+                            isOpaque = false
+                            addActionListener { tracker.resetProvider(b.providerId); isEnabled = false; text = "Reset ✓" }
+                        }
+                        body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
+                    }
+                }
+                else -> {
+                    val t = b.total
+                    if (t != null) {
+                        body.add(kvRow("This month", money2(t.monthToDate), bold = true))
+                        body.add(kvRow("Since ${t.sinceDate.ifBlank { "—" }}", money2(t.allTime)))
+                        val reset = JButton("Reset").apply {
+                            isOpaque = false
+                            addActionListener { tracker.resetProvider(b.providerId); isEnabled = false; text = "Reset ✓" }
+                        }
+                        body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
+                    } else {
+                        body.add(mutedLabel("no spend tracked yet"))
+                    }
                 }
             }
         }
@@ -154,6 +174,8 @@ class CostControlPanel(private val project: Project, private val chatId: String)
 
     private fun providerTitle(providerId: String): String = when (providerId) {
         "subscription" -> "Subscription"
+        "openai-subscription" -> "OpenAI (ChatGPT subscription)"
+        "openai" -> "OpenAI API"
         "bedrock" -> "Bedrock"
         "anthropic" -> "Anthropic API"
         "vertex" -> "Vertex AI"

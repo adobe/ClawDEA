@@ -6,6 +6,8 @@ Native [Claude Code](https://docs.anthropic.com/en/docs/claude-code) integration
 
 ClawDEA also coexists with IntelliJ's own [bundled MCP server](https://www.jetbrains.com/help/idea/mcp-server.html): when you enable it, ClawDEA steps aside for the handful of overlapping tools and keeps serving the ones with no IDE-native equivalent (see [Features](#features)).
 
+**New in 2.0:** the chat panel can drive **OpenAI Codex** as well as Claude Code. Pick your provider (ChatGPT subscription / OpenAI API key, or Claude), and Codex runs through the same MCP toolset — index, debugger, edit review, primer, and skills. Inline completions and intention actions remain Claude-only for now.
+
 <p align="center">
   <img src="docs/images/debug-demo.gif" alt="ClawDEA driving IntelliJ's debugger — setting breakpoints, stepping through code, inspecting variables, and mutating values at runtime" width="800">
   <br>
@@ -25,7 +27,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Profiling** — Claude can profile your code via JDK Flight Recorder: launch tests or run configurations with JFR instrumentation, then analyze CPU hotspots, allocation pressure, and memory leaks. Three entry points: `/profile` slash command, gutter icon on `@Test` methods, or imported `.jfr`/`.hprof` files. Claude reads the analysis results and proposes source-level fixes — a closed diagnostic loop from "this is slow" to a concrete patch.
 
-**Chat panel** — Streams Claude responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings).
+**Chat panel** — Streams responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings). **Backend choice:** chat with **Claude Code** or **OpenAI Codex** — switch from the model dropdown and ClawDEA routes to the right CLI automatically, keeping the full MCP toolset (index, debugger, diff-gated edit review, primer, skills) either way. Sessions from both backends appear in `/resume` (labeled by origin); resuming across backends replays the prior conversation as context.
 
 **Code navigation & MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search, and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present.
 
@@ -45,21 +47,22 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/context`, `/resume`, `/skills`, `/login`, `/cc`, `/init`, `/profile`, `/callers`, `/usages`, `/implementations`, `/supertypes`, `/refresh-view`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/wiki-gap`, `/wiki-relocate`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
 
-**Session resume** — Pick up a previous Claude Code session with conversation history replayed in the chat panel.
+**Session resume** — Pick up a previous session (Claude or Codex, labeled by origin) with conversation history replayed in the chat panel. Resuming the same backend is native; resuming across backends replays the prior conversation as context so you can continue seamlessly.
 
 ## Requirements
 
 - IntelliJ IDEA 2026.1+
 - Java 21
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
-- Anthropic API key, Claude subscription, or AWS Bedrock / Google Vertex credentials
+- To chat with OpenAI Codex: the [OpenAI Codex CLI](https://developers.openai.com/codex/) installed (`npm install -g @openai/codex`)
+- Auth for at least one backend: Claude (Anthropic API key, subscription, AWS Bedrock, or Google Vertex) and/or OpenAI (ChatGPT subscription or OpenAI API key)
 
 ## Quick Start
 
-1. Install the CLI: `npm install -g @anthropic-ai/claude-code`
+1. Install a CLI: `npm install -g @anthropic-ai/claude-code` (Claude) and/or `npm install -g @openai/codex` (OpenAI Codex).
 2. Install the plugin from a release zip (or build from source — see below).
-3. Open **Settings → Tools → ClawDEA** and configure your API key or sign in with a Claude subscription.
-4. Press **Cmd+\\** to open the chat panel and start coding.
+3. Open **Settings → Tools → ClawDEA** and pick a provider: configure an API key or sign in with a Claude subscription, or choose **OpenAI (ChatGPT subscription)** / **OpenAI API**.
+4. Open the chat panel (**Tools → Toggle ClawDEA Chat**) and start coding.
 
 See the **[User Guide](docs/user-guide.md)** for detailed configuration, slash commands, debugger workflows, and troubleshooting.
 
@@ -77,7 +80,7 @@ See the **[User Guide](docs/user-guide.md)** for detailed configuration, slash c
 src/main/kotlin/com/adobe/clawdea/
   actions/       Intention actions, context menu, keyboard shortcuts
   chat/          ChatPanel, MessageRenderer, EditDiffReviewer, EditReviewCoordinator
-  cli/           CliProcess, CliBridge, CliEventParser, stream-json protocol
+  cli/           CliBridge, CliProcess/CliEventParser (Claude), CodexProcess/CodexEventParser (OpenAI)
   commands/      Slash command registry and handlers
   completions/   Inline completion provider
   context/       Context engine for gathering editor state
