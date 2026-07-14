@@ -51,9 +51,16 @@ val DEFAULT_BEDROCK_CATALOG: List<ModelEntry> = listOf(
  */
 val DEFAULT_SUBSCRIPTION_CATALOG: List<ModelEntry> = DEFAULT_ANTHROPIC_CATALOG
 
+val DEFAULT_OPENAI_CATALOG: List<ModelEntry> = listOf(
+    ModelEntry(id = "gpt-5-codex",  displayName = "GPT-5 Codex"),
+    ModelEntry(id = "gpt-5",        displayName = "GPT-5"),
+    ModelEntry(id = "gpt-5-mini",   displayName = "GPT-5 mini"),
+)
+
 fun defaultModelCatalogsMap(): MutableMap<String, MutableList<ModelEntry>> = mutableMapOf(
     "anthropic"    to DEFAULT_ANTHROPIC_CATALOG.toMutableList(),
     "bedrock"      to DEFAULT_BEDROCK_CATALOG.toMutableList(),
     "vertex"       to mutableListOf(),
     "subscription" to DEFAULT_SUBSCRIPTION_CATALOG.toMutableList(),
+    "openai"       to DEFAULT_OPENAI_CATALOG.toMutableList(),
 )
