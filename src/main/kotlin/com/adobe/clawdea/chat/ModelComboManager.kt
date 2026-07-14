@@ -176,6 +176,21 @@ class ModelComboManager(
 
         /** "claude-opus-4-8" -> "Opus 4.8"; "us.anthropic.claude-sonnet-4-6" -> "Sonnet 4.6". */
         internal fun prettyModelName(id: String): String {
+            if (id.startsWith("gpt-")) {
+                // gpt-5-codex -> "GPT-5 Codex", gpt-5-mini -> "GPT-5 mini", gpt-5 -> "GPT-5"
+                val rest = id.removePrefix("gpt-")
+                val parts = rest.split("-")
+                val version = parts.first()
+                val suffix = parts.drop(1).joinToString(" ") { seg ->
+                    when (seg) {
+                        "codex" -> "Codex"
+                        "mini"  -> "mini"
+                        "nano"  -> "nano"
+                        else    -> seg.replaceFirstChar { it.uppercase() }
+                    }
+                }
+                return if (suffix.isBlank()) "GPT-$version" else "GPT-$version $suffix"
+            }
             val core = id.substringAfter("claude-", id)
             val words = core.split('-').filter { it.isNotBlank() }
             if (words.isEmpty()) return id
