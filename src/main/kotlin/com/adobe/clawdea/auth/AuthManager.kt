@@ -27,6 +27,7 @@ class AuthManager(
             "bedrock" to BedrockAuthProvider(),
             "vertex" to VertexAuthProvider(),
             "subscription" to SubscriptionAuthProvider(),
+            "openai" to OpenAIAuthProvider(),
         ),
         configuredProviderId = { ClawDEASettings.getInstance().state.apiProvider },
     )
