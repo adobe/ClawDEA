@@ -42,8 +42,9 @@ class ClawDEASettingsPanel {
         "Amazon Bedrock",
         "Google Vertex AI",
         "Claude subscription (Pro / Max / Team / Enterprise)",
+        "OpenAI (direct)",
     )
-    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription")
+    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai")
     val apiProviderCombo = ComboBox(DefaultComboBoxModel(PROVIDERS))
 
     // Anthropic fields
@@ -77,6 +78,13 @@ class ClawDEASettingsPanel {
         font = font.deriveFont(11f)
     }
 
+    // OpenAI fields
+    val openAiApiKeyField = JBPasswordField()
+    private val openAiHint = JBLabel("Leave blank to use OPENAI_API_KEY from your environment.").apply {
+        foreground = java.awt.Color(166, 173, 200) // muted
+        font = font.deriveFont(11f)
+    }
+
     // Subscription card
     private val subscriptionCard = SubscriptionCardPanel()
 
@@ -106,6 +114,13 @@ class ClawDEASettingsPanel {
                 .addComponent(vertexHint, 2)
                 .panel,
             "vertex"
+        )
+        add(
+            FormBuilder.createFormBuilder()
+                .addLabeledComponent(JBLabel("OpenAI API Key:"), openAiApiKeyField, 1, false)
+                .addComponent(openAiHint, 2)
+                .panel,
+            "openai"
         )
         add(subscriptionCard.panel, "subscription")
     }
@@ -316,6 +331,10 @@ class ClawDEASettingsPanel {
             "subscription" -> SubscriptionAuthProvider(
                 SubscriptionAuth.getInstance().getStatus().isSignedIn(),
             )
+            "openai" -> OpenAIAuthProvider(
+                String(openAiApiKeyField.password),
+                System.getenv("OPENAI_API_KEY"),
+            )
             else -> AnthropicAuthProvider(
                 String(apiKeyField.password),
                 System.getenv("ANTHROPIC_API_KEY"),
@@ -403,6 +422,7 @@ class ClawDEASettingsPanel {
         selectProviderByKey(state.apiProvider)
         apiKeyField.text = settings.getApiKey()
         subscriptionCard.apiKeyField.text = settings.getApiKey()
+        openAiApiKeyField.text = settings.getOpenAIApiKey()
         cliPathField.text = state.cliPath
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         selectCompletionsModel(state.completionsModel)
@@ -446,6 +466,7 @@ class ClawDEASettingsPanel {
         val settings = ClawDEASettings.getInstance()
         state.apiProvider = selectedProviderKey()
         settings.setApiKey(effectiveApiKey())
+        settings.setOpenAIApiKey(String(openAiApiKeyField.password))
         state.cliPath = cliPathField.text
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsModel = selectedCompletionsModelKey()
@@ -484,8 +505,9 @@ class ClawDEASettingsPanel {
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
         val settings = ClawDEASettings.getInstance()
-        return selectedProviderKey() != state.apiProvider ||
+        return             selectedProviderKey() != state.apiProvider ||
             effectiveApiKey() != settings.getApiKey() ||
+            String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
             cliPathField.text != state.cliPath ||
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             selectedCompletionsModelKey() != state.completionsModel ||
