@@ -505,7 +505,7 @@ class ClawDEASettingsPanel {
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
         val settings = ClawDEASettings.getInstance()
-        return             selectedProviderKey() != state.apiProvider ||
+        return selectedProviderKey() != state.apiProvider ||
             effectiveApiKey() != settings.getApiKey() ||
             String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
             cliPathField.text != state.cliPath ||

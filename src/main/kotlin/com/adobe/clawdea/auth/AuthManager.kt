@@ -43,12 +43,21 @@ class AuthManager(
      *
      * Falls back to the configured id when nothing is configured, so preflight still
      * produces the correct "not configured" message for the user's chosen provider.
+     *
+     * In Phase 1, `openai` is intentionally excluded from the env-fallback candidate
+     * set: no wired backend can consume OpenAI credentials yet, so auto-selecting it
+     * merely because `OPENAI_API_KEY` is exported would feed a `gpt-*` model to the
+     * `claude` CLI. Explicit selection (configured == "openai") is unaffected.
      */
     fun effectiveProviderId(): String {
         val configured = configuredProviderId()
         val configuredProvider = providers[configured]
         if (configuredProvider?.isConfigured() == true) return configured
-        val envProvider = providers.entries.firstOrNull { (id, p) -> id != configured && p.isConfigured() }
+        // TODO(Phase 2): drop the openai exclusion once CodexProcess is wired — until a
+        // backend can actually run OpenAI credentials, openai must not be auto-selected by
+        // the env-fallback (it would feed a gpt-* model to the claude CLI). Explicit
+        // selection (configured == "openai") is unaffected.
+        val envProvider = providers.entries.firstOrNull { (id, p) -> id != configured && id != "openai" && p.isConfigured() }
         return envProvider?.key ?: configured
     }
 

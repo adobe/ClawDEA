@@ -15,9 +15,12 @@ class PrettyModelNameTest {
     }
 
     @Test
+    fun `formats bare gpt-5`() {
+        assertEquals("GPT-5", ModelComboManager.prettyModelName("gpt-5"))
+    }
+
+    @Test
     fun `leaves claude formatting intact`() {
-        // Claude ids continue to render via the existing rules; a claude id must
-        // not be prefixed with "GPT". Assert the label does not start with "GPT".
-        assertEquals(false, ModelComboManager.prettyModelName("claude-sonnet-5").startsWith("GPT"))
+        assertEquals("Sonnet 5", ModelComboManager.prettyModelName("claude-sonnet-5"))
     }
 }

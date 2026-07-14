@@ -12,7 +12,7 @@ interface AgentProcess {
     val isAlive: Boolean
     fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList())
     fun readLine(): String?
-    fun writeLine(json: String)
+    fun writeLine(line: String)
     fun sendInterrupt()
     fun stop()
     fun recentStderrLines(): List<String>
