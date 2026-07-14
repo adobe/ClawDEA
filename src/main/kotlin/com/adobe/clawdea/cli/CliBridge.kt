@@ -11,6 +11,8 @@
  */
 package com.adobe.clawdea.cli
 
+import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
@@ -28,8 +30,23 @@ class CliBridge(
 
     private val log = Logger.getInstance(CliBridge::class.java)
 
-    private val cliProcess = CliProcess(workingDirectory, mcpPort, project)
-    private val parser = CliEventParser()
+    // Choose the agentic backend once, at construction, from the effective provider.
+    // OpenAI providers drive the `codex` CLI; everything else drives `claude`. A provider
+    // switch requires a session/bridge restart (ChatSession recreates this), which re-runs
+    // the selection.
+    private val effectiveProviderId: String = AuthManager.getInstance().effectiveProviderId()
+    private val useCodexBackend: Boolean = isCodexProvider(effectiveProviderId)
+
+    private val agentProcess: AgentProcess =
+        if (useCodexBackend) CodexProcess(workingDirectory, mcpPort, project)
+        else CliProcess(workingDirectory, mcpPort, project)
+
+    private val parser: AgentEventParser =
+        if (useCodexBackend) {
+            CodexEventParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProviderId))
+        } else {
+            CliEventParser()
+        }
 
     private val _events = MutableSharedFlow<CliEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<CliEvent> = _events
@@ -49,10 +66,34 @@ class CliBridge(
     var sessionId: String? = null
         private set
 
-    val isRunning: Boolean
-        get() = cliProcess.isAlive
+    /**
+     * Prior-conversation transcript to prepend to the *first* user message of this session, set by a
+     * cross-backend resume (see [com.adobe.clawdea.chat.session.TranscriptReplay]). Consumed and
+     * cleared by the first [sendMessage]; null for native resumes and fresh sessions.
+     */
+    @Volatile
+    private var pendingReplayContext: String? = null
 
-    fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
+    /** True when this bridge drives the `codex` CLI (OpenAI providers). Fixed for the bridge's life. */
+    val usesCodexBackend: Boolean
+        get() = useCodexBackend
+
+    /**
+     * Human-readable name of the backend this bridge actually runs ("Codex" / "Claude"), fixed at
+     * construction. Prefer this over [AgentLabel.current] for anything tied to the *running* session:
+     * the effective provider can change in settings mid-session while the bridge keeps its backend.
+     */
+    val agentLabel: String
+        get() = if (useCodexBackend) "Codex" else "Claude"
+
+    val isRunning: Boolean
+        get() = agentProcess.isAlive
+
+    fun start(
+        resumeSessionId: String? = null,
+        skills: List<SkillInfo> = emptyList(),
+        replayContext: String? = null,
+    ) {
         if (isRunning) return
 
         val readerGeneration = synchronized(this) {
@@ -61,13 +102,14 @@ class CliBridge(
         }
         val requestedResumeSessionId = resumableSessionForStart(resumeSessionId)
         sessionId = requestedResumeSessionId
+        pendingReplayContext = replayContext?.takeIf { it.isNotBlank() }
 
-        cliProcess.start(requestedResumeSessionId, skills)
+        agentProcess.start(requestedResumeSessionId, skills)
 
         readerJob = scope.launch {
             try {
-                while (isActive && isCurrentReader(readerGeneration) && cliProcess.isAlive) {
-                    val line = cliProcess.readLine() ?: break
+                while (isActive && isCurrentReader(readerGeneration) && agentProcess.isAlive) {
+                    val line = agentProcess.readLine() ?: break
                     if (!isCurrentReader(readerGeneration)) break
                     if (line.isBlank()) continue
 
@@ -75,6 +117,13 @@ class CliBridge(
 
                     if (event is CliEvent.AuthFailure) {
                         onAuthFailure(event.reason)
+                    }
+
+                    // Capture the session id from init as well as result. Claude also reports it
+                    // on the terminal result, but codex only emits it once (thread.started ->
+                    // SystemInit); tracking it here is what lets a codex turn `exec resume`.
+                    if (event is CliEvent.SystemInit && event.sessionId.isNotBlank()) {
+                        sessionId = event.sessionId
                     }
 
                     if (event is CliEvent.Result) {
@@ -113,7 +162,11 @@ class CliBridge(
     }
 
     fun sendMessage(text: String) {
-        val escaped = text
+        // On a cross-backend resume, the first message carries the prior conversation as context so
+        // the new backend can continue it (neither CLI can natively resume the other's session).
+        val outgoing = firstMessagePayload(text)
+
+        val escaped = outgoing
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("\n", "\\n")
@@ -121,12 +174,19 @@ class CliBridge(
             .replace("\t", "\\t")
 
         val json = """{"type":"user","message":{"role":"user","content":"$escaped"}}"""
-        cliProcess.writeLine(json)
+        agentProcess.writeLine(json)
+    }
+
+    /** Prepends any pending replay transcript to the first user turn, then clears it. */
+    private fun firstMessagePayload(text: String): String {
+        val replay = pendingReplayContext ?: return text
+        pendingReplayContext = null
+        return com.adobe.clawdea.chat.session.TranscriptReplay.wrapFirstMessage(replay, text)
     }
 
     fun abort() {
         expectedExitGeneration = activeGeneration
-        cliProcess.sendInterrupt()
+        agentProcess.sendInterrupt()
     }
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
@@ -147,8 +207,9 @@ class CliBridge(
         expectedExitGeneration = activeGeneration
         readerJob?.cancel()
         readerJob = null
-        cliProcess.stop()
+        agentProcess.stop()
         sessionId = null
+        pendingReplayContext = null
     }
 
     override fun dispose() {
@@ -205,6 +266,10 @@ class CliBridge(
         ): String? =
             resultSessionId.takeIf { it.isNotBlank() }
                 ?: currentSessionId?.takeIf { it.isNotBlank() }
+
+        /** OpenAI providers are backed by the `codex` CLI; everything else by `claude`. */
+        internal fun isCodexProvider(providerId: String): Boolean =
+            providerId == "openai" || providerId == "openai-subscription"
     }
 
     private fun isCurrentReader(readerGeneration: Long): Boolean =
@@ -218,14 +283,14 @@ class CliBridge(
         readerGeneration: Long,
         skills: List<SkillInfo>,
     ): Boolean {
-        if (!shouldRecoverFromRejectedResume(resumeSessionId, cliProcess.recentStderrLines())) {
+        if (!shouldRecoverFromRejectedResume(resumeSessionId, agentProcess.recentStderrLines())) {
             return false
         }
 
         log.info("CLI rejected resume session $resumeSessionId; restarting fresh")
         expectedExitGeneration = readerGeneration
         sessionId = null
-        cliProcess.stop()
+        agentProcess.stop()
         start(resumeSessionId = null, skills = skills)
         return true
     }

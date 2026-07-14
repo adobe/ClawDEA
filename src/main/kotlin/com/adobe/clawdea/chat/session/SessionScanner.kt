@@ -18,11 +18,23 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+/**
+ * Which agent CLI produced a persisted session transcript. Determines the on-disk store and format
+ * ([SessionScanner] for `~/.claude`, [CodexSessionScanner] for `~/.codex/sessions`) and, on resume,
+ * whether the active backend can natively resume the session (same origin) or must replay its
+ * transcript as first-turn context (cross-backend).
+ */
+enum class SessionOrigin(val displayLabel: String) {
+    CLAUDE("Claude"),
+    CODEX("Codex"),
+}
+
 data class SessionInfo(
     val id: String,
     val firstMessage: String,
     val timestamp: Instant,
     val fileSize: Long,
+    val origin: SessionOrigin = SessionOrigin.CLAUDE,
 ) {
     fun formattedTime(): String {
         val formatter = DateTimeFormatter.ofPattern("MMM d, HH:mm")

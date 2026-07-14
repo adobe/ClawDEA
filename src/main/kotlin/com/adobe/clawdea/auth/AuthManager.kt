@@ -28,6 +28,7 @@ class AuthManager(
             "vertex" to VertexAuthProvider(),
             "subscription" to SubscriptionAuthProvider(),
             "openai" to OpenAIAuthProvider(),
+            "openai-subscription" to OpenAiSubscriptionAuthProvider(),
         ),
         configuredProviderId = { ClawDEASettings.getInstance().state.apiProvider },
     )
@@ -44,22 +45,37 @@ class AuthManager(
      * Falls back to the configured id when nothing is configured, so preflight still
      * produces the correct "not configured" message for the user's chosen provider.
      *
-     * In Phase 1, `openai` is intentionally excluded from the env-fallback candidate
-     * set: no wired backend can consume OpenAI credentials yet, so auto-selecting it
-     * merely because `OPENAI_API_KEY` is exported would feed a `gpt-*` model to the
-     * `claude` CLI. Explicit selection (configured == "openai") is unaffected.
+     * The OpenAI providers (`openai`, `openai-subscription`) are intentionally excluded from
+     * the env-fallback candidate set. The codex backend is now wired, so *explicit* selection
+     * (configured == "openai" / "openai-subscription") routes to `codex` — but codex
+     * authenticates via its own `codex login` (`~/.codex/auth.json`), not a bare `OPENAI_API_KEY`
+     * env var, so a user who merely exported that variable is not necessarily able to run codex.
+     * Auto-hijacking a Claude user onto OpenAI on that weak signal would be surprising; keep the
+     * fallback Claude-only and require explicit provider selection for codex.
+     *
+     * An explicitly configured codex provider is also *authoritative* and short-circuits the
+     * fallback entirely: [OpenAiSubscriptionAuthProvider.isConfigured] reads an async, cache-backed
+     * `codex login status` that returns a stale "not signed in" on the EDT until the first probe
+     * completes. Without this short-circuit, a bridge constructed during that window would fall back
+     * to a Claude provider and drive the `claude` CLI — but the model dropdown (resolved a moment
+     * later, once the probe is warm) hands it an OpenAI model id, yielding
+     * "API Error (gpt-5.x): 400 invalid model identifier". The user picked codex; honor it and let
+     * a genuine sign-in problem surface as a codex auth error rather than a silent backend swap.
      */
     fun effectiveProviderId(): String {
         val configured = configuredProviderId()
+        if (isCodexProviderId(configured)) return configured
         val configuredProvider = providers[configured]
         if (configuredProvider?.isConfigured() == true) return configured
-        // TODO(Phase 2): drop the openai exclusion once CodexProcess is wired — until a
-        // backend can actually run OpenAI credentials, openai must not be auto-selected by
-        // the env-fallback (it would feed a gpt-* model to the claude CLI). Explicit
-        // selection (configured == "openai") is unaffected.
-        val envProvider = providers.entries.firstOrNull { (id, p) -> id != configured && id != "openai" && p.isConfigured() }
+        val envProvider = providers.entries.firstOrNull { (id, p) ->
+            id != configured && !isCodexProviderId(id) && p.isConfigured()
+        }
         return envProvider?.key ?: configured
     }
+
+    /** OpenAI providers drive the `codex` backend. Kept local to avoid an auth->cli dependency. */
+    private fun isCodexProviderId(id: String): Boolean =
+        id == "openai" || id == "openai-subscription"
 
     fun activeProvider(): AuthProvider {
         val id = effectiveProviderId()

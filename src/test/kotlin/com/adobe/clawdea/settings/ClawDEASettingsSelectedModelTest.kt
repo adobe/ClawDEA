@@ -13,6 +13,7 @@ package com.adobe.clawdea.settings
 
 import com.adobe.clawdea.gateway.ModelEntry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClawDEASettingsSelectedModelTest {
@@ -80,6 +81,53 @@ class ClawDEASettingsSelectedModelTest {
 
         settings.state.apiProvider = "vertex"
         assertEquals("", settings.getCliModelId(dir))
+    }
+
+    @Test
+    fun `mergeMissingModelCatalogs seeds providers missing from persisted state`() {
+        // Simulate an install whose persisted modelCatalogs predates newer providers
+        // (e.g. openai / openai-subscription) — the dropdown must not be left empty.
+        val legacy: MutableMap<String, MutableList<ModelEntry>> = mutableMapOf(
+            "anthropic" to mutableListOf(ModelEntry(id = "claude-opus-4-7", displayName = "Claude Opus 4.7")),
+        )
+
+        ClawDEASettings.mergeMissingModelCatalogs(legacy)
+
+        assertEquals(
+            "user-customized provider is preserved untouched",
+            mutableListOf(ModelEntry(id = "claude-opus-4-7", displayName = "Claude Opus 4.7")),
+            legacy["anthropic"],
+        )
+        assertTrue("openai catalog seeded", legacy["openai"]?.isNotEmpty() == true)
+        // openai-subscription is seeded as a present-but-empty catalog: the dropdown renders the
+        // working "Default (account model)" entry; account-specific models come from the probe.
+        assertTrue("openai-subscription catalog present", legacy.containsKey("openai-subscription"))
+        assertTrue("openai-subscription defers to account default", legacy["openai-subscription"]?.isEmpty() == true)
+    }
+
+    @Test
+    fun `mergeMissingModelCatalogs scrubs the stale API-model seed from openai-subscription`() {
+        // An earlier build seeded openai-subscription from the API-key catalog (gpt-5-*), which
+        // 400s on a ChatGPT account. The migration must reset that exact seed to the default.
+        val stale: MutableMap<String, MutableList<ModelEntry>> = mutableMapOf(
+            "openai-subscription" to com.adobe.clawdea.gateway.DEFAULT_OPENAI_CATALOG.toMutableList(),
+        )
+
+        ClawDEASettings.mergeMissingModelCatalogs(stale)
+
+        assertTrue("stale gpt-5 seed scrubbed", stale["openai-subscription"]?.isEmpty() == true)
+    }
+
+    @Test
+    fun `mergeMissingModelCatalogs preserves a user-customized openai-subscription catalog`() {
+        val custom = mutableListOf(ModelEntry(id = "gpt-5.6-sol", displayName = "GPT-5.6"))
+        val map: MutableMap<String, MutableList<ModelEntry>> = mutableMapOf(
+            "openai-subscription" to custom,
+        )
+
+        ClawDEASettings.mergeMissingModelCatalogs(map)
+
+        assertEquals("a customized catalog is not scrubbed", custom, map["openai-subscription"])
     }
 
     @Test

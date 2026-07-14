@@ -11,9 +11,9 @@
  */
 package com.adobe.clawdea.cli
 
-class CliEventParser {
+class CliEventParser : AgentEventParser {
 
-    fun parse(jsonLine: String): CliEvent {
+    override fun parse(jsonLine: String): CliEvent {
         try {
             val type = extractString(jsonLine, "\"type\"") ?: ""
             return when (type) {

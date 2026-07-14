@@ -347,3 +347,91 @@ Captured stream (`codex exec --json --skip-git-repo-check "reply with the word o
 1. `item.completed` shapes for `agent_message`, `reasoning`, `command_execution`, `mcp_tool_call`.
 2. Whether an incremental text-delta event (`item.updated`/`item.delta`) exists (drives `TextDelta`).
 3. `turn.completed` token-usage / context-window payload (drives `Result` + cost).
+
+---
+
+## Phase 2 spike closure (2026-07-14, authed via ChatGPT)
+
+The gaps above are now **closed** — re-captured against a live, logged-in `codex login status → Logged in using ChatGPT`.
+
+### 1. Success-path event schema (captured `codex exec --json` stdout)
+
+Trivial turn (`"reply with exactly the word: ok"`):
+
+```json
+{"type":"thread.started","thread_id":"019f608e-0d7d-77c0-89a4-986abb699e00"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}
+{"type":"turn.completed","usage":{"input_tokens":12750,"cached_input_tokens":9984,"output_tokens":5,"reasoning_output_tokens":0}}
+```
+
+Tool-use turn (shell `echo`):
+
+```json
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll run the requested command and report its output."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hello-from-codex'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'echo hello-from-codex'","aggregated_output":"hello-from-codex\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"I ran `echo hello-from-codex` successfully. It printed `hello-from-codex`."}}
+{"type":"turn.completed","usage":{"input_tokens":24270,"cached_input_tokens":19968,"output_tokens":104,"reasoning_output_tokens":0}}
+```
+
+MCP tool-call turn (against a mock of ClawDEA's `McpServer`):
+
+```json
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"clawdea","tool":"clawdea_ping","arguments":{},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"clawdea","tool":"clawdea_ping","arguments":{},"result":{"content":[{"type":"text","text":"pong-42"}],"structured_content":null},"error":null,"status":"completed"}}
+```
+
+**Resolved gaps:**
+1. `agent_message` arrives as a **single coarse `item.completed`** (`item.text`) — **multiple per turn** (a preamble item + the final answer item). `command_execution` and `mcp_tool_call` are two-phase: `item.started` (`status:"in_progress"`) then `item.completed` (`status:"completed"|"failed"`, with `aggregated_output`+`exit_code` / `result`+`error`). No `reasoning` item appeared at default effort (`reasoning_output_tokens:0`).
+2. **No incremental text-delta event exists on the success path** — text is delivered whole in `item.completed`. `CodexEventParser` maps each `agent_message` → a full `AssistantMessage` (no `TextDelta`).
+3. `turn.completed.usage = {input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens}`. **No dollar cost and no context-window field** on the stdout stream → `Result.costUsd` must be derived from per-model pricing × tokens (`cached_input_tokens` → `cacheReadTokens`); `contextWindow` unavailable from the stream (fall back to a per-model default).
+
+### 2. MCP transport — DIRECTLY compatible, no adapter (decision for Task 3)
+
+A faithful standalone mock of ClawDEA's `McpServer` protocol (stateless JSON-RPC over HTTP at `POST /mcp`, single `application/json` responses, `405` on GET, `protocolVersion "2025-03-26"`) was registered with codex via `-c 'mcp_servers.clawdea.url="http://127.0.0.1:PORT/mcp"'`. Codex's Rust `rmcp` client completed the **full handshake and called the tool**:
+
+```
+POST initialize (id 0, Accept: "text/event-stream, application/json")
+POST notifications/initialized
+POST tools/list (id 1)
+POST tools/call (id 2)  → result {"content":[{"type":"text","text":"pong-42"}]}
+```
+
+- **Requirement: HTTP/1.1 keep-alive.** The first mock defaulted to HTTP/1.0 (connection closed after each request); codex's `rmcp` reuses the connection and failed with `worker quit with fatal: Transport channel closed ... error sending request`. ClawDEA's real server uses `com.sun.net.httpserver.HttpServer`, which keeps connections alive by default → **compatible as-is**. **No stdio↔HTTP shim and no Streamable-HTTP rewrite of `McpServer` are needed.**
+- **Register per-invocation via `-c` overrides** (mirrors `CliProcess`'s temp MCP config) rather than mutating `~/.codex/config.toml`.
+
+### 3. Approval / sandbox — required flags for non-interactive MCP tool calls
+
+MCP tool **calls** are gated and only execute non-interactively under:
+
+```
+-s danger-full-access  -c 'approval_policy="never"'
+```
+
+(equivalently `--dangerously-bypass-approvals-and-sandbox`). Under `-s workspace-write` — **even with `-c sandbox_workspace_write.network_access=true`** — the `tools/call` never reaches the server and the item completes with `error:{"message":"user cancelled MCP tool call"}`. The `initialize`/`tools/list` handshake works under any sandbox mode; only `tools/call` is gated. **Production posture:** run `codex exec` with `approval_policy=never` + `danger-full-access` and rely on ClawDEA's own `propose_edit`/`propose_write` MCP gating for file-mutation safety (parity with the Claude `--permission-prompt-tool` model). Tightening codex's built-in shell is a follow-up.
+
+### 4. Flag placement / process model
+
+- **`-a`/`--ask-for-approval` and `-m`/`--model` are TOP-LEVEL flags** (must precede `exec`) — `codex exec -a …` errors with `unexpected argument '-a'`. Use `-c approval_policy=…` / `-c model_reasoning_effort=…` on `exec`, or place `-m` before `exec`. `-s`, `-C`, `--json`, `--skip-git-repo-check`, `--ephemeral`, `-c` are accepted on `exec`.
+- **`exec` is one-shot per turn.** The prompt is a positional arg; multi-turn continuity is `codex exec resume <thread_id> "<prompt>"`. Even with `</dev/null` codex prints `Reading additional input from stdin...` to stderr but proceeds — parse **only** stdout lines beginning with `{`; stderr also carries a benign `failed to refresh available models` line. `CodexProcess` presents a **persistent facade** over successive one-shot `exec`/`exec resume` invocations (sniff `thread_id` from `thread.started` for the next resume).
+
+---
+
+## Phase 2+ delivery notes (2026-07-14, re-verified live)
+
+### Permission gating (Task 4) — resolved to a design decision + Layer-1 edit routing
+
+- **Re-confirmed the sandbox constraint decisively.** A loopback MCP mock was registered and codex asked to call it. Under `-s workspace-write` **with `-c sandbox_workspace_write.network_access=true`**, the `rmcp` client fails the handshake outright (`http/request failed: error sending request for url http://127.0.0.1:PORT/mcp` — macOS Seatbelt blocks the loopback socket). Under `-s danger-full-access` the full handshake + `tools/call` succeed and the mock logs the hit. **There is no sandbox mode that both gates codex's built-in shell and permits the loopback MCP server.** `danger-full-access` is required.
+- **Layer-1 edit review works and is validated live.** `CodexProcess` injects a first-turn preamble (`prompts/codex-tooling-prompt.md`) instructing codex to route all file mutations through the `clawdea` MCP `propose_edit`/`propose_write`/`propose_multi_edit` tools. Verified: given "create /tmp/…", codex called `clawdea.propose_write` (MCP hit logged) and did **not** write the file directly. This is the codex analogue of Claude's Layer-1 `propose_*` gating.
+- **Residual gap (documented, not closed):** under `danger-full-access` codex's built-in shell (`command_execution`) still executes ungated. It is surfaced in the ClawDEA UI (ToolUse/ToolResult via `CodexEventParser`) for transparency, but there is no pre-execution approval prompt (codex `exec` has no interactive approval channel, and the sandbox that would gate it breaks MCP — see above). Tightening this would require intercepting codex shell items before execution, which codex `exec` does not currently expose.
+
+### Skills + primer parity (Task 8)
+
+- The same first-turn preamble also carries the **skill catalog** (`CliProcess.buildSkillCatalogPrompt`, gated on `preloadSkillCatalog`) and the **project primer** (`PrimerService.refreshAndGet`, gated on `enableKnowledgeLayer`), so `/skill` suggestions and CLAUDE.md/REPO_STATE/wiki-TOC context reach codex exactly as they reach Claude. Instructions given on turn 1 persist across `exec resume`, so the preamble is sent once (skipped on resume turns and when `start` resumes an existing thread).
+- Debugger / index / search / wiki tools are already reachable because they are exposed through the same MCP server (Task 3, compatible as-is).
+
+### Model catalog + cost (Tasks 6, 7)
+
+- **Model list:** `CodexModelProbe` reads `$CODEX_HOME/models_cache.json` (codex's own account model cache) and surfaces `visibility == "list"` models; registered for `openai-subscription` in `ModelCatalogProbes.forProvider`. The codex `exec --json` stream carries **no** model field (verified), so "Default" (no `-m`) cannot be resolved from the stream.
+- **Cost:** `ModelPricing` gains a GPT family branch — GPT-5 tier (1.25/10), `-mini` (0.25/2), `-nano` (0.05/0.40) — so explicitly-selected GPT models price correctly instead of falling through to the Claude Opus fallback. Subscription turns are flat-rate; these drive only the notional estimate (same treatment as Claude subscription/bedrock).

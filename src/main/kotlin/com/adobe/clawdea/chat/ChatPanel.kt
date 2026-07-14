@@ -267,7 +267,7 @@ class ChatPanel(
     )
 
     // Input placeholder
-    private val PLACEHOLDER = "Ask Claude anything...  @file  /cmd+TAB  //skills"
+    private val PLACEHOLDER get() = "Ask ${bridge.agentLabel} anything...  @file  /cmd+TAB  //skills"
     override var showingPlaceholder = true
 
     private lateinit var turnController: TurnController
@@ -300,6 +300,13 @@ class ChatPanel(
     }
 
     init {
+        // Reflect the active backend on the assistant bubble from the first render
+        // (live turns refresh this again at turn start; this covers history replay).
+        renderer.assistantLabel = bridge.agentLabel
+        // Every thinking-indicator path (send / resume / stall poke) reads this to
+        // keep the "… is thinking" label in step with the live backend.
+        browserRenderer.agentLabelProvider = { bridge.agentLabel }
+
         // Turn controller: delegates pause/resume/abort callbacks to ChatPanel UI
         turnController = TurnController(
             onPause = {
@@ -327,12 +334,15 @@ class ChatPanel(
                             throw e
                         } catch (e: Exception) {
                             browserRenderer.hidePausedBanner()
-                            browserRenderer.appendHtml(renderer.renderError("Failed to resume Claude CLI: ${e.message}"))
+                            browserRenderer.appendHtml(renderer.renderError("Failed to resume ${bridge.agentLabel} CLI: ${e.message}"))
                             statusLabel.text = " "
                             return@launch
                         }
                     }
                     browserRenderer.hidePausedBanner()
+                    // Answer-bubble label; the thinking indicator is synced centrally
+                    // in ChatBrowserRenderer via agentLabelProvider.
+                    renderer.assistantLabel = bridge.agentLabel
                     browserRenderer.appendHtml(renderer.renderUserMessage(text))
                     browserRenderer.showThinkingIndicator()
                     eventHandler.onTurnSubmitted(text)
@@ -341,7 +351,7 @@ class ChatPanel(
                     syncStreamingUi()
                     eventHandler.turnHasContent = false
                     eventHandler.streamStartTime = System.currentTimeMillis()
-                    statusLabel.text = "Claude is thinking..."
+                    statusLabel.text = "${renderer.assistantLabel} is thinking..."
                     eventHandler.watchForTurnStartStall()
                     inputArea.text = ""
                 }
@@ -428,6 +438,14 @@ class ChatPanel(
                 val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
                 ClawDEASettings.getInstance()
                     .getSelectedModelId(project.basePath ?: "", providerId).isBlank()
+            },
+            resolveModelLabel = {
+                // Only consulted when the stream reports no model (codex). Fall back to the
+                // user's selection for this provider, or "Default" when none is pinned.
+                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                ClawDEASettings.getInstance()
+                    .getSelectedModelId(project.basePath ?: "", providerId)
+                    .ifBlank { "Default" }
             },
         )
 
@@ -1057,7 +1075,7 @@ class ChatPanel(
         // otherwise healthy session; resuming preserves all prior context. Don't count
         // these toward the prompt-stall escalation — they're a different failure mode.
         recoverStalledTurn(
-            "Claude CLI stopped responding after a tool completed. Restarting the session; please retry the last prompt.",
+            "${bridge.agentLabel} CLI stopped responding after a tool completed. Restarting the session; please retry the last prompt.",
             fresh = false,
         )
     }
@@ -1065,7 +1083,7 @@ class ChatPanel(
     private fun recoverStalledPromptTurn() {
         consecutivePromptStalls += 1
         val escalateToFresh = shouldEscalateToFreshRestart(consecutivePromptStalls)
-        recoverStalledTurn(stalledPromptMessage(escalateToFresh), fresh = escalateToFresh)
+        recoverStalledTurn(stalledPromptMessage(escalateToFresh, bridge.agentLabel), fresh = escalateToFresh)
     }
 
     private fun recoverStalledTurn(message: String, fresh: Boolean) {
@@ -1089,7 +1107,7 @@ class ChatPanel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val msg = "Failed to restart Claude CLI after a stalled turn: ${e.message}"
+                val msg = "Failed to restart ${bridge.agentLabel} CLI after a stalled turn: ${e.message}"
                 appendHtml(renderer.renderError(msg))
                 showNotification("ClawDEA", msg, NotificationType.ERROR)
             }
@@ -1384,18 +1402,34 @@ class ChatPanel(
         ) { _, _ -> sessionManager.openInteractiveTerminal(null) })
 
         commandRegistry.register("/login", LocalHandler(
-            CommandInfo("/login", "Sign in with Claude subscription", CommandCategory.LOCAL),
+            CommandInfo("/login", "Sign in with your Claude or OpenAI (ChatGPT) subscription", CommandCategory.LOCAL),
         ) { _, _ ->
-            appendHtml(renderer.renderInfoMessage("Signing in..."))
-            com.adobe.clawdea.auth.SubscriptionAuth.getInstance().signIn { status ->
-                ApplicationManager.getApplication().invokeLater {
-                    if (status.isSignedIn()) {
-                        val info = status as? com.adobe.clawdea.auth.AuthStatus.SignedIn
-                        val detail = listOfNotNull(info?.email, info?.tier).joinToString(", ")
-                        appendHtml(renderer.renderInfoMessage("Signed in" + if (detail.isNotBlank()) " ($detail)" else ""))
-                    } else {
-                        val error = com.adobe.clawdea.auth.SubscriptionAuth.getInstance().lastSignInError()
-                        appendHtml(renderer.renderError(error ?: "Sign-in failed"))
+            // Route to the sign-in flow for the configured provider: codex (ChatGPT) when the
+            // OpenAI subscription provider is selected, else the Claude subscription flow.
+            val isCodex = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.apiProvider == "openai-subscription"
+            appendHtml(renderer.renderInfoMessage(if (isCodex) "Signing in with ChatGPT..." else "Signing in..."))
+            if (isCodex) {
+                com.adobe.clawdea.auth.CodexSubscriptionAuth.getInstance().signIn { status ->
+                    ApplicationManager.getApplication().invokeLater {
+                        if (status.isSignedIn()) {
+                            appendHtml(renderer.renderInfoMessage("Signed in with ChatGPT"))
+                        } else {
+                            val error = com.adobe.clawdea.auth.CodexSubscriptionAuth.getInstance().lastSignInError()
+                            appendHtml(renderer.renderError(error ?: "Sign-in failed"))
+                        }
+                    }
+                }
+            } else {
+                com.adobe.clawdea.auth.SubscriptionAuth.getInstance().signIn { status ->
+                    ApplicationManager.getApplication().invokeLater {
+                        if (status.isSignedIn()) {
+                            val info = status as? com.adobe.clawdea.auth.AuthStatus.SignedIn
+                            val detail = listOfNotNull(info?.email, info?.tier).joinToString(", ")
+                            appendHtml(renderer.renderInfoMessage("Signed in" + if (detail.isNotBlank()) " ($detail)" else ""))
+                        } else {
+                            val error = com.adobe.clawdea.auth.SubscriptionAuth.getInstance().lastSignInError()
+                            appendHtml(renderer.renderError(error ?: "Sign-in failed"))
+                        }
                     }
                 }
             }
@@ -1920,11 +1954,14 @@ class ChatPanel(
             try {
                 bridge.start(skills = discoveredSkills)
             } catch (e: Exception) {
-                appendHtml(renderer.renderError("Failed to start Claude CLI: ${e.message}"))
+                appendHtml(renderer.renderError("Failed to start ${bridge.agentLabel} CLI: ${e.message}"))
                 return
             }
         }
         maybeHandleCorrection(text)
+        // Answer-bubble label; the thinking indicator is synced centrally in
+        // ChatBrowserRenderer via agentLabelProvider.
+        renderer.assistantLabel = bridge.agentLabel
         appendHtml(renderer.renderUserMessage(text))
         browserRenderer.showThinkingIndicator()
         eventHandler.onTurnSubmitted(text)
@@ -1933,7 +1970,7 @@ class ChatPanel(
         syncStreamingUi()
         eventHandler.turnHasContent = false
         eventHandler.streamStartTime = System.currentTimeMillis()
-        statusLabel.text = "Claude is thinking..."
+        statusLabel.text = "${renderer.assistantLabel} is thinking..."
         eventHandler.watchForTurnStartStall()
     }
 
@@ -2165,7 +2202,7 @@ class ChatPanel(
         if (pendingPromptController.isQueued) {
             statusLabel.text = pendingPromptController.statusText(inputArea.text)
         } else if (turnController.isStreaming) {
-            statusLabel.text = "Claude is thinking..."
+            statusLabel.text = "${bridge.agentLabel} is thinking..."
         } else if (turnController.isPaused) {
             statusLabel.text = "Paused - Enter to continue, type to steer, ESC to abort"
         } else {
@@ -2201,7 +2238,7 @@ class ChatPanel(
             try {
                 bridge.start(skills = discoveredSkills)
             } catch (e: Exception) {
-                val msg = "Failed to start Claude CLI: ${e.message}"
+                val msg = "Failed to start ${bridge.agentLabel} CLI: ${e.message}"
                 appendHtml(renderer.renderError(msg))
                 showNotification("ClawDEA", msg, NotificationType.ERROR)
                 return
@@ -2218,7 +2255,8 @@ class ChatPanel(
         syncStreamingUi()
         eventHandler.turnHasContent = false
         eventHandler.streamStartTime = System.currentTimeMillis()
-        statusLabel.text = "Claude is thinking..."
+        renderer.assistantLabel = bridge.agentLabel
+        statusLabel.text = "${renderer.assistantLabel} is thinking..."
         eventHandler.watchForTurnStartStall()
 
         eventHandler.totalTokensUsed += ContextBudgetCalculator.estimateTokens(text)
@@ -2526,11 +2564,11 @@ class ChatPanel(
         internal fun shouldEscalateToFreshRestart(consecutivePromptStalls: Int): Boolean =
             consecutivePromptStalls >= 2
 
-        internal fun stalledPromptMessage(escalateToFresh: Boolean): String =
+        internal fun stalledPromptMessage(escalateToFresh: Boolean, agent: String = "Claude"): String =
             if (escalateToFresh) {
-                "Claude CLI is unresponsive even after a resume — the session looks stuck. Starting a fresh session; please retry the last prompt."
+                "$agent CLI is unresponsive even after a resume — the session looks stuck. Starting a fresh session; please retry the last prompt."
             } else {
-                "Claude CLI did not respond after receiving the prompt. Restarting the session; please retry the last prompt."
+                "$agent CLI did not respond after receiving the prompt. Restarting the session; please retry the last prompt."
             }
     }
 }

@@ -12,7 +12,7 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.chat.session.ChatAutoResumeState
-import com.adobe.clawdea.chat.session.SessionScanner
+import com.adobe.clawdea.chat.session.SessionCatalog
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAware
@@ -49,7 +49,7 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
         fun addNewSession(project: Project, toolWindow: ToolWindow, name: String) {
             val state = project.getService(ChatAutoResumeState::class.java)
             val resumeId = if (state.consumeIfUnused()) {
-                project.basePath?.let { SessionScanner.scan(it).firstOrNull()?.id }
+                project.basePath?.let { SessionCatalog.mostRecent(it)?.id }
             } else {
                 null
             }

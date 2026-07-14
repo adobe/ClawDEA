@@ -74,6 +74,36 @@ class ModelPricingTest {
     }
 
     @Test
+    fun `gpt-5 class models priced at the GPT-5 tier`() {
+        // GPT-5 tier: $1.25/1M input, $10/1M output. 1M + 1M = 11.25
+        assertEquals(11.25, ModelPricing.costFor("gpt-5", 1_000_000, 1_000_000, 0, 0), 1e-9)
+        assertEquals(11.25, ModelPricing.costFor("gpt-5-codex", 1_000_000, 1_000_000, 0, 0), 1e-9)
+        assertEquals(11.25, ModelPricing.costFor("gpt-5.6-sol", 1_000_000, 1_000_000, 0, 0), 1e-9)
+        assertEquals(11.25, ModelPricing.costFor("gpt-5.4", 1_000_000, 1_000_000, 0, 0), 1e-9)
+    }
+
+    @Test
+    fun `gpt mini variants priced at the mini tier`() {
+        // Mini: $0.25/1M input, $2/1M output. 1M + 1M = 2.25
+        assertEquals(2.25, ModelPricing.costFor("gpt-5-mini", 1_000_000, 1_000_000, 0, 0), 1e-9)
+        assertEquals(2.25, ModelPricing.costFor("gpt-5.4-mini", 1_000_000, 1_000_000, 0, 0), 1e-9)
+    }
+
+    @Test
+    fun `gpt nano variants priced at the nano tier`() {
+        // Nano: $0.05/1M input, $0.40/1M output. 1M + 1M = 0.45
+        assertEquals(0.45, ModelPricing.costFor("gpt-5-nano", 1_000_000, 1_000_000, 0, 0), 1e-9)
+    }
+
+    @Test
+    fun `gpt models are not priced at the claude fallback`() {
+        // Regression: before the GPT branch, gpt-* fell through to the Opus fallback (5/25).
+        val r = ModelPricing.rateFor("gpt-5.6-terra")
+        assertEquals(1.25, r.inputPerM, 1e-9)
+        assertEquals(10.0, r.outputPerM, 1e-9)
+    }
+
+    @Test
     fun `model id matched case insensitively and by prefix`() {
         // Real ids may carry suffixes e.g. claude-opus-4-8-20260101
         val a = ModelPricing.costFor("claude-opus-4-8-20260101", 1_000_000, 0, 0, 0)

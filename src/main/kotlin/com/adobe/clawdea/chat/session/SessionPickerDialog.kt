@@ -156,7 +156,7 @@ class SessionPickerDialog(
         ): Component {
             messageLabel.text = value.firstMessage.replace("\n", " ").take(100)
             val sizeKb = value.fileSize / 1024
-            metaLabel.text = "${value.formattedTime()}  \u00b7  ${sizeKb}KB"
+            metaLabel.text = "${value.origin.displayLabel}  \u00b7  ${value.formattedTime()}  \u00b7  ${sizeKb}KB"
 
             if (isSelected) {
                 panel.background = UIManager.getColor("List.selectionBackground")

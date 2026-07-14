@@ -58,6 +58,13 @@ class EventStreamHandler(
     private val resolveEffort: () -> String,
     /** True when no explicit model is selected (the CLI uses its Default). */
     private val resolveIsDefaultModel: () -> Boolean = { false },
+    /**
+     * Display model for the turn footer when the stream itself carries no model id.
+     * Claude's `stream-json` always reports the resolved model, but codex's
+     * `exec --json` does not, so the footer falls back to the user's selection
+     * (or "Default") to still show model + effort.
+     */
+    private val resolveModelLabel: () -> String = { "" },
 ) {
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(EventStreamHandler::class.java)
 
@@ -552,7 +559,7 @@ class EventStreamHandler(
                 val totalElapsed = if (streamStartTime > 0) {
                     System.currentTimeMillis() - streamStartTime
                 } else 0L
-                val model = currentModel.ifBlank { null }
+                val model = currentModel.ifBlank { resolveModelLabel() }.ifBlank { null }
                 val effort = resolveEffort().ifBlank { null }
                 if (event.costUsd > 0 || totalElapsed > 0 || model != null) {
                     browserRenderer.appendHtml(
@@ -622,7 +629,7 @@ class EventStreamHandler(
                         turnController.onUserSend()
                         onSyncStreamingUi()
                         streamStartTime = System.currentTimeMillis()
-                        statusLabel.text = "Claude is thinking..."
+                        statusLabel.text = "${bridge.agentLabel} is thinking..."
                         watchForTurnStartStall()
                         sentEditFeedback = true
                     }

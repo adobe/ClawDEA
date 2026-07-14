@@ -1130,6 +1130,17 @@ function updateTaskWidget(html) {
     }
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 }
+// Name shown on the pinned "thinking" indicator while a turn streams. Kept in
+// sync with the active backend ("Claude" / "Codex") via setAssistantLabel so the
+// indicator matches the answer bubble instead of always saying "Claude".
+var assistantLabel = 'Claude';
+function setAssistantLabel(name) {
+    if (typeof name === 'string' && name.length > 0) {
+        assistantLabel = name;
+        var live = document.querySelector('#thinking-indicator .assistant-label');
+        if (live) live.textContent = name;
+    }
+}
 var thinkingHeartbeat = null;
 function startThinkingHeartbeat() {
     if (thinkingHeartbeat !== null) return;
@@ -1153,7 +1164,7 @@ function showThinking() {
         return;
     }
     var html = '<div id="thinking-indicator" class="message">' +
-        '<div class="message-label assistant-label">Claude</div>' +
+        '<div class="message-label assistant-label">' + assistantLabel + '</div>' +
         '<div class="assistant-bubble"><div class="thinking-dots">' +
         '<div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div>' +
         '<button class="thinking-control-btn" type="button" data-action="turn-pause" title="Pause response" aria-label="Pause response">' +

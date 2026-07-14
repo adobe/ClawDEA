@@ -183,8 +183,33 @@ class ChatBrowserRenderer(
         browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0)
     }
 
+    /**
+     * Supplies the live backend name ("Claude" / "Codex") so the thinking
+     * indicator always matches the active agent. Set by [ChatPanel] once the
+     * bridge exists. Consulted at every point the indicator is created/recreated
+     * ([showThinkingIndicator], [pokeThinkingIndicator]) so no send/resume/stall
+     * path can leave a stale "Claude" label on screen.
+     */
+    var agentLabelProvider: () -> String = { "Claude" }
+
+    /**
+     * Set the name shown on the pinned "thinking" indicator so it matches the
+     * active backend ("Claude" / "Codex"). Push this before [showThinkingIndicator]
+     * so a freshly created indicator picks up the right label immediately.
+     */
+    fun setAssistantLabel(label: String) {
+        if (!browserReady || label.isBlank()) return
+        browser.cefBrowser.executeJavaScript("setAssistantLabel('${escapeForJs(label)}');", browser.cefBrowser.url, 0)
+    }
+
+    private fun syncAssistantLabel() {
+        val label = agentLabelProvider().takeIf { it.isNotBlank() } ?: return
+        browser.cefBrowser.executeJavaScript("setAssistantLabel('${escapeForJs(label)}');", browser.cefBrowser.url, 0)
+    }
+
     fun showThinkingIndicator() {
         if (!browserReady) return
+        syncAssistantLabel()
         browser.cefBrowser.executeJavaScript("showThinking();", browser.cefBrowser.url, 0)
     }
 
@@ -212,6 +237,7 @@ class ChatBrowserRenderer(
      */
     fun pokeThinkingIndicator() {
         if (!browserReady) return
+        syncAssistantLabel()
         browser.cefBrowser.executeJavaScript("pokeThinking();", browser.cefBrowser.url, 0)
     }
 

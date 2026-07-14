@@ -11,9 +11,12 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.auth.CodexSubscriptionAuth
+import com.adobe.clawdea.auth.CodexSubscriptionAuthEventListener
 import com.adobe.clawdea.auth.SubscriptionAuth
 import com.adobe.clawdea.auth.SubscriptionAuthEventListener
 import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.gateway.ModelSelectorProbeStarter
 import com.adobe.clawdea.mcp.McpServer
 import com.intellij.openapi.Disposable
@@ -31,10 +34,20 @@ class ChatSession(
         project.basePath ?: System.getProperty("user.home"),
         McpServer.getInstance(project).port,
         onAuthFailure = { reason ->
-            SubscriptionAuth.getInstance().invalidateCache()
-            ApplicationManager.getApplication().messageBus
-                .syncPublisher(SubscriptionAuthEventListener.TOPIC)
-                .onAuthFailed(reason)
+            // Route the auth failure to the subscription subsystem for the configured provider.
+            // For the OpenAI subscription, CliBridge now drives the codex CLI, so a 401 on the
+            // codex stream surfaces here as a real CodexSubscription auth failure.
+            if (ClawDEASettings.getInstance().state.apiProvider == "openai-subscription") {
+                CodexSubscriptionAuth.getInstance().invalidateCache()
+                ApplicationManager.getApplication().messageBus
+                    .syncPublisher(CodexSubscriptionAuthEventListener.TOPIC)
+                    .onAuthFailed(reason)
+            } else {
+                SubscriptionAuth.getInstance().invalidateCache()
+                ApplicationManager.getApplication().messageBus
+                    .syncPublisher(SubscriptionAuthEventListener.TOPIC)
+                    .onAuthFailed(reason)
+            }
         },
         project = project,
     )

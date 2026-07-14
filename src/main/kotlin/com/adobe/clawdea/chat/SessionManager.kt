@@ -12,8 +12,9 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.chat.session.HistoryEntry
+import com.adobe.clawdea.chat.session.SessionCatalog
+import com.adobe.clawdea.chat.session.SessionOrigin
 import com.adobe.clawdea.chat.session.SessionPickerDialog
-import com.adobe.clawdea.chat.session.SessionScanner
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.cost.CostTracker
 import com.adobe.clawdea.skills.SkillInfo
@@ -74,39 +75,64 @@ class SessionManager(
         sessionId: String,
         basePath: String,
         silentOnFailure: Boolean,
+        origin: SessionOrigin = SessionCatalog.resolveOrigin(basePath, sessionId) ?: SessionOrigin.CLAUDE,
     ) {
         onResetUi()
         browserRenderer.clearMessages()
 
         val history = try {
-            SessionScanner.loadHistory(basePath, sessionId)
+            SessionCatalog.loadHistory(basePath, sessionId, origin)
         } catch (t: Throwable) {
             log.warn("resumeSession: history load failed for $sessionId", t)
             return
         }
 
+        // Attribute historical bubbles to the agent that actually produced the transcript (its
+        // origin), not the backend now driving the panel — a Claude transcript resumed under codex
+        // still shows "Claude" for the replayed turns. Live turns reset this at send time.
+        renderer.assistantLabel = origin.displayLabel
         for (html in renderHistory(history)) {
             browserRenderer.appendHtml(html)
         }
 
-        val resumeCost = CostTracker.getInstance(project).seedFromResume(chatId, sessionId)
-        if (resumeCost.totalUsd > 0) {
-            // Mirror the live per-turn footer so a resumed session shows its
-            // accumulated cost at the bottom of the chat, just like a live turn.
-            // No elapsed time — this is reconstructed from history, not a live turn.
+        // Cost/savings reconstruction reads Claude transcript files; only meaningful for Claude
+        // origins. Codex cost seeding on resume is out of scope (no equivalent transcript reader).
+        if (origin == SessionOrigin.CLAUDE) {
+            val resumeCost = CostTracker.getInstance(project).seedFromResume(chatId, sessionId)
+            if (resumeCost.totalUsd > 0) {
+                // Mirror the live per-turn footer so a resumed session shows its
+                // accumulated cost at the bottom of the chat, just like a live turn.
+                // No elapsed time — this is reconstructed from history, not a live turn.
+                browserRenderer.appendHtml(
+                    renderer.renderCostInfo(resumeCost.lastModel, null, resumeCost.totalUsd, 0),
+                )
+            }
+            val savingsReco = com.adobe.clawdea.cost.TranscriptSavingsReader.reconstructFile(
+                com.adobe.clawdea.cost.TranscriptCostReader.sessionTranscriptFile(basePath, sessionId),
+            )
+            com.adobe.clawdea.cost.SavingsTracker.getInstance(project)
+                .seedFromResume(chatId, savingsReco.band, savingsReco.turns)
+        }
+        bridge.stop()
+
+        // Native resume only works when the running backend owns the session's store (Claude→Claude
+        // via `--resume`, Codex→Codex via `exec resume`). Across backends the id is meaningless to
+        // the other CLI, so instead of resuming we replay the transcript as first-turn context.
+        val native = resumeIsNative(origin, bridge.usesCodexBackend)
+        val resumeId = if (native) sessionId else null
+        val replay = if (native) null else buildReplay(history, origin)
+        if (!native) {
+            log.info("resumeSession: ${origin.displayLabel} session $sessionId resumed under ${bridge.agentLabel}; replaying transcript as context")
             browserRenderer.appendHtml(
-                renderer.renderCostInfo(resumeCost.lastModel, null, resumeCost.totalUsd, 0),
+                renderer.renderInfoMessage(
+                    "Continuing this ${origin.displayLabel} conversation with ${bridge.agentLabel}. The transcript above " +
+                        "is carried over as context, so your next message picks up where it left off.",
+                ),
             )
         }
-        val savingsReco = com.adobe.clawdea.cost.TranscriptSavingsReader.reconstructFile(
-            com.adobe.clawdea.cost.TranscriptCostReader.sessionTranscriptFile(basePath, sessionId),
-        )
-        com.adobe.clawdea.cost.SavingsTracker.getInstance(project)
-            .seedFromResume(chatId, savingsReco.band, savingsReco.turns)
-        bridge.stop()
         scope.launch {
             try {
-                bridge.start(resumeSessionId = sessionId, skills = getDiscoveredSkills())
+                bridge.start(resumeSessionId = resumeId, skills = getDiscoveredSkills(), replayContext = replay)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -119,6 +145,11 @@ class SessionManager(
             }
         }
     }
+
+    private fun buildReplay(history: List<HistoryEntry>, origin: SessionOrigin): String? =
+        com.adobe.clawdea.chat.session.TranscriptReplay
+            .serialize(history, origin.displayLabel)
+            .takeIf { it.isNotBlank() }
 
     /**
      * Entry point for auto-resume on IDE startup. Silent no-op if the project
@@ -141,10 +172,10 @@ class SessionManager(
         // most recent session on disk when the bridge ID doesn't resolve.
         val sessionId = run {
             val bridgeId = bridge.sessionId
-            if (bridgeId != null && basePath != null && SessionScanner.hasSessionFile(basePath, bridgeId)) {
+            if (bridgeId != null && basePath != null && SessionCatalog.resolveOrigin(basePath, bridgeId) != null) {
                 bridgeId
             } else {
-                basePath?.let { SessionScanner.scan(it).firstOrNull()?.id }
+                basePath?.let { SessionCatalog.mostRecent(it)?.id }
             }
         }
         log.info("reloadAndReplay: reason=$reason, session=${sessionId ?: "<unknown>"}")
@@ -152,8 +183,11 @@ class SessionManager(
         val historyHtml = StringBuilder()
         if (basePath != null && sessionId != null) {
             try {
-                val history = SessionScanner.loadHistory(basePath, sessionId)
-                log.info("reloadAndReplay: loaded ${history.size} history entries")
+                val origin = SessionCatalog.resolveOrigin(basePath, sessionId) ?: SessionOrigin.CLAUDE
+                val history = SessionCatalog.loadHistory(basePath, sessionId, origin)
+                log.info("reloadAndReplay: loaded ${history.size} history entries (origin=${origin.displayLabel})")
+                // Attribute replayed bubbles to the transcript's origin agent.
+                renderer.assistantLabel = origin.displayLabel
                 for (html in renderHistory(history)) {
                     historyHtml.append(html)
                 }
@@ -203,7 +237,7 @@ class SessionManager(
             return
         }
 
-        val sessions = SessionScanner.scan(basePath)
+        val sessions = SessionCatalog.scanAll(basePath)
         if (sessions.isEmpty()) {
             browserRenderer.appendHtml(renderer.renderInfoMessage("No sessions found for this project."))
             return
@@ -212,7 +246,7 @@ class SessionManager(
         val dialog = SessionPickerDialog(project, sessions)
         if (dialog.showAndGet()) {
             dialog.selectedSession?.let { selected ->
-                resumeSession(selected.id, basePath, silentOnFailure = false)
+                resumeSession(selected.id, basePath, silentOnFailure = false, origin = selected.origin)
             }
         }
     }
@@ -242,6 +276,17 @@ class SessionManager(
     }
 
     companion object {
+        /**
+         * True when the running backend can natively resume a session of the given [origin]:
+         * Claude backend ↔ Claude sessions, codex backend ↔ codex sessions. A mismatch means the
+         * id is unusable by the active CLI, so the caller replays the transcript as context instead.
+         */
+        internal fun resumeIsNative(origin: SessionOrigin, usesCodexBackend: Boolean): Boolean =
+            when (origin) {
+                SessionOrigin.CODEX -> usesCodexBackend
+                SessionOrigin.CLAUDE -> !usesCodexBackend
+            }
+
         /**
          * Pure helper for the /seed-wiki suggestion — returns the full HTML
          * info-block to append, or null when both CLAUDE.md and the wiki
