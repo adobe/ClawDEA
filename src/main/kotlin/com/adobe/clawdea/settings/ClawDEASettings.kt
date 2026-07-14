@@ -224,6 +224,9 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
     fun getBedrockBearerToken(): String = getSecret(BEDROCK_TOKEN_ATTR)
     fun setBedrockBearerToken(value: String) = setSecret(BEDROCK_TOKEN_ATTR, value)
 
+    fun getOpenAIApiKey(): String = getSecret(OPENAI_KEY_ATTR)
+    fun setOpenAIApiKey(value: String) = setSecret(OPENAI_KEY_ATTR, value)
+
     private val secretCache = ConcurrentHashMap<String, String>()
 
     fun preloadSecrets() {
@@ -233,6 +236,9 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
             }
             secretCache.getOrPut(BEDROCK_TOKEN_ATTR.serviceName) {
                 PasswordSafe.instance.getPassword(BEDROCK_TOKEN_ATTR).orEmpty()
+            }
+            secretCache.getOrPut(OPENAI_KEY_ATTR.serviceName) {
+                PasswordSafe.instance.getPassword(OPENAI_KEY_ATTR).orEmpty()
             }
         }
     }
@@ -326,6 +332,9 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         )
         private val BEDROCK_TOKEN_ATTR = CredentialAttributes(
             generateServiceName("ClawDEA", "bedrockBearerToken"),
+        )
+        private val OPENAI_KEY_ATTR = CredentialAttributes(
+            generateServiceName("ClawDEA", "openAiApiKey"),
         )
 
         fun getInstance(): ClawDEASettings =
