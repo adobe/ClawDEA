@@ -343,6 +343,25 @@ class ChatBrowserRenderer(
         )
     }
 
+    /**
+     * Append a streamed chunk of model reasoning into the live "Thinking" block
+     * (created on first delta, open while streaming). Codex emits reasoning tokens
+     * the Claude stream drops; the block renders above the answer bubble.
+     */
+    fun appendReasoningDelta(text: String) {
+        if (!browserReady || text.isEmpty()) return
+        browser.cefBrowser.executeJavaScript(
+            "appendReasoning('${escapeForJs(text)}');",
+            browser.cefBrowser.url, 0,
+        )
+    }
+
+    /** Collapse the live reasoning block at turn end so it no longer streams. */
+    fun finalizeReasoning() {
+        if (!browserReady) return
+        browser.cefBrowser.executeJavaScript("finalizeReasoning();", browser.cefBrowser.url, 0)
+    }
+
     /** Collapse a generic tool block on completion. Mirrors finalizeSubAgent. */
     fun finalizeToolBlock(toolUseId: String) {
         if (!browserReady) return

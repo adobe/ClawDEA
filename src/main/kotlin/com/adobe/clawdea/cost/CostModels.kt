@@ -38,8 +38,18 @@ data class SubscriptionUsage(
     val windows: List<UsageWindow> = emptyList(),
     val lastUpdatedEpochMs: Long = 0,
 ) {
-    /** From `extra_usage`: [used]/[limit] in [currency]; [pct] is the reported utilization (0–100). */
-    data class Spend(val used: Double, val limit: Double, val pct: Int, val currency: String)
+    /**
+     * From `extra_usage`: [used]/[limit] in [currency]; [pct] is the reported utilization (0–100).
+     * [isCredits] flags a whole-unit credit balance (codex `individualLimit`) that must render as
+     * "176 of 440 credits" rather than the Claude dollar form "$176.00 of $440.00".
+     */
+    data class Spend(
+        val used: Double,
+        val limit: Double,
+        val pct: Int,
+        val currency: String,
+        val isCredits: Boolean = false,
+    )
     companion object { val UNAVAILABLE = SubscriptionUsage(available = false) }
 }
 

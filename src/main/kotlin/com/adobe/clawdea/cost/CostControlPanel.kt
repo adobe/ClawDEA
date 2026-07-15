@@ -74,6 +74,17 @@ class CostControlPanel(private val project: Project, private val chatId: String)
     private fun money4(v: Double) = "$" + String.format(Locale.US, "%.4f", v)
     private fun money2(v: Double) = "$" + String.format(Locale.US, "%.2f", v)
 
+    /**
+     * "used of limit" spend label. Credits (codex) render as whole units — "176 of 440 credits";
+     * dollars (Claude) keep the currency-coded money form — "$176.00 of $440.00 credits".
+     */
+    private fun spendLabel(spend: SubscriptionUsage.Spend): String =
+        if (spend.isCredits) {
+            "${spend.used.toLong()} of ${spend.limit.toLong()} ${spend.currency}"
+        } else {
+            "${money2(spend.used)} of ${money2(spend.limit)} ${spend.currency}"
+        }
+
     private fun build(): JComponent {
         val tracker = CostTracker.getInstance(project)
         val s = tracker.snapshot(chatId)
@@ -126,7 +137,7 @@ class CostControlPanel(private val project: Project, private val chatId: String)
                 b.providerId == "subscription" -> {
                     val spend = b.usage.spend
                     if (spend != null) {
-                        body.add(kvRow("${money2(spend.used)} of ${money2(spend.limit)} ${spend.currency}", "${spend.pct}%", bold = true))
+                        body.add(kvRow(spendLabel(spend), "${spend.pct}%", bold = true))
                         body.add(gauge(spend.pct))
                     }
                     b.usage.windows.forEach { w ->
@@ -137,21 +148,34 @@ class CostControlPanel(private val project: Project, private val chatId: String)
                         body.add(mutedLabel("usage unavailable"))
                     }
                 }
-                // Flat-rate ChatGPT plan: turns aren't billed per-dollar, and the codex
-                // CLI (`exec --json`) reports no credit/quota — so a dollar "bill" would be
-                // misleading. Show a clear notional estimate instead of a spend total.
+                // ChatGPT subscription. The codex app-server reports real credit balance +
+                // rate-limit windows (`account/rateLimits/updated`) — show that live gauge when
+                // present. Before the first snapshot arrives, fall back to the notional estimate.
                 b.providerId == "openai-subscription" -> {
-                    body.add(mutedLabel("Flat-rate ChatGPT subscription — not billed per turn."))
-                    body.add(mutedLabel("Codex doesn't report credit usage; the figure below is a notional estimate."))
-                    val t = b.total
-                    if (t != null) {
-                        body.add(kvRow("Notional this month", money2(t.monthToDate)))
-                        body.add(kvRow("Since ${t.sinceDate.ifBlank { "—" }}", money2(t.allTime)))
-                        val reset = JButton("Reset").apply {
-                            isOpaque = false
-                            addActionListener { tracker.resetProvider(b.providerId); isEnabled = false; text = "Reset ✓" }
+                    val spend = b.usage.spend
+                    val hasLive = spend != null || b.usage.windows.isNotEmpty()
+                    if (hasLive) {
+                        if (spend != null) {
+                            body.add(kvRow(spendLabel(spend), "${spend.pct}%", bold = true))
+                            body.add(gauge(spend.pct))
                         }
-                        body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
+                        b.usage.windows.forEach { w ->
+                            body.add(kvRow(w.label, "${w.pct}%"))
+                            body.add(gauge(w.pct))
+                        }
+                    } else {
+                        body.add(mutedLabel("Flat-rate ChatGPT subscription — not billed per turn."))
+                        body.add(mutedLabel("Credit usage appears here once codex reports it (after the first turn)."))
+                        val t = b.total
+                        if (t != null) {
+                            body.add(kvRow("Notional this month", money2(t.monthToDate)))
+                            body.add(kvRow("Since ${t.sinceDate.ifBlank { "—" }}", money2(t.allTime)))
+                            val reset = JButton("Reset").apply {
+                                isOpaque = false
+                                addActionListener { tracker.resetProvider(b.providerId); isEnabled = false; text = "Reset ✓" }
+                            }
+                            body.add(JPanel(BorderLayout()).apply { isOpaque = false; add(reset, BorderLayout.EAST) })
+                        }
                     }
                 }
                 else -> {

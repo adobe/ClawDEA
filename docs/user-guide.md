@@ -59,11 +59,17 @@ ClawDEA can drive the [OpenAI Codex CLI](https://developers.openai.com/codex/) i
    - **OpenAI API** — authenticate with an OpenAI API key.
 3. Open (or start) a chat. The model dropdown now lists your Codex/GPT models; ClawDEA routes the conversation to `codex` automatically. The assistant label, the "… is thinking" status, and the per-turn footer all reflect the Codex backend.
 
-**Switching backends** is just a matter of changing the provider — the chat picks up the right CLI on the next session. Sessions started with either backend show up in `/resume` (see [Session resume](#session-resume)).
+Codex runs over its native **app-server** protocol, which unlocks a few things beyond plain streaming:
 
-**What's Claude-only for now:** inline completions and intention actions still use Claude. OpenAI support is scoped to the chat panel.
+- **Streamed reasoning.** The model's reasoning is streamed live into a collapsible **Thinking** block above the answer, then auto-collapsed when the turn ends.
+- **Shell & patch approvals through ClawDEA's gate.** Codex's own shell commands and file patches are routed through the same permission system as Claude's tools — the same inline Allow / Always allow / Deny card, the same `permissions.allow`/`permissions.deny` precedence, and the same diff dialog for edits (see [Tool permissions](#tool-permissions)).
+- **Native interrupt & mid-turn steering.** **Esc** interrupts the live turn natively; sending a message while Codex is working injects it into the running turn (see [Mid-turn steering](#mid-turn-steering-codex)).
 
-**Cost Control** for the ChatGPT subscription shows a notional estimate rather than a per-turn dollar figure — a flat-rate subscription isn't billed per turn, and `codex` doesn't report credit usage to the plugin.
+**Switching backends** is just a matter of changing the provider. If the switch flips the backend type (Codex ⇄ Claude), ClawDEA rebuilds the session on the correct CLI so the model dropdown, the assistant label, and the carried-over conversation stay in sync — no stale "Codex" label under a Claude dropdown. Sessions started with either backend show up in `/resume` (see [Session resume](#session-resume)).
+
+**What's Claude-only for now:** inline completions and intention actions still use Claude. OpenAI support is scoped to the chat panel. Claude has no mid-turn steer primitive, so a message sent while Claude is working queues for the next turn instead of injecting into the current one.
+
+**Cost Control** for the ChatGPT subscription shows your real remaining credits and rate-limit windows, reported by the app-server, reusing the same gauge as Claude. (An API-key OpenAI provider is billed per turn and shows a dollar figure as usual.)
 
 ---
 
@@ -83,9 +89,13 @@ For a fuller picker, type `@` and then **Tab**. This opens a dialog with two gro
 
 ### Turn control
 
-- **Esc** (first press) — Pause the current response. Claude finishes its current sentence and waits.
+- **Esc** (first press) — Pause the current response. Claude finishes its current sentence and waits; Codex interrupts the live turn natively (`turn/interrupt`).
 - **Esc** (second press while paused) — Abort the response entirely.
 - Type while paused to send follow-up instructions, then press Enter to resume with your message.
+
+### Mid-turn steering (Codex)
+
+With the Codex backend, you don't have to wait for a turn to finish to redirect it. Send a message while Codex is still working and it's injected into the running turn via native `turn/steer` — the model folds your guidance into what it's already doing instead of restarting. The message appears in the transcript and the "Thinking" indicator stays live. Claude has no steer primitive, so a message sent mid-turn queues for the next turn as before.
 
 ### Clickable code references
 
@@ -99,7 +109,7 @@ If Claude uses built-in Edit/Write tools instead, a fallback layer renders inlin
 
 ### Tool permissions
 
-Tool calls go through ClawDEA's `--permission-prompt-tool` integration. The behavior depends on **Tool approval mode** in Settings:
+Tool calls go through ClawDEA's `--permission-prompt-tool` integration. With the Codex backend, Codex's own shell commands and file patches are routed through the same gate (via the app-server's approval requests), so the modes, cards, rule precedence, and diff dialog below apply to both backends. The behavior depends on **Tool approval mode** in Settings:
 
 - **Confirm all** — every tool call (Bash, search, etc.) shows an inline permission card in the chat tab that triggered the call (multi-panel routing — approvals never land on the wrong tab) with **Allow**, **Always allow...**, and **Deny** buttons. The CLI blocks until you click. Best for tight control, e.g. when running unfamiliar prompts.
 - **Allow safe** — ClawDEA-trusted read-only operations (file reads and IntelliJ MCP tools) auto-approve silently, and Claude's native auto-mode classifier may also approve routine actions. Calls that need explicit approval still show a fresh permission card.

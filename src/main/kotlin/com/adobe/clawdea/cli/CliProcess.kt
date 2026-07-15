@@ -680,12 +680,34 @@ internal fun findBinaryOnWindowsPath(
 }
 
 /**
+ * Locate [binary] on a Unix colon-delimited [path] (e.g. the login-shell `PATH`). Returns the
+ * first launchable absolute path or null. Mirrors [findBinaryOnWindowsPath] for POSIX; [isExecutable]
+ * is injected for testing.
+ */
+internal fun findExecutableOnUnixPath(
+    binary: String,
+    path: String,
+    isExecutable: (String) -> Boolean = { java.io.File(it).let { f -> f.isFile && f.canExecute() } },
+): String? {
+    for (dir in path.split(':').map { it.trim() }.filter { it.isNotEmpty() }) {
+        val candidate = "$dir/$binary"
+        if (isExecutable(candidate)) return candidate
+    }
+    return null
+}
+
+/**
  * Resolve the OpenAI `codex` CLI path, mirroring [resolveClaudeCliPath]: honor an explicit
  * user-configured path (normalizing Windows `.ps1` shims), otherwise probe the well-known npm /
- * nvm / homebrew install locations, then fall back to a Windows PATH+PATHEXT search, and finally
- * the bare name `"codex"` (resolved by the OS on Unix).
+ * nvm / homebrew install locations, then a Windows PATH+PATHEXT search, then (on Unix) the user's
+ * login-shell `PATH` — which the JVM lacks on Finder/Dock launches, so a bare-name spawn fails with
+ * "Cannot run program codex" even though codex is on the shell PATH — and finally the bare name
+ * `"codex"`. [shellResolver] is injected so unit tests don't spawn a login shell.
  */
-fun resolveCodexCliPath(configured: String): String {
+fun resolveCodexCliPath(
+    configured: String,
+    shellResolver: (String) -> String? = { CliEnvironment.resolveOnShellPath(it) },
+): String {
     if (configured.isNotBlank() && configured != "codex") {
         return normalizeWindowsShimPath(configured)
     }
@@ -723,6 +745,11 @@ fun resolveCodexCliPath(configured: String): String {
                 resolveLog.info("Resolved codex CLI on PATH: $it")
                 return it
             }
+    } else {
+        shellResolver("codex")?.let {
+            resolveLog.info("Resolved codex CLI on shell PATH: $it")
+            return it
+        }
     }
     return "codex"
 }

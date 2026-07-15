@@ -22,9 +22,9 @@ import com.intellij.openapi.project.Project
  * Assembles the first-turn preamble injected into a `codex` session so the codex
  * backend reaches parity with the Claude backend's `--append-system-prompt-file`.
  *
- * Codex has no system-prompt flag, but instructions given on the first turn persist
- * for the whole thread (subsequent turns use `codex exec resume`), so [CodexProcess]
- * prepends this preamble to the first user message only.
+ * Codex has no system-prompt flag, but the `codex app-server` accepts `baseInstructions`
+ * on `thread/start`, which persist for the whole thread, so [CodexAppServerProcess]
+ * passes this preamble there once at session start (no per-turn prepend needed).
  *
  * The preamble bundles three things, mirroring [CliProcess]'s system prompt:
  *  1. tooling + edit-routing guidance ([PromptResource] `codex-tooling-prompt`) — steers

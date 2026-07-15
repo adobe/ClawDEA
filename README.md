@@ -27,7 +27,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Profiling** — Claude can profile your code via JDK Flight Recorder: launch tests or run configurations with JFR instrumentation, then analyze CPU hotspots, allocation pressure, and memory leaks. Three entry points: `/profile` slash command, gutter icon on `@Test` methods, or imported `.jfr`/`.hprof` files. Claude reads the analysis results and proposes source-level fixes — a closed diagnostic loop from "this is slow" to a concrete patch.
 
-**Chat panel** — Streams responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings). **Backend choice:** chat with **Claude Code** or **OpenAI Codex** — switch from the model dropdown and ClawDEA routes to the right CLI automatically, keeping the full MCP toolset (index, debugger, diff-gated edit review, primer, skills) either way. Sessions from both backends appear in `/resume` (labeled by origin); resuming across backends replays the prior conversation as context.
+**Chat panel** — Streams responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Reasoning is streamed live in a collapsible **Thinking** block. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings). **Backend choice:** chat with **Claude Code** or **OpenAI Codex** — switch from the model dropdown and ClawDEA routes to the right CLI automatically, keeping the full MCP toolset (index, debugger, diff-gated edit review, primer, skills) either way. Sessions from both backends appear in `/resume` (labeled by origin); resuming across backends replays the prior conversation as context.
 
 **Code navigation & MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search, and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present.
 
@@ -37,7 +37,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Edit review** — When "Auto-accept Edits" is off, each proposed change opens a native IntelliJ diff dialog with Accept/Reject. Built-in Edit/Write calls that slip through are caught by a fallback layer with inline buttons and file revert.
 
-**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When the CLI requests permission for a tool call, ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in the chat tab that triggered the tool call (multi-panel routing) with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
+**Tool permissions** — Three approval modes (Confirm all / Allow safe / Allow all). When either CLI requests permission for a tool call — including Codex's own shell commands and patches — ClawDEA honors Claude Code `permissions.allow` / `permissions.deny` rules first; otherwise an inline permission card appears in the chat tab that triggered the tool call (multi-panel routing) with Allow / Always allow / Deny buttons. The CLI blocks until you decide.
 
 **@ mentions** — Type `@` for inline autocomplete (open editor tabs + recently git-modified files); press `@` then Tab to open a full picker with grouped Files and Symbols sections, backed by IntelliJ's filename and short-name caches.
 
@@ -48,6 +48,8 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 **Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/context`, `/resume`, `/skills`, `/login`, `/cc`, `/init`, `/profile`, `/callers`, `/usages`, `/implementations`, `/supertypes`, `/refresh-view`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/wiki-gap`, `/wiki-relocate`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
 
 **Session resume** — Pick up a previous session (Claude or Codex, labeled by origin) with conversation history replayed in the chat panel. Resuming the same backend is native; resuming across backends replays the prior conversation as context so you can continue seamlessly.
+
+**Mid-turn steering (Codex)** — Send a message while Codex is still working and it's injected into the running turn via native `turn/steer` — the model folds in your guidance without restarting. (Claude has no steer primitive, so a message sent mid-turn queues for the next turn as before.)
 
 ## Requirements
 
@@ -80,7 +82,7 @@ See the **[User Guide](docs/user-guide.md)** for detailed configuration, slash c
 src/main/kotlin/com/adobe/clawdea/
   actions/       Intention actions, context menu, keyboard shortcuts
   chat/          ChatPanel, MessageRenderer, EditDiffReviewer, EditReviewCoordinator
-  cli/           CliBridge, CliProcess/CliEventParser (Claude), CodexProcess/CodexEventParser (OpenAI)
+  cli/           CliBridge, CliProcess/CliEventParser (Claude), CodexAppServerProcess/CodexAppServerParser (OpenAI)
   commands/      Slash command registry and handlers
   completions/   Inline completion provider
   context/       Context engine for gathering editor state

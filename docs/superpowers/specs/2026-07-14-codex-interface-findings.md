@@ -435,3 +435,67 @@ MCP tool **calls** are gated and only execute non-interactively under:
 
 - **Model list:** `CodexModelProbe` reads `$CODEX_HOME/models_cache.json` (codex's own account model cache) and surfaces `visibility == "list"` models; registered for `openai-subscription` in `ModelCatalogProbes.forProvider`. The codex `exec --json` stream carries **no** model field (verified), so "Default" (no `-m`) cannot be resolved from the stream.
 - **Cost:** `ModelPricing` gains a GPT family branch — GPT-5 tier (1.25/10), `-mini` (0.25/2), `-nano` (0.05/0.40) — so explicitly-selected GPT models price correctly instead of falling through to the Claude Opus fallback. Subscription turns are flat-rate; these drive only the notional estimate (same treatment as Claude subscription/bedrock).
+
+---
+
+## Phase A app-server spike results (2026-07-15, codex-cli 0.144.4, ChatGPT/business plan)
+
+Drove `codex app-server --stdio` by hand with a Python driver (`/tmp/app_server_spike.py`) + a
+Streamable-HTTP MCP mock (`/tmp/clawdea_mcp_mock.py`). **All three Phase A unknowns are resolved — the
+app-server backend is viable.**
+
+### Transport & framing (confirmed)
+- **Newline-delimited JSON** over stdio (one JSON-RPC object per line). No LSP `Content-Length` framing.
+- Handshake: client sends `initialize` (params `{clientInfo:{name,version}}`) → response carries
+  `userAgent`/`codexHome`/`platformOs` (no capability negotiation needed) → client sends `initialized`
+  notification → then `thread/start`.
+- `thread/start` **response** returns a rich thread object: id is at `result.thread.id` (also
+  `sessionId`, and `path` = the rollout `.jsonl`), plus `modelProvider:"openai"`, `historyMode:"legacy"`,
+  `status`. (The camelCase `threadId` guessed earlier is **wrong** — it's `thread.id`.)
+- `turn/start` params: `{threadId, input:[{type:"text", text:"…"}]}` (input items are `UserInput`;
+  `text`/`image` variants). Response returns `{turn:{id, status:"inProgress", …}}`.
+- Turn lifecycle notifications observed in order: `thread/status/changed`, `turn/started`,
+  `item/started`+`item/completed` (types seen: `userMessage`, `reasoning`, `commandExecution`,
+  `mcpToolCall`, `agentMessage`), `thread/tokenUsage/updated`, `turn/completed`.
+- Streaming: `item/agentMessage/delta` fires (short answers → few deltas). `reasoning` arrives as
+  `item/started`/`item/completed type=reasoning` (empty summary/content on trivial turns).
+
+### Unknown #1 — approvals gate execution ✅
+- With `approvalPolicy:"on-request"` + `sandbox:"read-only"`, a **writing** command
+  (`mkdir … && echo hi > …`) triggered a **server→client request** `item/commandExecution/requestApproval`
+  (the **v2** gate — the legacy `execCommandApproval` was **not** emitted). Reply
+  `{"decision":"accept"}` → command executed (`item/completed`). Decline enum is `decline`/`cancel`.
+- **Gotcha:** a no-write command (`echo`) is auto-approved even under `read-only`/`untrusted` because it
+  needs no escalation — the gate only fires when the sandbox would actually block the command.
+
+### Unknown #2 — MCP tools run WITHOUT `danger-full-access` ✅ (big win vs. `exec`)
+- Under `sandbox:"workspace-write"` + `approvalPolicy:"on-request"`, the MCP mock handshake **and the
+  `tools/call`** both succeed (mock logged `TOOL CALL clawdea_ping {"msg":"spike"}`; item went
+  `inProgress → completed`). This is the gap the `exec` backend could not close (there `tools/call` only
+  ran under `danger-full-access`).
+- MCP tool calls are **gated** in app-server mode: codex emits `mcpServer/elicitation/request` with
+  `_meta.codex_approval_kind:"mcp_tool_call"`; reply `{"action":"accept"}` (enum `accept`/`decline`/`cancel`)
+  to proceed. This is the hook to route MCP-tool approval through ClawDEA's permission gate.
+- MCP servers are registered via `thread/start` `config:{mcp_servers:{<name>:{url:"http://127.0.0.1:PORT/mcp"}}}`
+  (free-form `config` object, same keys as `config.toml`). HTTP/1.1 keep-alive still required (as in exec).
+
+### Unknown #3 — real credits/rate-limits over the socket ✅
+- `account/rateLimits/updated` notification arrives mid-turn. Shape:
+  `{rateLimits:{limitId:"codex", primary, secondary, credits:{hasCredits, unlimited, balance}, planType, rateLimitReachedType}}`.
+  On this account: `planType:"business"`, `credits.hasCredits:true`, `primary`/`secondary` null (plan
+  doesn't expose window %; a Plus/Pro account likely populates them). `account/rateLimits/read` is the
+  on-demand pull. This feeds `CostTracker`/`SubscriptionUsage` directly — replaces the notional estimate.
+
+### Reply-shape cheat-sheet (for the ApprovalRouter)
+| Server request | Reply |
+|---|---|
+| `item/commandExecution/requestApproval` | `{"decision":"accept"｜"decline"｜"cancel"}` |
+| `item/fileChange/requestApproval` | `{"decision":"accept"｜…}` (assumed same enum; confirm on first patch) |
+| `execCommandApproval` / `applyPatchApproval` (legacy) | `{"decision":"approved"｜"denied"｜"abort"}` |
+| `mcpServer/elicitation/request` (incl. MCP tool-call gate) | `{"action":"accept"｜"decline"｜"cancel"}` |
+| `item/tool/requestUserInput` | `{"action":"accept", …}` |
+
+### Net
+Streaming, reasoning, gated shell, gated MCP (no danger-full-access), and real rate-limits/credits are
+**all reachable** over the app-server socket on a subscription account. Proceed to Phase B
+(`CodexAppServerProcess` + `CodexAppServerParser` behind a `codexBackend` flag).

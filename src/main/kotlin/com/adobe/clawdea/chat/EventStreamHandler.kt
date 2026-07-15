@@ -72,6 +72,38 @@ class EventStreamHandler(
     var turnHasContent = false
     var streamStartTime: Long = 0
 
+    // Reasoning ("Thinking") deltas arrive token-by-token from codex. Rendering each one with its
+    // own JCEF executeJavaScript call floods the EDT during reasoning-heavy turns (hundreds of IPC
+    // round-trips + layout thrash → visible IDE sluggishness). Coalesce them in Kotlin and flush to
+    // the browser on a short throttle. EDT-confined (handleEvent and the Swing Timer both run on the
+    // EDT), so no locking is needed.
+    private val reasoningBuffer = StringBuilder()
+    private var reasoningFlushTimer: Timer? = null
+
+    // Set when a genuine CliEvent.Result ends the turn; cleared as soon as a new turn streams.
+    // Gates the false-stall self-heal ([shouldRestoreStreaming]) so a stray coarse event arriving
+    // after a real turn end can't resurrect the activity indicator (leaving its pause button stuck).
+    // EDT-confined like the rest of this handler.
+    private var turnGenuinelyEnded = false
+
+    /** Flushes any buffered reasoning text to the browser in a single JCEF call. EDT-only. */
+    private fun flushReasoning() {
+        reasoningFlushTimer?.stop()
+        reasoningFlushTimer = null
+        if (reasoningBuffer.isEmpty()) return
+        browserRenderer.appendReasoningDelta(reasoningBuffer.toString())
+        reasoningBuffer.setLength(0)
+    }
+
+    /** Arms a one-shot flush if none is pending, coalescing bursts of deltas into one render. */
+    private fun scheduleReasoningFlush() {
+        if (reasoningFlushTimer != null) return
+        reasoningFlushTimer = Timer(REASONING_FLUSH_MS) { flushReasoning() }.apply {
+            isRepeats = false
+            start()
+        }
+    }
+
     /**
      * Knowledge-upkeep bucket classified from the prompt that started the in-flight turn,
      * captured at submit time and consumed when the turn's Result arrives. Null for an
@@ -204,6 +236,9 @@ class EventStreamHandler(
         if (isTurnProgressEvent(event)) {
             progressSequence += 1
         }
+        // A live turn is streaming again → clear the "genuinely ended" latch so the self-heal is
+        // re-armed for this new turn. Set only by a real Result (below); never by the self-heal.
+        if (turnController.isStreaming) turnGenuinelyEnded = false
         // Self-heal a falsely-ended turn. A long silent gap (large context → slow
         // first byte after a tool result) can trip the stall watchdog, which resets
         // turn state, hides the indicator, and restarts the bridge. If that restart
@@ -214,7 +249,7 @@ class EventStreamHandler(
         // watchdog. Cannot misfire after a genuine Result: that is terminal and no
         // AssistantMessage/ToolResult follows until the next user send (which sets
         // streaming true itself).
-        if (shouldRestoreStreaming(event, turnController.isStreaming, turnController.isPaused, bridge.isRunning)) {
+        if (shouldRestoreStreaming(event, turnController.isStreaming, turnController.isPaused, bridge.isRunning, turnGenuinelyEnded)) {
             log.warn("activity after turn end — CLI still streaming; restoring turn UI (recovered false stall)")
             turnController.setStreaming(true)
             onSyncStreamingUi()
@@ -246,6 +281,14 @@ class EventStreamHandler(
                 if (isMainAgentStream(event.parentToolUseId)) {
                     messageBuffer.append(event.text)
                 }
+            }
+            is CliEvent.ReasoningDelta -> {
+                // Model reasoning/thinking tokens (codex-only; Claude's stream drops
+                // them). Streamed into a collapsible "Thinking" block above the answer;
+                // never mixed into messageBuffer, which holds the answer text. Buffered
+                // and throttled to the browser — see [reasoningBuffer]/[flushReasoning].
+                reasoningBuffer.append(event.text)
+                scheduleReasoningFlush()
             }
             is CliEvent.AssistantMessage -> {
                 val parentCard = subAgentController.parentCardFor(event.parentToolUseId)
@@ -508,7 +551,11 @@ class EventStreamHandler(
                 watchForToolResultStall(progressSequence)
             }
             is CliEvent.Result -> {
+                // Emit any reasoning still buffered before the block is collapsed, so the last
+                // chunk isn't dropped or rendered after finalize.
+                flushReasoning()
                 browserRenderer.hideThinkingIndicator()
+                browserRenderer.finalizeReasoning()
                 // A `/goal` loop ends with a single trailing result. On success
                 // the condition was met → show "achieved". On an error result
                 // (CLI crash/abort), just clear the banner without claiming success.
@@ -637,6 +684,9 @@ class EventStreamHandler(
 
                 if (!sentEditFeedback) {
                     editReviewCoordinator.clearForNewTurn()
+                    // Latch the genuine turn end so a stray trailing coarse event can't re-open the
+                    // turn UI (the self-heal is re-armed on the next real turn — see handleEvent).
+                    turnGenuinelyEnded = true
                     onTurnCompleted()
                 }
             }
@@ -738,6 +788,11 @@ class EventStreamHandler(
         internal const val TURN_START_STALL_TIMEOUT_MS = 300_000
         internal const val TOOL_RESULT_STALL_TIMEOUT_MS = 300_000
 
+        // Throttle window for coalescing streamed reasoning deltas before a JCEF render.
+        // ~90ms keeps the "Thinking" block feeling live (~11 renders/s) while collapsing the
+        // token-rate burst that otherwise floods the EDT.
+        private const val REASONING_FLUSH_MS = 90
+
         private const val PRIMER_CACHE_FRACTION = 0.05
 
         /** Absolute ceiling on per-turn primer tokens — the wiki TOC + REPO_STATE are a fixed payload. */
@@ -813,20 +868,27 @@ class EventStreamHandler(
          * i.e. the turn was torn down (usually a false-positive stall recovery whose
          * restart failed) but the CLI is demonstrably still producing output. The
          * caller re-enters streaming so the activity indicator and turn controls
-         * come back. Safe against a genuine turn end: [CliEvent.Result] is not a
-         * coarse activity event and nothing coarse follows a real Result.
+         * come back.
+         *
+         * [turnGenuinelyEnded] hard-gates this: once a real [CliEvent.Result] has ended the turn,
+         * a stray trailing coarse event must NOT re-open it. [CliEvent.Result] itself isn't a
+         * coarse event, but some Claude turns emit a late duplicate/trailing message *after* the
+         * result — without this gate that resurrects the activity indicator (and its pause button)
+         * with no Result left to hide it (the "pause button stuck after the turn ends" symptom).
          */
         internal fun shouldRestoreStreaming(
             event: CliEvent,
             isStreaming: Boolean,
             isPaused: Boolean,
             bridgeRunning: Boolean,
+            turnGenuinelyEnded: Boolean = false,
         ): Boolean =
-            !isStreaming && !isPaused && bridgeRunning && isCoarseActivityEvent(event)
+            !turnGenuinelyEnded && !isStreaming && !isPaused && bridgeRunning && isCoarseActivityEvent(event)
 
         internal fun isTurnProgressEvent(event: CliEvent): Boolean =
             when (event) {
                 is CliEvent.TextDelta,
+                is CliEvent.ReasoningDelta,
                 is CliEvent.AssistantMessage,
                 is CliEvent.ToolResult,
                 is CliEvent.GoalFeedback,

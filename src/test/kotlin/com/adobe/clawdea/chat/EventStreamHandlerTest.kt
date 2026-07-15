@@ -101,6 +101,29 @@ class EventStreamHandlerTest {
     }
 
     @Test
+    fun `streaming state is not restored once the turn has genuinely ended`() {
+        // A real Result ended the turn. A stray trailing coarse event (some Claude turns emit a
+        // late duplicate message after the result) must NOT resurrect the turn UI — otherwise the
+        // activity indicator comes back with its pause button and no Result follows to hide it.
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+            turnGenuinelyEnded = true,
+        ))
+        assertFalse(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.ToolResult("toolu_1", ""),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+            turnGenuinelyEnded = true,
+        ))
+        // The false-stall self-heal still fires while the turn has not genuinely ended.
+        assertTrue(EventStreamHandler.shouldRestoreStreaming(
+            CliEvent.AssistantMessage("", emptyList()),
+            isStreaming = false, isPaused = false, bridgeRunning = true,
+            turnGenuinelyEnded = false,
+        ))
+    }
+
+    @Test
     fun `activity indicator is not poked per-token, when paused, or when idle`() {
         // Per-token deltas would spam a JCEF round-trip — excluded.
         assertFalse(EventStreamHandler.shouldPokeIndicator(

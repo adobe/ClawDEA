@@ -203,6 +203,17 @@ object CliEnvironment {
         }
     }
 
+    /**
+     * Resolve [binary] to an absolute path using the user's login-shell `PATH` (which the JVM
+     * lacks on Finder/Dock launches). Returns null when the binary isn't on the shell PATH or the
+     * shell env isn't available yet (e.g. cold cache on the EDT). Off the EDT this may block briefly
+     * while the shell env is captured — acceptable on the CLI-spawn path, which already depends on it.
+     */
+    fun resolveOnShellPath(binary: String): String? {
+        val path = getShellEnvironment()["PATH"]?.takeIf { it.isNotBlank() } ?: return null
+        return findExecutableOnUnixPath(binary, path)
+    }
+
     /** Force-refresh the cached environment on next access. */
     fun invalidateCache() {
         cachedShellEnv = null

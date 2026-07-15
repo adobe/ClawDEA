@@ -53,6 +53,14 @@ class CostTracker(private val project: Project) {
 
     @Volatile private var usage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE
 
+    /**
+     * Live usage for the OpenAI ChatGPT subscription, from the codex app-server
+     * `account/rateLimits/updated` stream (credit balance + rate-limit windows). Kept separate from
+     * the Claude [usage] field because the two providers report on independent channels and can both
+     * be present. Attaches only to the `openai-subscription` provider.
+     */
+    @Volatile private var openAiUsage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE
+
     @Synchronized
     fun recordTurn(
         chatId: String,
@@ -147,6 +155,9 @@ class CostTracker(private val project: Project) {
     /** Volatile single-reference; readers snapshot it once. Intentionally not on the instance lock. */
     fun updateUsage(u: SubscriptionUsage) { usage = u; publish() }
 
+    /** Live OpenAI ChatGPT-subscription usage (codex `account/rateLimits/updated`). See [openAiUsage]. */
+    fun updateOpenAiUsage(u: SubscriptionUsage) { openAiUsage = u; publish() }
+
     /**
      * Republish the current state to all listeners. For changes made directly to settings that
      * don't flow through recordTurn (notably the daily budget edited in the Cost Control panel),
@@ -179,10 +190,12 @@ class CostTracker(private val project: Project) {
         val providerId = AuthManager.getInstance().effectiveProviderId()
         val daily = currentDailyUsd()
         val budget = settings.state.dailyBudgetUsd
-        val u = usage
-        // Subscription with live usage → band off the worst utilization (spend or window).
-        // Otherwise → band off daily spend vs the user's budget.
-        val band = if (providerId == "subscription" && u.available) {
+        // Live usage is provider-scoped: Claude subscription reads [usage], the OpenAI ChatGPT
+        // subscription reads [openAiUsage]. Everything else has no live gauge.
+        val u = liveUsageFor(providerId)
+        // A subscription-like provider with live usage → band off the worst utilization (spend or
+        // window). Otherwise → band off daily spend vs the user's budget.
+        val band = if (u.available) {
             bandForUsage(u)
         } else {
             bandForDollars(daily, budget)
@@ -197,7 +210,7 @@ class CostTracker(private val project: Project) {
             band,
             c?.perModelUsd?.toMap() ?: emptyMap(),
             defaultResolvedModel,
-            usage,
+            u,
             providerTotal,
             readKnowledge(),
         )
@@ -214,13 +227,21 @@ class CostTracker(private val project: Project) {
         val active = AuthManager.getInstance().effectiveProviderId()
         val pids = LinkedHashSet(usedProviders(settings.state.providerTotals.keys, active))
         if (usage.available) pids.add("subscription")
+        if (openAiUsage.available) pids.add("openai-subscription")
         return pids.map { pid ->
             ProviderBlock(
                 providerId = pid,
                 total = settings.state.providerTotals[pid]?.let { ProviderTotal.parse(it) },
-                usage = if (pid == "subscription") usage else SubscriptionUsage.UNAVAILABLE,
+                usage = liveUsageFor(pid),
             )
         }
+    }
+
+    /** The live usage gauge for a provider: Claude reads [usage], OpenAI reads [openAiUsage]. */
+    private fun liveUsageFor(providerId: String): SubscriptionUsage = when (providerId) {
+        "subscription" -> usage
+        "openai-subscription" -> openAiUsage
+        else -> SubscriptionUsage.UNAVAILABLE
     }
 
     private fun addToDaily(costUsd: Double) {

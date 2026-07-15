@@ -119,6 +119,23 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>2.1.0</h3>
+<h4>Codex, now on the app-server protocol</h4>
+<ul>
+  <li><b>Streamed reasoning.</b> When you chat with OpenAI Codex, the model&rsquo;s reasoning now streams live into a collapsible <b>Thinking</b> block above the answer, then auto-collapses when the turn ends.</li>
+  <li><b>Real credits &amp; rate limits.</b> Cost Control now shows your actual remaining ChatGPT-subscription credits and rate-limit windows (reported by Codex&rsquo;s app-server), reusing the same gauge as Claude &mdash; instead of a notional estimate.</li>
+  <li><b>Codex shell &amp; patch approvals go through ClawDEA&rsquo;s permission gate.</b> Codex&rsquo;s own shell commands and file patches now surface the same inline Allow / Always allow / Deny card as Claude&rsquo;s tools, honor your <code>permissions.allow</code>/<code>permissions.deny</code> rules, and open the native diff dialog for edits.</li>
+  <li><b>Native interrupt &amp; mid-turn steering.</b> <b>Esc</b> interrupts a live Codex turn natively. And you can now <b>steer mid-turn</b>: send a message while Codex is working and it&rsquo;s injected into the running turn (<code>turn/steer</code>) &mdash; the model folds in your guidance without restarting. (Claude has no steer primitive, so a mid-turn message queues for the next turn as before.)</li>
+</ul>
+<h4>Fixes</h4>
+<ul>
+  <li><b>Switching provider mid-session no longer leaves the chat in a mixed state.</b> Flipping between a Claude and an OpenAI provider now rebuilds the session on the correct backend, so the model dropdown, the assistant label, and the carried-over conversation all stay in sync &mdash; no more &ldquo;Codex&rdquo; label under a Claude model list, and your context is carried over.</li>
+  <li><b>Smoother IDE during reasoning-heavy turns.</b> Streamed reasoning is now coalesced and throttled before it reaches the chat view, and the view scrolls instantly rather than animating per token &mdash; removing a source of UI sluggishness on long Codex turns.</li>
+  <li><b>The pause button now disappears when a turn ends.</b> A stray trailing event could re-open the &ldquo;Thinking&rdquo; indicator after a response had finished, leaving its pause button stuck on screen; it now stays hidden once the turn is genuinely done.</li>
+  <li><b>Faster, quieter wake from sleep.</b> When the machine wakes, only the visible chat tab rebuilds its view immediately; hidden tabs defer until you switch to them, avoiding a burst of simultaneous browser rebuilds.</li>
+  <li><b>Codex CLI is found when launched from Finder/Dock.</b> ClawDEA now resolves the <code>codex</code> binary from your login shell&rsquo;s PATH, so the subscription status card and chat work even when the IDE didn&rsquo;t inherit your shell environment.</li>
+</ul>
+
 <h3>2.0.0</h3>
 <h4>Chat with OpenAI Codex, not just Claude</h4>
 <ul>

@@ -96,6 +96,15 @@ class ChatPanel(
     // display-change detectors both firing on the same post-wake tick (issue #36).
     private var lastBrowserRecreateAtMs = 0L
 
+    // When a sleep/wake (or display-change) recovery fires while this chat tab is hidden
+    // (unselected tab / collapsed tool window), defer the expensive browser-recreate +
+    // full-history replay until the tab is actually shown. Without this, every open tab
+    // rebuilds its JCEF surface and replays its entire transcript at once on wake — a burst
+    // of N rebuilds + thousands of replayed entries that stalls the EDT (observed: 15 tabs,
+    // one replaying 1090 entries). A hidden OSR surface doesn't need recovery until shown.
+    // EDT-confined.
+    private var pendingWakeRecovery = false
+
     // var (not val) so the whole JBCefBrowser can be recreated when the JCEF
     // compositor freezes after sleep/wake or a display change (issue #36). See
     // [recreateBrowser].
@@ -700,6 +709,24 @@ class ChatPanel(
                 com.adobe.clawdea.settings.SettingsChangedListener.TOPIC,
                 object : com.adobe.clawdea.settings.SettingsChangedListener {
                     override fun onSettingsChanged() {
+                        // A provider switch that flips the backend type (Codex⇄Claude) can't be
+                        // applied by restarting this bridge: its backend and label are fixed at
+                        // construction (a codex app-server vs. the claude CLI are different
+                        // processes). Rebuild the tab's ChatSession on the correct backend and
+                        // auto-resume so the running CLI, its label, and the model dropdown all
+                        // agree again — and the prior conversation is carried over as context.
+                        val newIsCodex = CliBridge.isCodexProvider(
+                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                        )
+                        if (newIsCodex != bridge.usesCodexBackend) {
+                            if (!turnController.isStreaming) {
+                                ApplicationManager.getApplication().invokeLater(
+                                    { rebuildSessionForBackendChange() },
+                                    com.intellij.openapi.application.ModalityState.any(),
+                                )
+                            }
+                            return
+                        }
                         if (bridge.isRunning && !turnController.isStreaming) {
                             scope.launch {
                                 try {
@@ -718,6 +745,18 @@ class ChatPanel(
                     }
                 },
             )
+
+        // Flush a deferred wake/display recovery when this hidden tab becomes visible again.
+        // Only the tab shown at wake time recovers eagerly; the rest wait for this signal,
+        // so switching to a stale tab rebuilds just that one surface on demand.
+        addHierarchyListener { e ->
+            if (e.changeFlags and java.awt.event.HierarchyEvent.SHOWING_CHANGED.toLong() != 0L &&
+                isShowing && pendingWakeRecovery
+            ) {
+                pendingWakeRecovery = false
+                recreateBrowserAndReplay("wake-recovery-deferred", force = true)
+            }
+        }
 
         // Chat-view freeze recovery: detect JVM suspend gaps + display
         // configuration changes and recover the JCEF compositor.
@@ -919,6 +958,14 @@ class ChatPanel(
      */
     fun recreateBrowserAndReplay(reason: String, force: Boolean = false) {
         ApplicationManager.getApplication().invokeLater {
+            // Defer recovery for a hidden tab until it's shown — a hidden JCEF surface doesn't
+            // need its compositor rebuilt yet, and deferring avoids the all-tabs-at-once wake
+            // storm. The manual /refresh-view path (force) always runs (the user is looking at it).
+            if (!force && !isShowing) {
+                pendingWakeRecovery = true
+                log.info("view-health: recovery ($reason) deferred; tab hidden")
+                return@invokeLater
+            }
             val now = System.currentTimeMillis()
             if (!force && now - lastBrowserRecreateAtMs < BROWSER_RECREATE_COALESCE_MS) {
                 log.info("view-health: recreate ($reason) coalesced; replaying only")
@@ -1068,6 +1115,35 @@ class ChatPanel(
                 appendHtml(renderer.renderError("Failed to restart session after changing tool approval: ${e.message}"))
             }
         }
+    }
+
+    /**
+     * Rebuild this tab's [ChatSession] on the backend the *current* provider selects (Codex⇄Claude).
+     *
+     * The backend a [CliBridge] drives is fixed at construction, so when a provider switch flips the
+     * backend type there is no way to restart into the other CLI in place. Instead we replace this
+     * panel's tool-window content with a brand-new [ChatSession] — its fresh bridge picks the right
+     * backend/label, the model dropdown already reflects the new provider, and auto-resume replays the
+     * current conversation as context so the switch doesn't lose history. Must run on the EDT.
+     */
+    private fun rebuildSessionForBackendChange() {
+        val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ClawDEA") ?: return
+        val contentManager = toolWindow.contentManager
+        val oldContent = contentManager.contents.firstOrNull { it.component === this } ?: return
+        val tabName = oldContent.displayName ?: "Chat"
+        // Carry the current conversation over to the new backend as context (cross-backend replay).
+        val resumeId = bridge.sessionId
+        val wasSelected = contentManager.selectedContent === oldContent
+
+        val session = ChatSession(project, tabName, autoResumeSessionId = resumeId)
+        val newContent = com.intellij.ui.content.ContentFactory.getInstance()
+            .createContent(session.panel, tabName, true)
+        newContent.setDisposer(session)
+        // Add the replacement before removing the old tab so the count never hits zero (which would
+        // otherwise trigger the tool window's auto-"new Chat" listener).
+        contentManager.addContent(newContent)
+        if (wasSelected) contentManager.setSelectedContent(newContent)
+        contentManager.removeContent(oldContent, true)
     }
 
     private fun recoverStalledToolTurn() {
@@ -2015,6 +2091,27 @@ class ChatPanel(
         sendTextThroughNormalRouting(text)
     }
 
+    /**
+     * Injects [text] into the currently-streaming turn via native steer (codex `turn/steer`).
+     * Returns false when the backend declines (no live turn) so the caller can fall back to
+     * queuing. On success, finalizes any partial answer so the steer message slots into the
+     * transcript in chronological order, then renders the user's message and re-asserts the
+     * activity indicator — the same turn keeps streaming, so no new turn/timer is started.
+     */
+    private fun steerActiveTurn(text: String): Boolean {
+        if (!bridge.steer(text)) return false
+        if (eventHandler.messageBuffer.isNotEmpty()) {
+            browserRenderer.appendHtml(renderer.renderAssistantText(eventHandler.messageBuffer.toString()))
+            eventHandler.messageBuffer.clear()
+        }
+        inputArea.text = ""
+        renderer.assistantLabel = bridge.agentLabel
+        browserRenderer.appendHtml(renderer.renderUserMessage(text))
+        browserRenderer.showThinkingIndicator()
+        statusLabel.text = "${bridge.agentLabel} is thinking..."
+        return true
+    }
+
     private fun sendCurrentMessage() {
         if (showingPlaceholder) return
         val text = inputArea.text.trim()
@@ -2028,6 +2125,10 @@ class ChatPanel(
 
         if (turnController.isStreaming) {
             if (!text.startsWith("/")) {
+                // Native mid-turn steer (codex): inject the message into the live turn instead of
+                // queuing it for a fresh turn. Falls through to queuing if there is no steerable
+                // turn or the backend has no steer primitive (Claude).
+                if (bridge.supportsSteer && steerActiveTurn(text)) return
                 queueCurrentComposerText()
                 return
             }

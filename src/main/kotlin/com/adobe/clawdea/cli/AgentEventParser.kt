@@ -14,8 +14,8 @@ package com.adobe.clawdea.cli
 /**
  * Parses one NDJSON line from an agentic CLI's stdout stream into a normalized
  * [CliEvent]. Implemented by [CliEventParser] (Claude Code's `stream-json`) and
- * [CodexEventParser] (OpenAI codex's `exec --json` thread/turn/item schema), so
- * [CliBridge] can drive either backend through a single parser handle.
+ * [CodexAppServerParser] (OpenAI `codex app-server`'s JSON-RPC notification
+ * stream), so [CliBridge] can drive either backend through a single parser handle.
  */
 interface AgentEventParser {
     fun parse(jsonLine: String): CliEvent

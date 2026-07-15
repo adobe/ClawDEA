@@ -23,6 +23,17 @@ sealed class CliEvent {
         val parentToolUseId: String? = null,
     ) : CliEvent()
 
+    /**
+     * A streamed chunk of the model's reasoning/thinking (codex `item/reasoning/textDelta` and
+     * `item/reasoning/summaryTextDelta`). Claude's `stream-json` drops thinking content, so this is
+     * codex-only today; [EventStreamHandler] buffers it and renders a collapsible "Thinking" section
+     * ahead of the answer. [summary] marks the condensed reasoning summary vs the raw chain.
+     */
+    data class ReasoningDelta(
+        val text: String,
+        val summary: Boolean = false,
+    ) : CliEvent()
+
     data class AssistantMessage(
         val text: String,
         val toolUses: List<ToolUse>,

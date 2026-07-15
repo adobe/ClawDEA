@@ -195,6 +195,34 @@ em { color: var(--subtext0); }
     font-size: 11px;
     font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
 }
+/* Collapsible model reasoning ("Thinking") block — codex streams reasoning tokens
+   that Claude's stream drops. Open while streaming, auto-collapsed on turn end. */
+.reasoning-block {
+    margin: 8px 0;
+    background: rgba(137, 180, 250, 0.05);
+    border-left: 2px solid rgba(137, 180, 250, 0.35);
+    border-radius: 6px;
+    padding: 2px 0;
+}
+.reasoning-summary {
+    cursor: pointer;
+    user-select: none;
+    color: var(--overlay0);
+    font-size: 11px;
+    font-style: italic;
+    padding: 4px 10px;
+    list-style: none;
+}
+.reasoning-summary::-webkit-details-marker { display: none; }
+.reasoning-content {
+    color: var(--overlay0);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 4px 12px 8px 12px;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
+}
 .tool-input {
     margin: 0;
     padding: 8px 10px;
@@ -1107,6 +1135,37 @@ function finalizeSubAgent(parentId, summaryHtml) {
 function toggleSubAgent(header) {
     var block = header.closest('.subagent-block');
     if (block) block.classList.toggle('expanded');
+}
+// Streamed model reasoning ("Thinking"). Codex emits reasoning tokens the Claude
+// stream drops; they arrive before the answer, so the live block renders above it.
+// Text is appended as a text node (no HTML injection). finalizeReasoning collapses
+// the block and drops the #reasoning-live id so the next turn starts a fresh one.
+function appendReasoning(text) {
+    var block = document.getElementById('reasoning-live');
+    if (!block) {
+        var container = document.getElementById('messages');
+        block = document.createElement('details');
+        block.id = 'reasoning-live';
+        block.className = 'reasoning-block';
+        block.open = true;
+        block.innerHTML = '<summary class="reasoning-summary">Thinking…</summary>' +
+            '<div class="reasoning-content"></div>';
+        container.appendChild(block);
+    }
+    var content = block.querySelector('.reasoning-content');
+    if (content) content.appendChild(document.createTextNode(text));
+    // Instant (not smooth) scroll: reasoning deltas are already coalesced/throttled on the
+    // Kotlin side, and a queued smooth animation per flush thrashes layout during long
+    // reasoning bursts. A plain scroll keeps the block pinned to the bottom cheaply.
+    window.scrollTo(0, document.body.scrollHeight);
+}
+function finalizeReasoning() {
+    var block = document.getElementById('reasoning-live');
+    if (!block) return;
+    block.removeAttribute('open');
+    block.removeAttribute('id');
+    var s = block.querySelector('.reasoning-summary');
+    if (s) s.textContent = 'Thinking';
 }
 function toggleSubAgentStep(row) {
     var step = row.closest('.subagent-step');

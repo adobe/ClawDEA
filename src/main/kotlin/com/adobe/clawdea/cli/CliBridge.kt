@@ -38,12 +38,12 @@ class CliBridge(
     private val useCodexBackend: Boolean = isCodexProvider(effectiveProviderId)
 
     private val agentProcess: AgentProcess =
-        if (useCodexBackend) CodexProcess(workingDirectory, mcpPort, project)
+        if (useCodexBackend) CodexAppServerProcess(workingDirectory, mcpPort, project)
         else CliProcess(workingDirectory, mcpPort, project)
 
     private val parser: AgentEventParser =
         if (useCodexBackend) {
-            CodexEventParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProviderId))
+            CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProviderId))
         } else {
             CliEventParser()
         }
@@ -188,6 +188,17 @@ class CliBridge(
         expectedExitGeneration = activeGeneration
         agentProcess.sendInterrupt()
     }
+
+    /** True when the backend supports native mid-turn steering (codex `turn/steer`). */
+    val supportsSteer: Boolean
+        get() = agentProcess.supportsSteer
+
+    /**
+     * Injects [text] into the running turn without interrupting it (native steer). Returns true
+     * when the backend accepted it into a live turn; false when there is no steerable turn and the
+     * caller should send a normal new message instead.
+     */
+    fun steer(text: String): Boolean = agentProcess.steer(text)
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         val sessionToResume = resumeSessionForRestart(sessionId, resumeSessionId)

@@ -117,7 +117,7 @@ class ModelComboManager(
             },
         )
         // Codex (OpenAI ChatGPT subscription) is on a distinct topic; subscribe here too so a
-        // codex auth failure surfaces the same re-authenticate hint once CodexProcess is wired.
+        // codex auth failure surfaces the same re-authenticate hint (see CodexAppServerProcess).
         connection.subscribe(
             CodexSubscriptionAuthEventListener.TOPIC,
             object : CodexSubscriptionAuthEventListener {
