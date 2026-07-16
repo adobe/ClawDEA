@@ -684,6 +684,13 @@ class EventStreamHandler(
                         renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
                     )
                 }
+                val effectiveProviderId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                val providerKey = if (effectiveProviderId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                    val profileId = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+                    com.adobe.clawdea.provider.ProviderRegistry.catalogKey(effectiveProviderId, profileId)
+                } else {
+                    effectiveProviderId
+                }
                 costTracker.recordTurn(
                     chatId,
                     currentModel,
@@ -693,8 +700,9 @@ class EventStreamHandler(
                     event.outputTokens,
                     event.cacheReadTokens,
                     event.cacheCreationTokens,
+                    event.reasoningTokens,
                     ranUnderDefaultSelection = resolveIsDefaultModel(),
-                    providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                    providerId = providerKey,
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
                 pendingKnowledgeBucket = null

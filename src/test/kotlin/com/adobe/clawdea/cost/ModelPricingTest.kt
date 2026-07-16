@@ -1,5 +1,6 @@
 package com.adobe.clawdea.cost
 
+import com.adobe.clawdea.provider.openai.profile.TokenRates
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -108,5 +109,15 @@ class ModelPricingTest {
         // Real ids may carry suffixes e.g. claude-opus-4-8-20260101
         val a = ModelPricing.costFor("claude-opus-4-8-20260101", 1_000_000, 0, 0, 0)
         assertEquals(5.0, a, 1e-9)
+    }
+
+    @Test
+    fun `configured compatible rates include cached and reasoning tokens`() {
+        val rates = TokenRates(inputPerM = 1.0, outputPerM = 2.0, cachedInputPerM = 0.2, reasoningPerM = 3.0)
+        assertEquals(
+            0.0062,
+            ModelPricing.costFor(rates, input = 1000, output = 1000, cachedInput = 1000, reasoning = 1000),
+            0.0000001,
+        )
     }
 }

@@ -116,6 +116,7 @@ class AgentLoopController(
                     outputTokens = state.usage.outputTokens,
                     cacheReadTokens = state.usage.cachedInputTokens,
                     cacheCreationTokens = 0,
+                    reasoningTokens = state.usage.reasoningTokens,
                     contextWindow = 0,
                 ))
                 return TurnResult(isError = true, toolRounds = toolRounds)
@@ -132,6 +133,7 @@ class AgentLoopController(
                     inputTokens = state.usage.inputTokens,
                     outputTokens = state.usage.outputTokens,
                     cacheReadTokens = state.usage.cachedInputTokens,
+                    reasoningTokens = state.usage.reasoningTokens,
                     cacheCreationTokens = 0,
                     contextWindow = 0,
                 ))
@@ -247,6 +249,7 @@ class AgentLoopController(
                     outputTokens = state.usage.outputTokens,
                     cacheReadTokens = state.usage.cachedInputTokens,
                     cacheCreationTokens = 0,
+                    reasoningTokens = state.usage.reasoningTokens,
                     contextWindow = 0,
                 ))
                 return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
@@ -262,6 +265,7 @@ class AgentLoopController(
                     inputTokens = state.usage.inputTokens,
                     outputTokens = state.usage.outputTokens,
                     cacheReadTokens = state.usage.cachedInputTokens,
+                    reasoningTokens = state.usage.reasoningTokens,
                     cacheCreationTokens = 0,
                     contextWindow = 0,
                 ))

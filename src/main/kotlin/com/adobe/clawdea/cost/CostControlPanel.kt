@@ -446,9 +446,20 @@ class CostControlPanel(private val project: Project, private val chatId: String)
     }
 
     companion object {
-        internal fun providerTitle(providerId: String): String =
-            ProviderRegistry.descriptor(providerId)?.displayLabel
+        internal fun providerTitle(providerId: String): String {
+            // Handle composite key format "openai-compatible:<profileId>"
+            if (providerId.startsWith("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:")) {
+                val profileId = providerId.substringAfter(":")
+                val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(
+                    com.adobe.clawdea.settings.ClawDEASettings.getInstance()
+                )
+                val profile = profileStore.profile(profileId)
+                return profile?.name ?: "OpenAI-compatible"
+            }
+
+            return ProviderRegistry.descriptor(providerId)?.displayLabel
                 ?: providerId.replaceFirstChar { it.uppercase() }
+        }
 
         private val BG = JBColor.namedColor("Popup.background", JBColor(0xF7F8FA, 0x1E1F22))
         private val CARD = JBColor.namedColor("Component.background", JBColor(0xFFFFFF, 0x26282C))
