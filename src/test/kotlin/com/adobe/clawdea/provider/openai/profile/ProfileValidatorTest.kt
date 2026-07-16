@@ -1,5 +1,7 @@
 package com.adobe.clawdea.provider.openai.profile
 
+import com.google.gson.JsonNull
+import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -29,6 +31,66 @@ class ProfileValidatorTest {
     }
 
     @Test
+    fun `wildcard address may not use http`() {
+        val json = validProfileJson().replace("https://api.example.com", "http://0.0.0.0:8080")
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = true) as ValidationResult.Invalid
+        assertTrue(invalid.diagnostics.any { it.path == "$.baseUrl" && it.message.contains("HTTPS") })
+    }
+
+    @Test
+    fun `hostless https URL is rejected`() {
+        val json = validProfileJson().replace("https://api.example.com", "https:/api")
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+        assertTrue(invalid.diagnostics.any { it.path == "$.baseUrl" && it.message.contains("host") })
+    }
+
+    @Test
+    fun `preview includes all distinct contacted hosts`() {
+        val json = validProfileJson()
+            .replace("\"models\": \"/models\"", "\"models\": \"https://models.example.com/models\"")
+            .replace(
+                "\"chatCompletions\": \"/chat/completions\"",
+                "\"chatCompletions\": \"https://chat.example.com/chat/completions\"",
+            )
+            .replace("\"path\": \"/auth/login\"", "\"path\": \"https://auth.example.com/auth/login\"")
+        val valid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Valid
+        assertEquals(
+            listOf("api.example.com", "models.example.com", "chat.example.com", "auth.example.com"),
+            valid.preview.hosts,
+        )
+    }
+
+    @Test
+    fun `null schema fields return diagnostics instead of throwing`() {
+        val nullableFields = listOf(
+            "settings",
+            "credentialFlow",
+            "endpoints",
+            "headers",
+            "modelMapping",
+            "modelRules",
+            "pricing",
+        )
+        nullableFields.forEach { field ->
+            val profile = JsonParser.parseString(validProfileJson()).asJsonObject
+            profile.add(field, JsonNull.INSTANCE)
+            val result = ProfileValidator.parseAndValidate(profile.toString(), allowLocalHttp = false)
+            assertTrue("$field must fail closed", result is ValidationResult.Invalid)
+            val invalid = result as ValidationResult.Invalid
+            assertTrue(invalid.diagnostics.any { it.path == "$.$field" })
+        }
+    }
+
+    @Test
+    fun `null nested collections return diagnostics instead of throwing`() {
+        val profile = JsonParser.parseString(validProfileJson()).asJsonObject
+        profile.getAsJsonObject("credentialFlow").add("inputs", JsonNull.INSTANCE)
+        val result = ProfileValidator.parseAndValidate(profile.toString(), allowLocalHttp = false)
+        assertTrue(result is ValidationResult.Invalid)
+        assertTrue((result as ValidationResult.Invalid).diagnostics.any { it.path == "$.credentialFlow.inputs" })
+    }
+
+    @Test
     fun `duplicate credential input ids are rejected`() {
         val json = validProfileJson().replace(
             """"id": "password"""",
@@ -36,6 +98,36 @@ class ProfileValidatorTest {
         )
         val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
         assertTrue(invalid.diagnostics.any { it.message.contains("unique") })
+    }
+
+    @Test
+    fun `credential input ids must be nonblank and grammar conforming`() {
+        listOf("", "bad input", "9account").forEach { id ->
+            val json = validProfileJson().replaceFirst("\"id\": \"account\"", "\"id\": \"$id\"")
+            val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+            assertTrue(invalid.diagnostics.any { it.path == "$.credentialFlow.inputs[0].id" })
+        }
+    }
+
+    @Test
+    fun `extraction names are globally unique`() {
+        val secondStep = """
+            ,{
+              "id": "refresh",
+              "method": "POST",
+              "path": "/auth/refresh",
+              "headers": {},
+              "body": "",
+              "expectedStatuses": [200],
+              "extracts": [{"name": "token", "jsonPath": "$.token", "durable": false}]
+            }
+        """.trimIndent()
+        val json = validProfileJson().replace(
+            "\n    ],\n    \"durableCredential\"",
+            "$secondStep\n    ],\n    \"durableCredential\"",
+        )
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+        assertTrue(invalid.diagnostics.any { it.message.contains("globally unique") })
     }
 
     @Test

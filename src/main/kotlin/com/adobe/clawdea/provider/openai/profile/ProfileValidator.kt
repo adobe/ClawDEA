@@ -1,7 +1,9 @@
 package com.adobe.clawdea.provider.openai.profile
 
 import com.google.gson.Gson
-import com.google.gson.JsonSyntaxException
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import java.net.URI
 
 data class ValidationDiagnostic(val path: String, val message: String)
@@ -23,24 +25,208 @@ sealed class ValidationResult {
 object ProfileValidator {
     private val gson = Gson()
     private val PROFILE_ID = Regex("""^[a-z0-9][a-z0-9._-]{2,63}$""")
+    private val DECLARED_ID = Regex("""^[A-Za-z_][A-Za-z0-9_.-]*$""")
     private val PLACEHOLDER = Regex("""\$\{(input|setting|env|step):([A-Za-z_][A-Za-z0-9_.-]*)}""")
     private val JSON_PATH = Regex("""^\$(\.[A-Za-z_][A-Za-z0-9_]*)*$""")
-    private val LOCALHOST_HOSTS = setOf("localhost", "127.0.0.1", "[::1]", "::1", "0.0.0.0", "[0:0:0:0:0:0:0:1]")
+    private val LOCALHOST_HOSTS = setOf("localhost", "127.0.0.1", "::1")
     private val ALLOWED_METHODS = setOf("GET", "POST")
 
     fun parseAndValidate(json: String, allowLocalHttp: Boolean): ValidationResult {
-        val profile = try {
-            gson.fromJson(json, OpenAiCompatibleProfile::class.java)
-        } catch (e: JsonSyntaxException) {
+        val root = try {
+            JsonParser.parseString(json)
+        } catch (e: Exception) {
             return ValidationResult.Invalid(listOf(ValidationDiagnostic("$", "Invalid JSON: ${e.message}")))
-        } ?: return ValidationResult.Invalid(listOf(ValidationDiagnostic("$", "Profile must be a JSON object")))
+        }
+        if (!root.isJsonObject) {
+            return ValidationResult.Invalid(listOf(ValidationDiagnostic("$", "Profile must be a JSON object")))
+        }
 
         val diagnostics = mutableListOf<ValidationDiagnostic>()
-        validate(profile, allowLocalHttp, diagnostics)
+        validateStructure(root.asJsonObject, diagnostics)
         if (diagnostics.isNotEmpty()) {
             return ValidationResult.Invalid(diagnostics)
         }
-        return ValidationResult.Valid(profile, buildPreview(profile))
+        return try {
+            val profile = gson.fromJson(root, OpenAiCompatibleProfile::class.java)
+            validate(profile, allowLocalHttp, diagnostics)
+            if (diagnostics.isNotEmpty()) {
+                ValidationResult.Invalid(diagnostics)
+            } else {
+                ValidationResult.Valid(profile, buildPreview(profile))
+            }
+        } catch (e: Exception) {
+            ValidationResult.Invalid(
+                diagnostics.ifEmpty {
+                    listOf(ValidationDiagnostic("$", "Profile validation failed: ${e.message}"))
+                },
+            )
+        }
+    }
+
+    private fun validateStructure(root: JsonObject, diagnostics: MutableList<ValidationDiagnostic>) {
+        requireType(root, "schemaVersion", "$.schemaVersion", JsonElement::isJsonPrimitive, diagnostics)
+        listOf("id", "name", "description", "baseUrl").forEach { field ->
+            requireString(root, field, "$.$field", diagnostics)
+        }
+        val endpoints = requireObject(root, "endpoints", "$.endpoints", diagnostics)
+        endpoints?.let {
+            requireString(it, "models", "$.endpoints.models", diagnostics)
+            requireString(it, "chatCompletions", "$.endpoints.chatCompletions", diagnostics)
+        }
+        requireObject(root, "headers", "$.headers", diagnostics)
+            ?.let { validateStringMap(it, "$.headers", diagnostics) }
+        requireArray(root, "settings", "$.settings", diagnostics)?.forEachIndexed { index, value ->
+            val path = "$.settings[$index]"
+            val setting = requireElementObject(value, path, diagnostics) ?: return@forEachIndexed
+            requireString(setting, "id", "$path.id", diagnostics)
+            requireString(setting, "label", "$path.label", diagnostics)
+            validateNullableString(setting, "environmentVariable", "$path.environmentVariable", diagnostics)
+            requireType(setting, "required", "$path.required", JsonElement::isJsonPrimitive, diagnostics)
+            requireString(setting, "defaultValue", "$path.defaultValue", diagnostics)
+        }
+        val credentialFlow = requireObject(root, "credentialFlow", "$.credentialFlow", diagnostics)
+        credentialFlow?.let {
+            requireArray(it, "inputs", "$.credentialFlow.inputs", diagnostics)?.forEachIndexed { index, value ->
+                val path = "$.credentialFlow.inputs[$index]"
+                val input = requireElementObject(value, path, diagnostics) ?: return@forEachIndexed
+                requireString(input, "id", "$path.id", diagnostics)
+                requireString(input, "label", "$path.label", diagnostics)
+                requireType(input, "secret", "$path.secret", JsonElement::isJsonPrimitive, diagnostics)
+            }
+            requireArray(it, "steps", "$.credentialFlow.steps", diagnostics)?.forEachIndexed { index, value ->
+                validateStepStructure(value, index, diagnostics)
+            }
+            requireString(it, "durableCredential", "$.credentialFlow.durableCredential", diagnostics)
+        }
+        val modelMapping = requireObject(root, "modelMapping", "$.modelMapping", diagnostics)
+        modelMapping?.let {
+            requireString(it, "arrayPath", "$.modelMapping.arrayPath", diagnostics)
+            requireString(it, "idPath", "$.modelMapping.idPath", diagnostics)
+            requireString(it, "displayNamePath", "$.modelMapping.displayNamePath", diagnostics)
+        }
+        requireArray(root, "modelRules", "$.modelRules", diagnostics)?.forEachIndexed { index, value ->
+            val path = "$.modelRules[$index]"
+            val rule = requireElementObject(value, path, diagnostics) ?: return@forEachIndexed
+            requireString(rule, "pattern", "$path.pattern", diagnostics)
+            requireString(rule, "capability", "$path.capability", diagnostics)
+        }
+        requireObject(root, "pricing", "$.pricing", diagnostics)?.entrySet()?.forEach { (model, value) ->
+            requireElementObject(value, "$.pricing.$model", diagnostics)
+        }
+    }
+
+    private fun validateStepStructure(
+        value: JsonElement,
+        index: Int,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val path = "$.credentialFlow.steps[$index]"
+        val step = requireElementObject(value, path, diagnostics) ?: return
+        listOf("id", "method", "path", "body").forEach { field ->
+            requireString(step, field, "$path.$field", diagnostics)
+        }
+        requireObject(step, "headers", "$path.headers", diagnostics)
+            ?.let { validateStringMap(it, "$path.headers", diagnostics) }
+        requireArray(step, "expectedStatuses", "$path.expectedStatuses", diagnostics)
+        requireArray(step, "extracts", "$path.extracts", diagnostics)?.forEachIndexed { extractIndex, extractionValue ->
+            val extractPath = "$path.extracts[$extractIndex]"
+            val extraction = requireElementObject(extractionValue, extractPath, diagnostics) ?: return@forEachIndexed
+            requireString(extraction, "name", "$extractPath.name", diagnostics)
+            requireString(extraction, "jsonPath", "$extractPath.jsonPath", diagnostics)
+            requireType(extraction, "durable", "$extractPath.durable", JsonElement::isJsonPrimitive, diagnostics)
+        }
+    }
+
+    private fun validateStringMap(
+        value: JsonObject,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        value.entrySet().forEach { (key, element) ->
+            if (element.isJsonNull || !element.isJsonPrimitive || !element.asJsonPrimitive.isString) {
+                diagnostics += ValidationDiagnostic("$path.$key", "Map value must be a non-null string")
+            }
+        }
+    }
+
+    private fun validateNullableString(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val value = parent.get(field) ?: return
+        if (!value.isJsonNull && (!value.isJsonPrimitive || !value.asJsonPrimitive.isString)) {
+            diagnostics += ValidationDiagnostic(path, "Field must be null or a string")
+        }
+    }
+
+    private fun requireString(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        requireType(
+            parent,
+            field,
+            path,
+            { it.isJsonPrimitive && it.asJsonPrimitive.isString },
+            diagnostics,
+        )
+    }
+
+    private fun requireObject(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ): JsonObject? {
+        val value = parent.get(field)
+        if (value == null || value.isJsonNull || !value.isJsonObject) {
+            diagnostics += ValidationDiagnostic(path, "Field must be a non-null object")
+            return null
+        }
+        return value.asJsonObject
+    }
+
+    private fun requireArray(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ): Iterable<JsonElement>? {
+        val value = parent.get(field)
+        if (value == null || value.isJsonNull || !value.isJsonArray) {
+            diagnostics += ValidationDiagnostic(path, "Field must be a non-null array")
+            return null
+        }
+        return value.asJsonArray
+    }
+
+    private fun requireElementObject(
+        value: JsonElement,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ): JsonObject? {
+        if (value.isJsonNull || !value.isJsonObject) {
+            diagnostics += ValidationDiagnostic(path, "Array element must be a non-null object")
+            return null
+        }
+        return value.asJsonObject
+    }
+
+    private fun requireType(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        predicate: (JsonElement) -> Boolean,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val value = parent.get(field)
+        if (value == null || value.isJsonNull || !predicate(value)) {
+            diagnostics += ValidationDiagnostic(path, "Field is missing, null, or has the wrong type")
+        }
     }
 
     private fun validate(profile: OpenAiCompatibleProfile, allowLocalHttp: Boolean, diagnostics: MutableList<ValidationDiagnostic>) {
@@ -69,7 +255,7 @@ object ProfileValidator {
             "Credential input ids must be unique",
             diagnostics,
         )
-        val stepIds = validateUniqueIds(
+        validateUniqueIds(
             profile.credentialFlow.steps.map { it.id },
             "$.credentialFlow.steps",
             "Credential step ids must be unique",
@@ -79,6 +265,14 @@ object ProfileValidator {
         profile.settings.forEachIndexed { index, setting ->
             if (setting.id.isBlank()) {
                 diagnostics += ValidationDiagnostic("$.settings[$index].id", "Setting id is required")
+            }
+        }
+        profile.credentialFlow.inputs.forEachIndexed { index, input ->
+            if (!DECLARED_ID.matches(input.id)) {
+                diagnostics += ValidationDiagnostic(
+                    "$.credentialFlow.inputs[$index].id",
+                    "Credential input id must match [A-Za-z_][A-Za-z0-9_.-]*",
+                )
             }
         }
 
@@ -153,20 +347,23 @@ object ProfileValidator {
                 diagnostics,
             )
 
-            val extractionNames = mutableSetOf<String>()
             step.extracts.forEachIndexed { extractIndex, extraction ->
                 val extractPath = "$stepPath.extracts[$extractIndex]"
                 if (extraction.name.isBlank()) {
                     diagnostics += ValidationDiagnostic("$extractPath.name", "Extraction name is required")
-                } else if (!extractionNames.add(extraction.name)) {
+                } else if (!DECLARED_ID.matches(extraction.name)) {
                     diagnostics += ValidationDiagnostic(
-                        "$stepPath.extracts",
-                        "Extraction names must be unique within a step",
+                        "$extractPath.name",
+                        "Extraction name must match [A-Za-z_][A-Za-z0-9_.-]*",
+                    )
+                } else if (!priorExtractions.add(extraction.name)) {
+                    diagnostics += ValidationDiagnostic(
+                        "$extractPath.name",
+                        "Extraction names must be globally unique",
                     )
                 }
                 validateJsonPath("$extractPath.jsonPath", extraction.jsonPath, diagnostics)
             }
-            step.extracts.forEach { priorExtractions.add(it.name) }
         }
 
         validatePlaceholders(
@@ -215,7 +412,7 @@ object ProfileValidator {
         }
 
     private fun isLocalhost(host: String?): Boolean =
-        host != null && LOCALHOST_HOSTS.contains(host.lowercase())
+        host != null && LOCALHOST_HOSTS.contains(host.lowercase().removeSurrounding("[", "]"))
 
     private fun validateScheme(
         uri: URI,
@@ -225,6 +422,8 @@ object ProfileValidator {
     ) {
         val scheme = uri.scheme?.lowercase()
         when {
+            uri.host.isNullOrBlank() || uri.rawAuthority.isNullOrBlank() ->
+                diagnostics += ValidationDiagnostic(path, "Endpoint must include a valid host and authority")
             scheme == "https" -> Unit
             scheme == "http" && isLocalhost(uri.host) -> {
                 if (!allowLocalHttp) {
@@ -303,6 +502,9 @@ object ProfileValidator {
         val hosts = linkedSetOf<String>()
         val baseUri = URI(profile.baseUrl)
         baseUri.host?.let { hosts += it }
+        listOf(profile.endpoints.models, profile.endpoints.chatCompletions).forEach { endpoint ->
+            resolveEndpoint(baseUri, endpoint)?.host?.let { hosts += it }
+        }
         profile.credentialFlow.steps.forEach { step ->
             resolveEndpoint(baseUri, step.path)?.host?.let { hosts += it }
         }

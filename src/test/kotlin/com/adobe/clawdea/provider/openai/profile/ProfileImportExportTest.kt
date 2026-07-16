@@ -19,20 +19,34 @@ class ProfileImportExportTest {
 
     @Test
     fun `export configured redacts secrets and includes credential ref`() {
-        val profile = validatedProfile()
+        val profile = validatedProfile().copy(
+            settings = validatedProfile().settings + ProfileSetting(
+                id = "region",
+                label = "Region",
+            ),
+        )
         val values = mapOf(
-            "tenant" to "tenant-42",
+            "tenant" to "environment-backed-value",
+            "region" to "region-1",
             "password" to "user-password",
             "token" to "temp-token-abc",
             "env" to "env-secret-value",
             "apiKey" to "durable-api-key",
         )
         val exported = ProfileImportExport.exportConfigured(profile, values)
-        assertNoSecrets(exported, "user-password", "temp-token-abc", "env-secret-value", "durable-api-key")
+        assertNoSecrets(
+            exported,
+            "environment-backed-value",
+            "user-password",
+            "temp-token-abc",
+            "env-secret-value",
+            "durable-api-key",
+        )
         val parsed = JsonParser.parseString(exported).asJsonObject
         assertEquals("passwordsafe:openai-compatible/example.provider", parsed.get("credentialRef").asString)
         val configured = parsed.getAsJsonObject("configuredValues")
-        assertEquals("tenant-42", configured.get("tenant").asString)
+        assertEquals("region-1", configured.get("region").asString)
+        assertFalse(configured.has("tenant"))
         assertFalse(configured.has("password"))
         assertFalse(configured.has("token"))
         assertFalse(configured.has("env"))

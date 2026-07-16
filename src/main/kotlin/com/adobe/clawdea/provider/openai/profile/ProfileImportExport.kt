@@ -19,7 +19,11 @@ object ProfileImportExport {
     ): String = gson.toJson(
         ConfiguredProfileExport(
             profile = profile,
-            configuredValues = values.filterKeys { key -> profile.settings.any { it.id == key } },
+            configuredValues = values.filterKeys { key ->
+                profile.settings.any { setting ->
+                    setting.id == key && setting.environmentVariable == null
+                }
+            },
             credentialRef = "passwordsafe:openai-compatible/${profile.id}",
         ),
     )
