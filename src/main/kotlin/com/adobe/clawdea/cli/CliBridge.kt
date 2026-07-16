@@ -12,6 +12,8 @@
 package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.provider.BackendKind
+import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.Disposable
@@ -30,23 +32,15 @@ class CliBridge(
 
     private val log = Logger.getInstance(CliBridge::class.java)
 
-    // Choose the agentic backend once, at construction, from the effective provider.
-    // OpenAI providers drive the `codex` CLI; everything else drives `claude`. A provider
-    // switch requires a session/bridge restart (ChatSession recreates this), which re-runs
-    // the selection.
+    // Choose the agentic backend once, at construction, from the effective provider. A provider
+    // switch requires a session/bridge restart (ChatSession recreates this), which re-runs the
+    // selection.
     private val effectiveProviderId: String = AuthManager.getInstance().effectiveProviderId()
-    private val useCodexBackend: Boolean = isCodexProvider(effectiveProviderId)
+    private val backendSelection = backendSelection(effectiveProviderId, workingDirectory, mcpPort, project)
+    private val useCodexBackend: Boolean = backendSelection.kind == BackendKind.CODEX_APP_SERVER
 
-    private val agentProcess: AgentProcess =
-        if (useCodexBackend) CodexAppServerProcess(workingDirectory, mcpPort, project)
-        else CliProcess(workingDirectory, mcpPort, project)
-
-    private val parser: AgentEventParser =
-        if (useCodexBackend) {
-            CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProviderId))
-        } else {
-            CliEventParser()
-        }
+    private val agentProcess: AgentProcess = backendSelection.process
+    private val parser: AgentEventParser = backendSelection.parser
 
     private val _events = MutableSharedFlow<CliEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<CliEvent> = _events
@@ -84,7 +78,11 @@ class CliBridge(
      * the effective provider can change in settings mid-session while the bridge keeps its backend.
      */
     val agentLabel: String
-        get() = if (useCodexBackend) "Codex" else "Claude"
+        get() = when (backendSelection.kind) {
+            BackendKind.CLAUDE_CLI -> "Claude"
+            BackendKind.CODEX_APP_SERVER -> "Codex"
+            BackendKind.OPENAI_COMPATIBLE_HTTP -> ProviderRegistry.require(effectiveProviderId).displayLabel
+        }
 
     val isRunning: Boolean
         get() = agentProcess.isAlive
@@ -128,6 +126,9 @@ class CliBridge(
 
                     if (event is CliEvent.Result) {
                         sessionId = sessionAfterResult(sessionId, event.sessionId)
+                        if (agentProcess is UnavailableAgentProcess) {
+                            expectedExitGeneration = readerGeneration
+                        }
                     }
 
                     logToolEvent(event)
@@ -244,6 +245,38 @@ class CliBridge(
     }
 
     companion object {
+        internal data class BackendSelection(
+            val kind: BackendKind,
+            val process: AgentProcess,
+            val parser: AgentEventParser,
+        )
+
+        internal fun backendSelection(
+            providerId: String,
+            workingDirectory: String = "",
+            mcpPort: Int = 0,
+            project: Project? = null,
+        ): BackendSelection {
+            val kind = ProviderRegistry.require(providerId).backendKind
+            return when (kind) {
+                BackendKind.CLAUDE_CLI -> BackendSelection(
+                    kind,
+                    CliProcess(workingDirectory, mcpPort, project),
+                    CliEventParser(),
+                )
+                BackendKind.CODEX_APP_SERVER -> BackendSelection(
+                    kind,
+                    CodexAppServerProcess(workingDirectory, mcpPort, project),
+                    CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId)),
+                )
+                BackendKind.OPENAI_COMPATIBLE_HTTP -> BackendSelection(
+                    kind,
+                    UnavailableAgentProcess("OpenAI-compatible HTTP agent backend is not available yet."),
+                    CliEventParser(),
+                )
+            }
+        }
+
         internal fun resumeSessionForRestart(
             currentSessionId: String?,
             requestedResumeSessionId: String?,
@@ -278,9 +311,8 @@ class CliBridge(
             resultSessionId.takeIf { it.isNotBlank() }
                 ?: currentSessionId?.takeIf { it.isNotBlank() }
 
-        /** OpenAI providers are backed by the `codex` CLI; everything else by `claude`. */
-        internal fun isCodexProvider(providerId: String): Boolean =
-            providerId == "openai" || providerId == "openai-subscription"
+        /** Compatibility delegate for callers that only distinguish Codex from other backends. */
+        internal fun isCodexProvider(providerId: String): Boolean = ProviderRegistry.isCodex(providerId)
     }
 
     private fun isCurrentReader(readerGeneration: Long): Boolean =

@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.cost
 
+import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopupFactory
@@ -194,16 +195,6 @@ class CostControlPanel(private val project: Project, private val chatId: String)
                 }
             }
         }
-    }
-
-    private fun providerTitle(providerId: String): String = when (providerId) {
-        "subscription" -> "Claude Subscription"
-        "openai-subscription" -> "OpenAI (ChatGPT subscription)"
-        "openai" -> "OpenAI API"
-        "bedrock" -> "Anthropic Bedrock"
-        "anthropic" -> "Anthropic API"
-        "vertex" -> "Vertex AI"
-        else -> providerId.replaceFirstChar { it.uppercase() }
     }
 
     // ---- savings card --------------------------------------------------------------------------
@@ -454,16 +445,20 @@ class CostControlPanel(private val project: Project, private val chatId: String)
         }
     }
 
-    private companion object {
-        val BG = JBColor.namedColor("Popup.background", JBColor(0xF7F8FA, 0x1E1F22))
-        val CARD = JBColor.namedColor("Component.background", JBColor(0xFFFFFF, 0x26282C))
-        val BORDER = JBColor.namedColor("Component.borderColor", JBColor(0xD5D8DD, 0x3A3D42))
-        val TITLE = JBColor.namedColor("Label.foreground", JBColor(0x4A5DA8, 0x8AB4F8))
-        val TEXT = JBColor.namedColor("Label.foreground", JBColor(0x2B2D31, 0xCDD0D6))
-        val MUTED = JBColor.namedColor("Label.infoForeground", JBColor(0x7D8189, 0x7D8189))
-        val TRACK = JBColor(0xE0E2E6, 0x34363B)
-        val GREEN = JBColor(0x4CAF50, 0x4CAF50)
-        val AMBER = JBColor(0xE0A92B, 0xE0A92B)
-        val RED = JBColor(0xE5534B, 0xE5534B)
+    companion object {
+        internal fun providerTitle(providerId: String): String =
+            ProviderRegistry.descriptor(providerId)?.displayLabel
+                ?: providerId.replaceFirstChar { it.uppercase() }
+
+        private val BG = JBColor.namedColor("Popup.background", JBColor(0xF7F8FA, 0x1E1F22))
+        private val CARD = JBColor.namedColor("Component.background", JBColor(0xFFFFFF, 0x26282C))
+        private val BORDER = JBColor.namedColor("Component.borderColor", JBColor(0xD5D8DD, 0x3A3D42))
+        private val TITLE = JBColor.namedColor("Label.foreground", JBColor(0x4A5DA8, 0x8AB4F8))
+        private val TEXT = JBColor.namedColor("Label.foreground", JBColor(0x2B2D31, 0xCDD0D6))
+        private val MUTED = JBColor.namedColor("Label.infoForeground", JBColor(0x7D8189, 0x7D8189))
+        private val TRACK = JBColor(0xE0E2E6, 0x34363B)
+        private val GREEN = JBColor(0x4CAF50, 0x4CAF50)
+        private val AMBER = JBColor(0xE0A92B, 0xE0A92B)
+        private val RED = JBColor(0xE5534B, 0xE5534B)
     }
 }

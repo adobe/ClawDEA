@@ -11,6 +11,8 @@
  */
 package com.adobe.clawdea.cli
 
+import com.adobe.clawdea.provider.BackendKind
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,6 +43,13 @@ class CliBridgeBackendSelectionTest {
     fun `unknown provider is treated as claude-backed`() {
         assertFalse(CliBridge.isCodexProvider("something-else"))
         assertFalse(CliBridge.isCodexProvider(""))
+    }
+
+    @Test
+    fun `HTTP provider never falls through to Claude process`() {
+        val selection = CliBridge.backendSelection("openai-compatible")
+        assertEquals(BackendKind.OPENAI_COMPATIBLE_HTTP, selection.kind)
+        assertTrue(selection.process is UnavailableAgentProcess)
     }
 
     @Test

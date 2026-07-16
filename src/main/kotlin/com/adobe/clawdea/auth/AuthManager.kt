@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -64,18 +65,14 @@ class AuthManager(
      */
     fun effectiveProviderId(): String {
         val configured = configuredProviderId()
-        if (isCodexProviderId(configured)) return configured
+        if (!ProviderRegistry.require(configured).allowEnvironmentFallback) return configured
         val configuredProvider = providers[configured]
         if (configuredProvider?.isConfigured() == true) return configured
         val envProvider = providers.entries.firstOrNull { (id, p) ->
-            id != configured && !isCodexProviderId(id) && p.isConfigured()
+            id != configured && ProviderRegistry.require(id).allowEnvironmentFallback && p.isConfigured()
         }
         return envProvider?.key ?: configured
     }
-
-    /** OpenAI providers drive the `codex` backend. Kept local to avoid an auth->cli dependency. */
-    private fun isCodexProviderId(id: String): Boolean =
-        id == "openai" || id == "openai-subscription"
 
     fun activeProvider(): AuthProvider {
         val id = effectiveProviderId()
