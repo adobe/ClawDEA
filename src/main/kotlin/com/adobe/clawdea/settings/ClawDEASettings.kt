@@ -145,6 +145,12 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var selectedModels: MutableMap<String, String> = mutableMapOf(),
         var selectedEfforts: MutableMap<String, String> = mutableMapOf(),
 
+        // OpenAI-compatible provider profiles
+        var activeOpenAiCompatibleProfileId: String = "",
+        var importedOpenAiProfiles: MutableMap<String, String> = mutableMapOf(),
+        var openAiProfileValues: MutableMap<String, String> = mutableMapOf(),
+        var openAiEndpointOverrides: MutableMap<String, String> = mutableMapOf(),
+
         // Profiling
         var profilingSamplingIntervalMs: Int = 10,
         var profilingMaxRecordingMb: Int = 500,

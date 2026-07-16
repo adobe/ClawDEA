@@ -30,6 +30,7 @@ class AuthManager(
             "subscription" to SubscriptionAuthProvider(),
             "openai" to OpenAIAuthProvider(),
             "openai-subscription" to OpenAiSubscriptionAuthProvider(),
+            ProviderRegistry.OPENAI_COMPATIBLE_ID to com.adobe.clawdea.provider.openai.auth.OpenAiCompatibleAuthProvider(),
         ),
         configuredProviderId = { ClawDEASettings.getInstance().state.apiProvider },
     )
