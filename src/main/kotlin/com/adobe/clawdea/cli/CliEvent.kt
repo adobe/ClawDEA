@@ -86,6 +86,37 @@ sealed class CliEvent {
         val cacheCreationTokens: Int = 0,
     ) : CliEvent()
 
+    /**
+     * A background sub-agent (`run_in_background` Agent tool) lifecycle event.
+     *
+     * Claude Code dispatches such agents asynchronously: the Agent tool's own
+     * `tool_result` is a near-instant launch ack, and the agent's real work —
+     * and its completion — stream over the following seconds/minutes, often
+     * spanning later turns. The CLI reports this lifecycle as `type:"system"`
+     * events (`task_started` / `task_progress` / `task_updated` /
+     * `task_notification`), every one keyed by [toolUseId] — the SAME id as the
+     * dispatching Agent `tool_use`, i.e. the sub-agent card id. This is the
+     * authoritative correlation that lets [EventStreamHandler] keep the card open
+     * past the turn `Result` and finalize it on the real completion.
+     */
+    data class BackgroundTask(
+        val toolUseId: String,
+        val phase: Phase,
+        /** Terminal disposition for [Phase.NOTIFICATION]; null otherwise. */
+        val status: String? = null,
+        /** One-line result summary on completion; null while running. */
+        val summary: String? = null,
+        /** Latest inner tool name, from `task_progress`; null otherwise. */
+        val lastToolName: String? = null,
+        /** Inner tool-call count so far, from `task_progress.usage.tool_uses`; 0 if unknown. */
+        val toolUses: Int = 0,
+    ) : CliEvent() {
+        enum class Phase { STARTED, PROGRESS, NOTIFICATION }
+
+        /** True when this notification marks a clean completion (vs stopped/killed). */
+        val isCompleted: Boolean get() = status == "completed"
+    }
+
     data class Unknown(
         val rawType: String,
         val rawJson: String,

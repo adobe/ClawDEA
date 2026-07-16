@@ -38,10 +38,52 @@ class CliEventParser : AgentEventParser {
                 return CliEvent.AuthFailure(message)
             }
         }
+        // Background sub-agent (run_in_background Agent) lifecycle. These carry a
+        // tool_use_id equal to the dispatching Agent's id (the sub-agent card id),
+        // letting EventStreamHandler keep the card open past the turn Result and
+        // finalize it on the real completion. Not init — must not fall through to
+        // SystemInit (which would churn currentModel / "Connected" on every tick).
+        when (subtype) {
+            "task_started", "task_progress", "task_updated", "task_notification" -> {
+                return parseBackgroundTask(json, subtype)
+            }
+        }
+        // Roster snapshot (background_tasks_changed) and any other system subtype
+        // carry no per-card action for us; ignore without disturbing session state.
+        if (subtype != null && subtype != "init") {
+            return CliEvent.Unknown(rawType = "system:$subtype", rawJson = "")
+        }
         val sessionId = extractString(json, "\"session_id\"") ?: ""
         val model = extractString(json, "\"model\"") ?: ""
         val tools = extractStringArray(json, "\"tools\"")
         return CliEvent.SystemInit(sessionId, model, tools)
+    }
+
+    private fun parseBackgroundTask(json: String, subtype: String): CliEvent {
+        // task_updated keys off task_id and carries no tool_use_id — it only nudges
+        // the roster; the actionable transition always also arrives as a
+        // task_notification (tool_use_id + status). Ignore task_updated to avoid a
+        // card event with no id to route by.
+        val toolUseId = extractString(json, "\"tool_use_id\"")
+            ?: return CliEvent.Unknown(rawType = "system:$subtype", rawJson = "")
+        val phase = when (subtype) {
+            "task_started" -> CliEvent.BackgroundTask.Phase.STARTED
+            "task_progress" -> CliEvent.BackgroundTask.Phase.PROGRESS
+            else -> CliEvent.BackgroundTask.Phase.NOTIFICATION
+        }
+        val status = extractString(json, "\"status\"")
+        val summary = extractString(json, "\"summary\"")
+        val lastToolName = extractString(json, "\"last_tool_name\"")
+        val usageBlock = extractObject(json, "\"usage\"")
+        val toolUses = usageBlock?.let { extractNumber(it, "\"tool_uses\"").toInt() } ?: 0
+        return CliEvent.BackgroundTask(
+            toolUseId = toolUseId,
+            phase = phase,
+            status = status,
+            summary = summary,
+            lastToolName = lastToolName,
+            toolUses = toolUses,
+        )
     }
 
     private fun parseStreamEvent(json: String): CliEvent {

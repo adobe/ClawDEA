@@ -24,6 +24,16 @@ class SubAgentController {
         val startTimeMs: Long,
         var stepCount: Int = 0,
         var status: Status = Status.RUNNING,
+        /**
+         * True once the CLI has reported this dispatch as a background
+         * (`run_in_background`) agent via a `system/task_started` event. A
+         * background card must NOT be finalized on its launch-ack `ToolResult`
+         * (its inner steps stream afterward) nor swept at the turn `Result` (it
+         * outlives the turn). It is closed authoritatively by the matching
+         * `system/task_notification`. See [EventStreamHandler]'s BackgroundTask
+         * handling.
+         */
+        var launchedInBackground: Boolean = false,
     )
 
     private val active = LinkedHashMap<String, SubAgentState>()
@@ -36,6 +46,9 @@ class SubAgentController {
     }
 
     fun isActive(id: String): Boolean = active.containsKey(id)
+
+    /** Dispatch start time for an active card, or null if unknown. */
+    fun startTimeMs(id: String): Long? = active[id]?.startTimeMs
 
     /**
      * The card id a child event should render into, or null when the event
@@ -51,6 +64,19 @@ class SubAgentController {
         state.stepCount += 1
         return state.stepCount
     }
+
+    /**
+     * Mark [id]'s dispatch as a background launch (its [ToolResult] was a launch
+     * ack, not a completion). No-op if [id] isn't active. Returns true if marked.
+     */
+    fun markLaunchedInBackground(id: String): Boolean {
+        val state = active[id] ?: return false
+        state.launchedInBackground = true
+        return true
+    }
+
+    /** True if [id] is active and was marked as a background launch. */
+    fun isLaunchedInBackground(id: String): Boolean = active[id]?.launchedInBackground == true
 
     /** Remove [id], stamp [status], and return its final state (or null if not active). */
     fun finalize(id: String, status: Status): SubAgentState? {

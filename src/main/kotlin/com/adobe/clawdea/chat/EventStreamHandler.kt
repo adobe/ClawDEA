@@ -445,6 +445,25 @@ class EventStreamHandler(
                     val hits = (tokens / 100).coerceAtLeast(1)
                     turnIndexToolHits.add(com.adobe.clawdea.cost.IndexToolObservation(name, hits, tokens))
                 }
+                // A background (run_in_background) Agent's own tool_result is a
+                // near-instant launch ack, NOT a completion — its inner steps and
+                // real completion stream afterward (often in later turns). The CLI
+                // marks the card background via a `system/task_started` event that
+                // arrives just BEFORE this ack, so by now the card is flagged. Keep
+                // it open on the ack; the real close comes from task_notification
+                // (see the BackgroundTask branch). Finalizing here would drop the
+                // card before its steps arrive and they would leak to the main chat.
+                if (subAgentController.isActive(event.toolUseId) &&
+                    subAgentController.isLaunchedInBackground(event.toolUseId)
+                ) {
+                    log.debug("subagent: launch ack for background card id=${event.toolUseId} → keep open")
+                    // Drop only the permission-routing entry; keep name/input maps so
+                    // inner steps continue to resolve. Do not finalize.
+                    routableToolUses.remove(event.toolUseId)
+                    onContextLabelUpdate()
+                    watchForToolResultStall(progressSequence)
+                    return
+                }
                 // The sub-agent's own result: collapse its card to a summary.
                 if (subAgentController.isActive(event.toolUseId)) {
                     val status = if (event.isError) SubAgentController.Status.ERROR else SubAgentController.Status.DONE
@@ -550,6 +569,51 @@ class EventStreamHandler(
                 onContextLabelUpdate()
                 watchForToolResultStall(progressSequence)
             }
+            is CliEvent.BackgroundTask -> {
+                // Lifecycle of a run_in_background sub-agent, keyed by the card id.
+                // These may arrive across turn boundaries (the agent outlives the
+                // turn that dispatched it); SubAgentController is panel-scoped, so
+                // the card survives to receive them.
+                val card = event.toolUseId
+                when (event.phase) {
+                    CliEvent.BackgroundTask.Phase.STARTED -> {
+                        // Authoritatively mark the card background (replaces the old
+                        // content/timing ack sniff). Arrives just before the launch
+                        // ack tool_result, so the ack branch then keeps the card open.
+                        if (subAgentController.isActive(card)) {
+                            subAgentController.markLaunchedInBackground(card)
+                            browserRenderer.updateSubAgentStatus(card, "&#9203; running in background")
+                        }
+                    }
+                    CliEvent.BackgroundTask.Phase.PROGRESS -> {
+                        if (subAgentController.isActive(card)) {
+                            val steps = if (event.toolUses > 0) " &middot; ${event.toolUses} steps" else ""
+                            val tool = event.lastToolName?.let { " &middot; ${renderer.escapeHtml(it)}" } ?: ""
+                            browserRenderer.updateSubAgentStatus(card, "&#9203; running in background$steps$tool")
+                        }
+                    }
+                    CliEvent.BackgroundTask.Phase.NOTIFICATION -> {
+                        // The authoritative completion. completed → DONE with the
+                        // real summary; stopped/killed → ABORTED.
+                        if (subAgentController.isActive(card)) {
+                            val status = if (event.isCompleted) SubAgentController.Status.DONE
+                            else SubAgentController.Status.ABORTED
+                            val state = subAgentController.finalize(card, status)
+                            if (state != null) {
+                                log.debug("subagent: background task_notification card=$card status=${event.status} → finalize $status")
+                                browserRenderer.finalizeSubAgent(
+                                    card,
+                                    renderer.renderSubAgentSummary(status, state.stepCount, event.summary ?: ""),
+                                )
+                            }
+                            routableToolUses.remove(card)
+                            toolNameById.remove(card)
+                            toolInputById.remove(card)
+                            onContextLabelUpdate()
+                        }
+                    }
+                }
+            }
             is CliEvent.Result -> {
                 // Emit any reasoning still buffered before the block is collapsed, so the last
                 // chunk isn't dropped or rendered after finalize.
@@ -568,11 +632,17 @@ class EventStreamHandler(
                     goalController.onClear()
                     browserRenderer.hideGoalBanner()
                 }
-                // Any sub-agent still active at turn end was aborted/interrupted.
-                // Finalize each card so it collapses and is released from the
-                // pinned bottom dock back into the normal message flow — an
-                // active card must never linger pinned after the turn ends.
+                // Finalize any FOREGROUND sub-agent still active at turn end so its
+                // card collapses and is released from the pinned dock — a foreground
+                // card must never linger pinned after its turn ends, and one still
+                // active here was interrupted (ABORTED). Background-launched agents
+                // are deliberately SKIPPED: they legitimately outlive the dispatching
+                // turn and close on their own `system/task_notification` (which may
+                // arrive turns later). SubAgentController is panel-scoped, so the card
+                // survives across the Result to receive it. Sweeping them here is the
+                // exact bug that made parallel background sub-agent steps leak.
                 for (id in subAgentController.activeIds()) {
+                    if (subAgentController.isLaunchedInBackground(id)) continue
                     val state = subAgentController.finalize(id, SubAgentController.Status.ABORTED)
                     if (state != null) {
                         browserRenderer.finalizeSubAgent(
@@ -893,6 +963,7 @@ class EventStreamHandler(
                 is CliEvent.ToolResult,
                 is CliEvent.GoalFeedback,
                 is CliEvent.Result,
+                is CliEvent.BackgroundTask,
                 is CliEvent.AuthFailure -> true
                 is CliEvent.SystemInit,
                 is CliEvent.TaskEvent,

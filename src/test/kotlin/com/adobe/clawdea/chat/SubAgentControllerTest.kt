@@ -81,4 +81,34 @@ class SubAgentControllerTest {
         assertEquals(2, state.stepCount)
         assertFalse(c.isActive("toolu_p"))
     }
+
+    // --- Background-agent marking (driven by system/task_started, not content) ---
+
+    @Test
+    fun `markLaunchedInBackground flips the flag and keeps the card active`() {
+        val c = SubAgentController()
+        c.register("toolu_p", "agent", "desc", nowMs = 0)
+        assertFalse(c.isLaunchedInBackground("toolu_p"))
+        assertTrue(c.markLaunchedInBackground("toolu_p"))
+        assertTrue(c.isLaunchedInBackground("toolu_p"))
+        // Crucially: still active, so inner steps continue to route into the card.
+        assertTrue(c.isActive("toolu_p"))
+        assertEquals("toolu_p", c.parentCardFor("toolu_p"))
+    }
+
+    @Test
+    fun `markLaunchedInBackground is a no-op for an unknown id`() {
+        val c = SubAgentController()
+        assertFalse(c.markLaunchedInBackground("nope"))
+        assertFalse(c.isLaunchedInBackground("nope"))
+    }
+
+    @Test
+    fun `startTimeMs returns the dispatch time while active and null after finalize`() {
+        val c = SubAgentController()
+        c.register("toolu_p", "agent", "desc", nowMs = 12345)
+        assertEquals(12345L, c.startTimeMs("toolu_p"))
+        c.finalize("toolu_p", SubAgentController.Status.DONE)
+        assertNull(c.startTimeMs("toolu_p"))
+    }
 }
