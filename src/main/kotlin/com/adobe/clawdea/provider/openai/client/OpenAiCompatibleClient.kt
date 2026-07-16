@@ -14,7 +14,13 @@ package com.adobe.clawdea.provider.openai.client
 import com.adobe.clawdea.gateway.GatewayRequest
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.gateway.StreamEvent
+import com.adobe.clawdea.provider.openai.agent.AgentChatSseParser
+import com.adobe.clawdea.provider.openai.agent.AgentCompletionRequest
+import com.adobe.clawdea.provider.openai.agent.AgentStreamEvent
 import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
+import com.google.gson.Gson
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +42,8 @@ class OpenAiCompatibleClient(
 ) {
     private val log = Logger.getInstance(OpenAiCompatibleClient::class.java)
     private val parser = OpenAiChatSseParser()
+    private val agentParser = AgentChatSseParser()
+    private val gson = Gson()
 
     fun streamCompletion(
         profile: ResolvedProviderProfile,
@@ -65,6 +73,37 @@ class OpenAiCompatibleClient(
         } catch (e: Exception) {
             log.info("openai-compatible stream error: ${e.javaClass.simpleName}")
             emit(StreamEvent.Error(e.message ?: "Connection error"))
+        }
+    }
+
+    fun streamAgentCompletion(
+        profile: ResolvedProviderProfile,
+        credential: String,
+        request: AgentCompletionRequest,
+    ): Flow<AgentStreamEvent> = flow {
+        val chatEndpoint = profile.baseUrl.resolve(profile.profile.endpoints.chatCompletions)
+        val body = buildAgentRequestBody(request)
+
+        val httpRequest = buildHttpRequest(chatEndpoint, credential, profile, body)
+
+        try {
+            val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
+
+            if (response.statusCode() != 200) {
+                emit(handleAgentHttpError(response))
+                return@flow
+            }
+
+            val lines = response.body()
+            for (line in lines) {
+                val event = agentParser.parse(line)
+                if (event != null) {
+                    emit(event)
+                }
+            }
+        } catch (e: Exception) {
+            log.info("openai-compatible agent stream error: ${e.javaClass.simpleName}")
+            emit(AgentStreamEvent.Failure(null, e.message ?: "Connection error", null))
         }
     }
 
@@ -135,6 +174,83 @@ class OpenAiCompatibleClient(
             message = message,
             retryAfterSeconds = retryAfter,
         )
+    }
+
+    private fun handleAgentHttpError(response: HttpResponse<*>): AgentStreamEvent.Failure {
+        val status = response.statusCode()
+        val message = when (status) {
+            401 -> "Authentication failed"
+            403 -> "Access forbidden"
+            429 -> "Rate limit exceeded"
+            in 500..599 -> "Server error"
+            else -> "HTTP $status"
+        }
+
+        val retryAfter = response.headers().firstValue("Retry-After").orElse(null)?.toLongOrNull()
+
+        return AgentStreamEvent.Failure(
+            status = status,
+            message = message,
+            retryAfterSeconds = retryAfter,
+        )
+    }
+
+    private fun buildAgentRequestBody(request: AgentCompletionRequest): String {
+        val body = JsonObject()
+        body.addProperty("model", request.model)
+        body.addProperty("max_tokens", request.maxTokens)
+        body.addProperty("stream", true)
+
+        val streamOptions = JsonObject()
+        streamOptions.addProperty("include_usage", true)
+        body.add("stream_options", streamOptions)
+
+        // Build messages array
+        val messagesArray = JsonArray()
+        for (message in request.messages) {
+            val msgObj = JsonObject()
+            msgObj.addProperty("role", message.role)
+            if (message.content != null) {
+                msgObj.addProperty("content", message.content)
+            }
+            if (message.toolCalls.isNotEmpty()) {
+                val toolCallsArray = JsonArray()
+                for (call in message.toolCalls) {
+                    val callObj = JsonObject()
+                    callObj.addProperty("id", call.id)
+                    callObj.addProperty("type", "function")
+                    val functionObj = JsonObject()
+                    functionObj.addProperty("name", call.name)
+                    functionObj.addProperty("arguments", call.argumentsJson)
+                    callObj.add("function", functionObj)
+                    toolCallsArray.add(callObj)
+                }
+                msgObj.add("tool_calls", toolCallsArray)
+            }
+            if (message.toolCallId != null) {
+                msgObj.addProperty("tool_call_id", message.toolCallId)
+            }
+            messagesArray.add(msgObj)
+        }
+        body.add("messages", messagesArray)
+
+        // Add tools array only if non-empty
+        if (request.tools.isNotEmpty()) {
+            val toolsArray = JsonArray()
+            for (tool in request.tools) {
+                val toolObj = JsonObject()
+                toolObj.addProperty("type", tool.type)
+                val functionObj = JsonObject()
+                functionObj.addProperty("name", tool.function.name)
+                functionObj.addProperty("description", tool.function.description)
+                functionObj.add("parameters", tool.function.parameters)
+                toolObj.add("function", functionObj)
+                toolsArray.add(toolObj)
+            }
+            body.add("tools", toolsArray)
+        }
+
+        return gson.toJson(body)
     }
 
     private fun parseModels(json: String, profile: ResolvedProviderProfile): List<ModelEntry>? {
