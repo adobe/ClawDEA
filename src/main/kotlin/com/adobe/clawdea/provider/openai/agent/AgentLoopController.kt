@@ -1,0 +1,269 @@
+/*
+ * Copyright 2026 Adobe. All rights reserved.
+ * This file is licensed to you under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+ * OF ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
+ */
+package com.adobe.clawdea.provider.openai.agent
+
+import com.adobe.clawdea.cli.CliEvent
+import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+
+/**
+ * Injectable interface for HTTP agent client (returns streaming events).
+ */
+interface AgentClient {
+    suspend fun stream(request: AgentCompletionRequest): Flow<AgentStreamEvent>
+}
+
+/**
+ * Injectable interface for tool execution (dispatch tool calls).
+ */
+interface AgentToolExecutor {
+    fun execute(toolCall: AgentToolCall): ToolExecutionResult
+}
+
+/**
+ * Result of a single turn.
+ */
+data class TurnResult(
+    val isError: Boolean,
+    val toolRounds: Int,
+    val finalText: String = "",
+)
+
+/**
+ * Pure multi-round agent loop controller. Drives streaming chat completions with tool calling,
+ * enforcing exactly-once execution and safety limits.
+ *
+ * ### Loop invariants
+ * - Tool calls already in [ConversationState.completedToolCallIds] are skipped (never executed twice).
+ * - After [maxToolRounds] rounds of tool calling, returns [TurnResult] with `isError=true`.
+ * - Wall-clock timeout ([maxElapsedMs]) and context budget ([maxContextChars]) are enforced.
+ *
+ * ### Emission
+ * The loop emits [CliEvent]s via the [emit] callback: TextDelta, ReasoningDelta (buffered summary),
+ * AssistantMessage (before tool execution), ToolResult (after execution), and terminal Result.
+ *
+ * ### Design
+ * Kept pure of IntelliJ/coroutine-scope concerns so it's testable with injected fakes.
+ * The [OpenAiCompatibleAgentBackend] wraps this and forwards emitted events to a queue.
+ */
+class AgentLoopController(
+    private val client: AgentClient,
+    private val executor: AgentToolExecutor,
+    private val state: ConversationState,
+    private val maxToolRounds: Int,
+    private val maxElapsedMs: Long,
+    private val maxContextChars: Int,
+    private val modelId: String = "",
+) {
+
+    /**
+     * Run a single user turn: add user message, stream completion(s), execute tools, repeat until
+     * no tool calls remain. Returns [TurnResult] with success/error status and tool round count.
+     */
+    suspend fun runTurn(userText: String, emit: (CliEvent) -> Unit): TurnResult {
+        val turnStart = System.currentTimeMillis()
+
+        // Add user message
+        state.messages.add(AgentMessage(role = "user", content = userText))
+
+        var toolRounds = 0
+
+        while (true) {
+            // Check time limit
+            if (System.currentTimeMillis() - turnStart > maxElapsedMs) {
+                emit(CliEvent.Result(
+                    text = "Turn exceeded time limit",
+                    isError = true,
+                    costUsd = 0.0,
+                    sessionId = "",
+                    inputTokens = state.usage.inputTokens,
+                    outputTokens = state.usage.outputTokens,
+                    cacheReadTokens = state.usage.cachedInputTokens,
+                    cacheCreationTokens = 0,
+                    contextWindow = 0,
+                ))
+                return TurnResult(isError = true, toolRounds = toolRounds)
+            }
+
+            // Check context budget (approximate: sum all message content lengths)
+            val contextSize = state.messages.sumOf { (it.content?.length ?: 0) }
+            if (contextSize > maxContextChars) {
+                emit(CliEvent.Result(
+                    text = "Context budget exceeded",
+                    isError = true,
+                    costUsd = 0.0,
+                    sessionId = "",
+                    inputTokens = state.usage.inputTokens,
+                    outputTokens = state.usage.outputTokens,
+                    cacheReadTokens = state.usage.cachedInputTokens,
+                    cacheCreationTokens = 0,
+                    contextWindow = 0,
+                ))
+                return TurnResult(isError = true, toolRounds = toolRounds)
+            }
+
+            // Build request
+            val request = AgentCompletionRequest(
+                model = modelId,
+                messages = state.messages.toList(),
+                tools = emptyList(), // Tools provided by the backend wrapper
+                maxTokens = 4096,
+            )
+
+            // Stream completion
+            state.partialAssistantText = ""
+            val assembler = ToolCallAssembler()
+            var finishReason: String? = null
+            val reasoning = StringBuilder()
+            var streamError: String? = null
+
+            try {
+                client.stream(request).collect { event ->
+                    when (event) {
+                        is AgentStreamEvent.Text -> {
+                            state.partialAssistantText += event.text
+                            emit(CliEvent.TextDelta(event.text))
+                        }
+                        is AgentStreamEvent.Reasoning -> {
+                            reasoning.append(event.text)
+                        }
+                        is AgentStreamEvent.ToolFragment -> {
+                            assembler.accept(event)
+                        }
+                        is AgentStreamEvent.Usage -> {
+                            state.usage = AgentUsage(
+                                inputTokens = event.inputTokens,
+                                outputTokens = event.outputTokens,
+                                cachedInputTokens = event.cachedInputTokens,
+                                reasoningTokens = event.reasoningTokens,
+                            )
+                        }
+                        is AgentStreamEvent.Finished -> {
+                            finishReason = event.reason
+                        }
+                        is AgentStreamEvent.Failure -> {
+                            streamError = event.message
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                streamError = e.message ?: "unknown error"
+            }
+
+            // Handle stream errors
+            if (streamError != null) {
+                emit(CliEvent.Result(
+                    text = "Stream error: $streamError",
+                    isError = true,
+                    costUsd = 0.0,
+                    sessionId = "",
+                    inputTokens = state.usage.inputTokens,
+                    outputTokens = state.usage.outputTokens,
+                    cacheReadTokens = state.usage.cachedInputTokens,
+                    cacheCreationTokens = 0,
+                    contextWindow = 0,
+                ))
+                return TurnResult(isError = true, toolRounds = toolRounds, finalText = streamError)
+            }
+
+            // Emit reasoning summary if present
+            if (reasoning.isNotEmpty()) {
+                emit(CliEvent.ReasoningDelta(reasoning.toString(), summary = true))
+            }
+
+            // Assemble tool calls
+            val toolCalls = assembler.completed()
+
+            // Append assistant message
+            val assistantMessage = AgentMessage(
+                role = "assistant",
+                content = state.partialAssistantText.ifEmpty { null },
+                toolCalls = toolCalls,
+            )
+            state.messages.add(assistantMessage)
+
+            // Emit AssistantMessage BEFORE execution
+            emit(CliEvent.AssistantMessage(
+                text = state.partialAssistantText,
+                toolUses = toolCalls.map { CliEvent.ToolUse(it.id, it.name, it.argumentsJson) },
+                model = modelId,
+            ))
+
+            // If no tool calls, we're done
+            if (toolCalls.isEmpty()) {
+                emit(CliEvent.Result(
+                    text = state.partialAssistantText,
+                    isError = false,
+                    costUsd = 0.0,
+                    sessionId = "",
+                    inputTokens = state.usage.inputTokens,
+                    outputTokens = state.usage.outputTokens,
+                    cacheReadTokens = state.usage.cachedInputTokens,
+                    cacheCreationTokens = 0,
+                    contextWindow = 0,
+                ))
+                return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
+            }
+
+            // Check tool round limit BEFORE incrementing
+            if (toolRounds >= maxToolRounds) {
+                emit(CliEvent.Result(
+                    text = "Tool round limit exceeded",
+                    isError = true,
+                    costUsd = 0.0,
+                    sessionId = "",
+                    inputTokens = state.usage.inputTokens,
+                    outputTokens = state.usage.outputTokens,
+                    cacheReadTokens = state.usage.cachedInputTokens,
+                    cacheCreationTokens = 0,
+                    contextWindow = 0,
+                ))
+                return TurnResult(isError = true, toolRounds = toolRounds)
+            }
+            toolRounds++
+
+            // Execute tool calls (exactly-once: skip if already completed)
+            for (toolCall in toolCalls) {
+                if (toolCall.id in state.completedToolCallIds) {
+                    // Skip execution, emit cached result placeholder
+                    emit(CliEvent.ToolResult(
+                        toolUseId = toolCall.id,
+                        content = "[already executed]",
+                        isError = false,
+                    ))
+                    continue
+                }
+
+                // Execute
+                val result = executor.execute(toolCall)
+                state.completedToolCallIds.add(toolCall.id)
+
+                // Append tool result message
+                state.messages.add(AgentMessage(
+                    role = "tool",
+                    content = result.content,
+                    toolCallId = toolCall.id,
+                ))
+
+                // Emit ToolResult
+                emit(CliEvent.ToolResult(
+                    toolUseId = result.toolCallId,
+                    content = result.content,
+                    isError = result.isError,
+                ))
+            }
+
+            // Continue loop for next round
+        }
+    }
+}
