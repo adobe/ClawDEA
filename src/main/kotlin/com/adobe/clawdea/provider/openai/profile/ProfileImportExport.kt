@@ -16,15 +16,22 @@ object ProfileImportExport {
     fun exportConfigured(
         profile: OpenAiCompatibleProfile,
         values: Map<String, String>,
-    ): String = gson.toJson(
-        ConfiguredProfileExport(
-            profile = profile,
-            configuredValues = values.filterKeys { key ->
-                profile.settings.any { setting ->
-                    setting.id == key && setting.environmentVariable == null
-                }
-            },
-            credentialRef = "passwordsafe:openai-compatible/${profile.id}",
-        ),
-    )
+    ): String {
+        val secretBearingIds = buildSet {
+            addAll(profile.credentialFlow.inputs.map { it.id })
+            addAll(profile.credentialFlow.steps.flatMap { step -> step.extracts.map { it.name } })
+        }
+        return gson.toJson(
+            ConfiguredProfileExport(
+                profile = profile,
+                configuredValues = values.filterKeys { key ->
+                    key !in secretBearingIds &&
+                        profile.settings.any { setting ->
+                            setting.id == key && setting.environmentVariable == null
+                        }
+                },
+                credentialRef = "passwordsafe:openai-compatible/${profile.id}",
+            ),
+        )
+    }
 }

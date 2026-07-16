@@ -110,6 +110,13 @@ class ProfileValidatorTest {
     }
 
     @Test
+    fun `ids must be disjoint across settings credentials steps and extractions`() {
+        val json = validProfileJson().replaceFirst("\"id\": \"tenant\"", "\"id\": \"password\"")
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+        assertTrue(invalid.diagnostics.any { it.message.contains("globally unique") })
+    }
+
+    @Test
     fun `extraction names are globally unique`() {
         val secondStep = """
             ,{
@@ -128,6 +135,61 @@ class ProfileValidatorTest {
         )
         val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
         assertTrue(invalid.diagnostics.any { it.message.contains("globally unique") })
+    }
+
+    @Test
+    fun `numeric schema fields reject JSON strings`() {
+        val cases = listOf(
+            "\"schemaVersion\": 1" to Pair("\"schemaVersion\": \"1\"", "$.schemaVersion"),
+            "\"expectedStatuses\": [200]" to Pair("\"expectedStatuses\": [\"200\"]", "$.credentialFlow.steps[0].expectedStatuses[0]"),
+            "\"inputPerM\": 1.0" to Pair("\"inputPerM\": \"1.0\"", "$.pricing.generic-model.inputPerM"),
+        )
+        cases.forEach { (original, replacementAndPath) ->
+            val (replacement, expectedPath) = replacementAndPath
+            val invalid = ProfileValidator.parseAndValidate(
+                validProfileJson().replace(original, replacement),
+                allowLocalHttp = false,
+            ) as ValidationResult.Invalid
+            assertTrue(expectedPath, invalid.diagnostics.any { it.path == expectedPath })
+        }
+    }
+
+    @Test
+    fun `boolean schema fields reject JSON strings`() {
+        val cases = listOf(
+            "\"required\": true" to Pair("\"required\": \"true\"", "$.settings[0].required"),
+            "\"secret\": false" to Pair("\"secret\": \"false\"", "$.credentialFlow.inputs[0].secret"),
+            "\"durable\": true" to Pair("\"durable\": \"true\"", "$.credentialFlow.steps[0].extracts[0].durable"),
+        )
+        cases.forEach { (original, replacementAndPath) ->
+            val (replacement, expectedPath) = replacementAndPath
+            val invalid = ProfileValidator.parseAndValidate(
+                validProfileJson().replaceFirst(original, replacement),
+                allowLocalHttp = false,
+            ) as ValidationResult.Invalid
+            assertTrue(expectedPath, invalid.diagnostics.any { it.path == expectedPath })
+        }
+    }
+
+    @Test
+    fun `ordinary literal dollar signs are allowed`() {
+        val json = validProfileJson().replace(
+            "\"Content-Type\": \"application/json\"",
+            "\"Content-Type\": \"application/json\", \"X-Price\": \"\$5.00\", \"X-Schema\": \"\$schema\"",
+        )
+        assertTrue(ProfileValidator.parseAndValidate(json, allowLocalHttp = false) is ValidationResult.Valid)
+    }
+
+    @Test
+    fun `malformed placeholder constructs are rejected`() {
+        listOf("\${input}", "\${input:password", "\${other:password}", "\${input:bad value}").forEach { malformed ->
+            val json = validProfileJson().replace(
+                "\"Content-Type\": \"application/json\"",
+                "\"Content-Type\": \"application/json\", \"X-Test\": \"$malformed\"",
+            )
+            val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+            assertTrue(invalid.diagnostics.any { it.message.contains("placeholder", ignoreCase = true) })
+        }
     }
 
     @Test

@@ -64,7 +64,7 @@ object ProfileValidator {
     }
 
     private fun validateStructure(root: JsonObject, diagnostics: MutableList<ValidationDiagnostic>) {
-        requireType(root, "schemaVersion", "$.schemaVersion", JsonElement::isJsonPrimitive, diagnostics)
+        requireNumber(root, "schemaVersion", "$.schemaVersion", diagnostics)
         listOf("id", "name", "description", "baseUrl").forEach { field ->
             requireString(root, field, "$.$field", diagnostics)
         }
@@ -81,7 +81,7 @@ object ProfileValidator {
             requireString(setting, "id", "$path.id", diagnostics)
             requireString(setting, "label", "$path.label", diagnostics)
             validateNullableString(setting, "environmentVariable", "$path.environmentVariable", diagnostics)
-            requireType(setting, "required", "$path.required", JsonElement::isJsonPrimitive, diagnostics)
+            requireBoolean(setting, "required", "$path.required", diagnostics)
             requireString(setting, "defaultValue", "$path.defaultValue", diagnostics)
         }
         val credentialFlow = requireObject(root, "credentialFlow", "$.credentialFlow", diagnostics)
@@ -91,7 +91,7 @@ object ProfileValidator {
                 val input = requireElementObject(value, path, diagnostics) ?: return@forEachIndexed
                 requireString(input, "id", "$path.id", diagnostics)
                 requireString(input, "label", "$path.label", diagnostics)
-                requireType(input, "secret", "$path.secret", JsonElement::isJsonPrimitive, diagnostics)
+                requireBoolean(input, "secret", "$path.secret", diagnostics)
             }
             requireArray(it, "steps", "$.credentialFlow.steps", diagnostics)?.forEachIndexed { index, value ->
                 validateStepStructure(value, index, diagnostics)
@@ -111,7 +111,11 @@ object ProfileValidator {
             requireString(rule, "capability", "$path.capability", diagnostics)
         }
         requireObject(root, "pricing", "$.pricing", diagnostics)?.entrySet()?.forEach { (model, value) ->
-            requireElementObject(value, "$.pricing.$model", diagnostics)
+            val path = "$.pricing.$model"
+            val rates = requireElementObject(value, path, diagnostics) ?: return@forEach
+            listOf("inputPerM", "outputPerM", "cachedInputPerM", "reasoningPerM").forEach { field ->
+                requireNumber(rates, field, "$path.$field", diagnostics)
+            }
         }
     }
 
@@ -128,12 +132,20 @@ object ProfileValidator {
         requireObject(step, "headers", "$path.headers", diagnostics)
             ?.let { validateStringMap(it, "$path.headers", diagnostics) }
         requireArray(step, "expectedStatuses", "$path.expectedStatuses", diagnostics)
+            ?.forEachIndexed { statusIndex, status ->
+                if (!status.isJsonPrimitive || !status.asJsonPrimitive.isNumber) {
+                    diagnostics += ValidationDiagnostic(
+                        "$path.expectedStatuses[$statusIndex]",
+                        "Expected status must be a JSON number",
+                    )
+                }
+            }
         requireArray(step, "extracts", "$path.extracts", diagnostics)?.forEachIndexed { extractIndex, extractionValue ->
             val extractPath = "$path.extracts[$extractIndex]"
             val extraction = requireElementObject(extractionValue, extractPath, diagnostics) ?: return@forEachIndexed
             requireString(extraction, "name", "$extractPath.name", diagnostics)
             requireString(extraction, "jsonPath", "$extractPath.jsonPath", diagnostics)
-            requireType(extraction, "durable", "$extractPath.durable", JsonElement::isJsonPrimitive, diagnostics)
+            requireBoolean(extraction, "durable", "$extractPath.durable", diagnostics)
         }
     }
 
@@ -172,6 +184,36 @@ object ProfileValidator {
             field,
             path,
             { it.isJsonPrimitive && it.asJsonPrimitive.isString },
+            diagnostics,
+        )
+    }
+
+    private fun requireNumber(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        requireType(
+            parent,
+            field,
+            path,
+            { it.isJsonPrimitive && it.asJsonPrimitive.isNumber },
+            diagnostics,
+        )
+    }
+
+    private fun requireBoolean(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        requireType(
+            parent,
+            field,
+            path,
+            { it.isJsonPrimitive && it.asJsonPrimitive.isBoolean },
             diagnostics,
         )
     }
@@ -263,8 +305,11 @@ object ProfileValidator {
         )
 
         profile.settings.forEachIndexed { index, setting ->
-            if (setting.id.isBlank()) {
-                diagnostics += ValidationDiagnostic("$.settings[$index].id", "Setting id is required")
+            if (!DECLARED_ID.matches(setting.id)) {
+                diagnostics += ValidationDiagnostic(
+                    "$.settings[$index].id",
+                    "Setting id must match [A-Za-z_][A-Za-z0-9_.-]*",
+                )
             }
         }
         profile.credentialFlow.inputs.forEachIndexed { index, input ->
@@ -275,6 +320,15 @@ object ProfileValidator {
                 )
             }
         }
+        profile.credentialFlow.steps.forEachIndexed { index, step ->
+            if (!DECLARED_ID.matches(step.id)) {
+                diagnostics += ValidationDiagnostic(
+                    "$.credentialFlow.steps[$index].id",
+                    "Credential step id must match [A-Za-z_][A-Za-z0-9_.-]*",
+                )
+            }
+        }
+        validateGloballyDisjointIds(profile, diagnostics)
 
         val envVars = profile.settings.mapNotNull { it.environmentVariable?.takeIf { name -> name.isNotBlank() } }.toSet()
 
@@ -391,6 +445,38 @@ object ProfileValidator {
         return seen
     }
 
+    private fun validateGloballyDisjointIds(
+        profile: OpenAiCompatibleProfile,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val declarations = buildList {
+            profile.settings.forEachIndexed { index, setting ->
+                add(setting.id to "$.settings[$index].id")
+            }
+            profile.credentialFlow.inputs.forEachIndexed { index, input ->
+                add(input.id to "$.credentialFlow.inputs[$index].id")
+            }
+            profile.credentialFlow.steps.forEachIndexed { stepIndex, step ->
+                add(step.id to "$.credentialFlow.steps[$stepIndex].id")
+                step.extracts.forEachIndexed { extractIndex, extraction ->
+                    add(extraction.name to "$.credentialFlow.steps[$stepIndex].extracts[$extractIndex].name")
+                }
+            }
+        }
+        declarations
+            .filter { (id, _) -> id.isNotBlank() }
+            .groupBy { (id, _) -> id }
+            .filterValues { it.size > 1 }
+            .forEach { (id, matches) ->
+                matches.forEach { (_, path) ->
+                    diagnostics += ValidationDiagnostic(
+                        path,
+                        "Declared id '$id' must be globally unique across settings and credential fields",
+                    )
+                }
+            }
+    }
+
     private fun parseUri(path: String, value: String, diagnostics: MutableList<ValidationDiagnostic>): URI? {
         if (value.isBlank()) {
             diagnostics += ValidationDiagnostic(path, "URL is required")
@@ -461,12 +547,8 @@ object ProfileValidator {
     ) {
         var index = 0
         while (index < value.length) {
-            val start = value.indexOf('$', index)
+            val start = value.indexOf("\${", index)
             if (start < 0) break
-            if (start + 1 >= value.length || value[start + 1] != '{') {
-                diagnostics += ValidationDiagnostic(path, "Unsupported placeholder syntax near index $start")
-                break
-            }
             val end = value.indexOf('}', start + 2)
             if (end < 0) {
                 diagnostics += ValidationDiagnostic(path, "Unclosed placeholder near index $start")

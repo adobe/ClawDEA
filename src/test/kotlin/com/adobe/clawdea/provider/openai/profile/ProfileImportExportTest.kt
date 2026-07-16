@@ -62,6 +62,25 @@ class ProfileImportExportTest {
         assertEquals(profile.baseUrl, parsed.getAsJsonObject("profile").get("baseUrl").asString)
     }
 
+    @Test
+    fun `export defensively excludes values whose ids collide with credentials`() {
+        val original = validatedProfile()
+        val malformedProfile = original.copy(
+            settings = listOf(ProfileSetting(id = "password", label = "Password-shaped setting")),
+        )
+        val exported = ProfileImportExport.exportConfigured(
+            malformedProfile,
+            mapOf("password" to "must-never-export"),
+        )
+        assertFalse(exported.contains("must-never-export"))
+        assertFalse(
+            JsonParser.parseString(exported)
+                .asJsonObject
+                .getAsJsonObject("configuredValues")
+                .has("password"),
+        )
+    }
+
     private fun validatedProfile(): OpenAiCompatibleProfile {
         val json = this::class.java.classLoader
             .getResourceAsStream("openai-compatible/minimal-profile.json")!!
