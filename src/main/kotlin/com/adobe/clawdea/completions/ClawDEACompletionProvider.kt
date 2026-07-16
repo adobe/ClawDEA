@@ -57,11 +57,29 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
         // only spend tokens when the user explicitly asks for a completion via
         // the hotkey/action. See issue #146.
         if (settings.state.completionsManualOnly && !isManualTrigger(event)) return false
-        val provider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        if (provider != "anthropic") return true
-        val anthropic = com.adobe.clawdea.auth.AuthManager.getInstance()
-            .providerById("anthropic") as? com.adobe.clawdea.auth.AnthropicAuthProvider
-        return anthropic?.getApiKey()?.isNotBlank() == true
+
+        val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
+        val providerId = authManager.effectiveProviderId()
+        val descriptor = com.adobe.clawdea.provider.ProviderRegistry.require(providerId)
+        val providerConfigured = authManager.activeProvider().isConfigured()
+
+        val selectedModelId = if (providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            val profileId = settings.state.activeOpenAiCompatibleProfileId
+            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(providerId, profileId)
+            // Try to get project path from the event; fall back to empty string if unavailable.
+            // getSelectedModelId with empty path uses the global selected model.
+            val projectPath = ""
+            settings.getSelectedModelId(projectPath, catalogKey)
+        } else {
+            "" // Claude providers allow blank model (they fall back to CLI defaults)
+        }
+
+        return isProviderCompletionEnabled(
+            providerId = providerId,
+            supportsInlineCompletions = descriptor.supportsInlineCompletions,
+            providerConfigured = providerConfigured,
+            selectedModelId = selectedModelId,
+        )
     }
 
     override suspend fun getDebounceDelay(request: InlineCompletionRequest): kotlin.time.Duration {
@@ -129,6 +147,35 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
 
     companion object {
         private val EMPTY_SUGGESTION = InlineCompletionSingleSuggestion.build { _ -> }
+
+        /**
+         * Pure gating logic for provider completion enablement.
+         * Extracted for testability — no IntelliJ dependencies.
+         *
+         * @param providerId The resolved provider id (e.g. "anthropic", "openai-compatible")
+         * @param supportsInlineCompletions Whether the provider descriptor supports inline completions
+         * @param providerConfigured Whether the provider has valid credentials/configuration
+         * @param selectedModelId The resolved model id for this provider ("" if none)
+         * @return true if the provider is ready to serve completions, false otherwise
+         */
+        internal fun isProviderCompletionEnabled(
+            providerId: String,
+            supportsInlineCompletions: Boolean,
+            providerConfigured: Boolean,
+            selectedModelId: String,
+        ): Boolean {
+            if (!supportsInlineCompletions) return false
+            if (!providerConfigured) return false
+
+            // For openai-compatible, require a non-blank selected model.
+            // For existing Claude providers (anthropic, bedrock, subscription, vertex),
+            // allow blank model (they fall back to CLI defaults).
+            if (providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                if (selectedModelId.isBlank()) return false
+            }
+
+            return true
+        }
 
         /**
          * True when [event] originates from an explicit user request rather than
