@@ -65,6 +65,7 @@ import javax.swing.event.DocumentListener
 class ChatPanel(
     override val bridge: CliBridge,
     override val project: Project,
+    private val initialComposerDraft: String = "",
 ) : JPanel(BorderLayout()), Disposable, ChatPanelHost, InputHost {
 
     override val renderer = MessageRenderer(
@@ -681,6 +682,7 @@ class ChatPanel(
 
         // Placeholder behavior
         setupPlaceholder()
+        restoreComposerDraft(initialComposerDraft)
         eventHandler.startEventListener()
         inputArea.document.addDocumentListener(object : DocumentListener {
             override fun insertUpdate(e: DocumentEvent) {
@@ -1153,8 +1155,17 @@ class ChatPanel(
         // Carry the current conversation over to the new backend as context (cross-backend replay).
         val resumeId = bridge.sessionId
         val wasSelected = contentManager.selectedContent === oldContent
+        val composerText = if (showingPlaceholder) "" else inputArea.text
+        val transferredDraft = pendingPromptController
+            .captureForBackendRebuild(composerText)
+            .visibleComposerText()
 
-        val session = ChatSession(project, tabName, autoResumeSessionId = resumeId)
+        val session = ChatSession(
+            project,
+            tabName,
+            autoResumeSessionId = resumeId,
+            initialComposerDraft = transferredDraft,
+        )
         val newContent = com.intellij.ui.content.ContentFactory.getInstance()
             .createContent(session.panel, tabName, true)
         newContent.setDisposer(session)
@@ -1425,6 +1436,14 @@ class ChatPanel(
                 }
             }
         })
+    }
+
+    private fun restoreComposerDraft(draft: String) {
+        if (draft.isBlank()) return
+        inputArea.text = draft
+        inputArea.foreground = UIManager.getColor("TextArea.foreground")
+        inputArea.caretPosition = draft.length
+        showingPlaceholder = false
     }
 
     private fun updateContextLabel() {

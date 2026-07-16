@@ -108,4 +108,42 @@ class PendingPromptControllerTest {
         assertFalse(controller.hasExplicitPrompt)
         assertEquals("edited typed prompt", controller.consume("edited typed prompt"))
     }
+
+    @Test
+    fun `backend rebuild captures queued composer text without leaving it sendable on old bridge`() {
+        val controller = PendingPromptController()
+        controller.queue("queued follow-up")
+
+        val transfer = controller.captureForBackendRebuild("queued follow-up")
+
+        assertEquals("queued follow-up", transfer.visibleComposerText())
+        assertFalse(controller.isQueued)
+        assertNull(controller.consume("queued follow-up"))
+    }
+
+    @Test
+    fun `backend rebuild preserves distinct explicit queue and composer draft`() {
+        val controller = PendingPromptController()
+        controller.queueExplicit("generated refresh prompt")
+
+        val transfer = controller.captureForBackendRebuild("my unsent draft")
+
+        assertEquals("generated refresh prompt", transfer.queuedPrompt)
+        assertEquals("my unsent draft", transfer.composerText)
+        assertEquals(
+            "generated refresh prompt\n\nmy unsent draft",
+            transfer.visibleComposerText(),
+        )
+        assertNull(controller.consume("my unsent draft"))
+    }
+
+    @Test
+    fun `backend rebuild preserves an unqueued composer draft`() {
+        val controller = PendingPromptController()
+
+        val transfer = controller.captureForBackendRebuild("unsent draft")
+
+        assertNull(transfer.queuedPrompt)
+        assertEquals("unsent draft", transfer.visibleComposerText())
+    }
 }

@@ -28,6 +28,7 @@ class ChatSession(
     private val project: Project,
     val name: String = "Chat",
     private val autoResumeSessionId: String? = null,
+    private val initialComposerDraft: String = "",
 ) : Disposable {
 
     val bridge = CliBridge(
@@ -51,7 +52,7 @@ class ChatSession(
         },
         project = project,
     )
-    val panel = ChatPanel(bridge, project)
+    val panel = ChatPanel(bridge, project, initialComposerDraft)
 
     init {
         Disposer.register(this, bridge)
