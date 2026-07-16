@@ -60,6 +60,7 @@ object ActionExecutor {
                 when (event) {
                     is StreamEvent.TextDelta -> result.append(event.text)
                     is StreamEvent.Error -> errorMessage = event.message
+                    is StreamEvent.HttpError -> errorMessage = event.message
                     else -> {}
                 }
             }

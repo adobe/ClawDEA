@@ -109,6 +109,7 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
             when (event) {
                 is StreamEvent.TextDelta -> result.append(event.text)
                 is StreamEvent.Error -> {} // Silently skip — stale by the time a retry would succeed
+                is StreamEvent.HttpError -> {} // Silently skip — stale by the time a retry would succeed
                 else -> {}
             }
         }

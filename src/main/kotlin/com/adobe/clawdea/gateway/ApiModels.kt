@@ -40,6 +40,12 @@ sealed class StreamEvent {
     data class MessageStop(val stopReason: String?) : StreamEvent()
     /** An error occurred */
     data class Error(val message: String) : StreamEvent()
+    /** Structured HTTP error with status code and optional retry-after */
+    data class HttpError(
+        val status: Int?,
+        val message: String,
+        val retryAfterSeconds: Long? = null,
+    ) : StreamEvent()
     /** Content block started */
     data class ContentBlockStart(val index: Int) : StreamEvent()
     /** Content block stopped */

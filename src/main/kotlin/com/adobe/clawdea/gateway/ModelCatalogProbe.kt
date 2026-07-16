@@ -11,23 +11,35 @@
  */
 package com.adobe.clawdea.gateway
 
+import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.catalog.OpenAiCompatibleModelProbe
+import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
+
 interface ModelCatalogProbe {
     /** Must be called off-EDT. Returns null on any failure. */
     fun probe(): List<ModelEntry>?
 }
 
+data class ModelProbeContext(
+    val providerId: String,
+    val profile: ResolvedProviderProfile? = null,
+    val credential: String = "",
+    val anthropicApiKey: String = "",
+    val bedrockRegion: String = "",
+    val bedrockBearerToken: String = "",
+)
+
 object ModelCatalogProbes {
-    fun forProvider(
-        providerId: String,
-        anthropicApiKey: String,
-        bedrockRegion: String,
-        bedrockBearerToken: String,
-    ): ModelCatalogProbe? =
-        when (providerId) {
-            "anthropic"           -> AnthropicModelProbe(anthropicApiKey)
-            "bedrock"             -> BedrockModelProbe(bedrockRegion, bedrockBearerToken)
-            "subscription"        -> SubscriptionModelProbe()
-            "openai-subscription" -> CodexModelProbe()
-            else                  -> null
+    fun forProvider(context: ModelProbeContext): ModelCatalogProbe? =
+        when (context.providerId) {
+            "anthropic"                         -> AnthropicModelProbe(context.anthropicApiKey)
+            "bedrock"                           -> BedrockModelProbe(context.bedrockRegion, context.bedrockBearerToken)
+            "subscription"                      -> SubscriptionModelProbe()
+            "openai-subscription"               -> CodexModelProbe()
+            ProviderRegistry.OPENAI_COMPATIBLE_ID -> {
+                val profile = context.profile ?: return null
+                OpenAiCompatibleModelProbe(profile, context.credential)
+            }
+            else                                -> null
         }
 }
