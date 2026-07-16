@@ -2140,11 +2140,14 @@ class ChatPanel(
     }
 
     /**
-     * Injects [text] into the currently-streaming turn via native steer (codex `turn/steer`).
-     * Returns false when the backend declines (no live turn) so the caller can fall back to
-     * queuing. On success, finalizes any partial answer so the steer message slots into the
-     * transcript in chronological order, then renders the user's message and re-asserts the
-     * activity indicator — the same turn keeps streaming, so no new turn/timer is started.
+     * Injects [text] into the currently-streaming turn via the backend's steer primitive. This
+     * covers both native steering (Codex `turn/steer`, which keeps the same turn running) and
+     * cancel-and-continue steering (OpenAI-compatible HTTP backend, which cancels the running round
+     * and continues with the steer message as the next turn). Returns false when the backend
+     * declines (no live turn) so the caller can fall back to queuing. On success, finalizes any
+     * partial answer so the steer message slots into the transcript in chronological order, then
+     * renders the user's message and re-asserts the activity indicator — the turn keeps streaming
+     * (or immediately continues), so no new turn/timer is started.
      */
     private fun steerActiveTurn(text: String): Boolean {
         if (!bridge.steer(text)) return false
@@ -2173,9 +2176,10 @@ class ChatPanel(
 
         if (turnController.isStreaming) {
             if (!text.startsWith("/")) {
-                // Native mid-turn steer (codex): inject the message into the live turn instead of
-                // queuing it for a fresh turn. Falls through to queuing if there is no steerable
-                // turn or the backend has no steer primitive (Claude).
+                // Mid-turn steer: inject the message into the live turn instead of queuing it for
+                // a fresh turn. Works for both native steering (Codex `turn/steer`) and
+                // cancel-and-continue steering (OpenAI-compatible HTTP). Falls through to queuing
+                // if there is no steerable turn or the backend has no steer primitive (Claude).
                 if (bridge.supportsSteer && steerActiveTurn(text)) return
                 queueCurrentComposerText()
                 return

@@ -71,11 +71,43 @@ class SteeringController {
     }
 
     /**
-     * Clear the active job (called when a turn completes normally).
+     * Atomically decide, under one lock, whether to continue steering or finish the turn.
+     *
+     * - If a steer is pending: consume and return it (the caller continues with a new round; the
+     *   active job stays set so a follow-up steer can still land).
+     * - Otherwise: clear [activeJob] (compare-and-clear against [completedJob], so a newer turn's
+     *   [setActiveJob] is never clobbered) and return null.
+     *
+     * This closes the natural-completion race: a concurrent [steer] running just after the caller's
+     * previous `consumePendingSteer()` returned null either wins the lock first (its text is
+     * returned here and processed) or runs after the clear and sees a null [activeJob] (returns
+     * false → caller queues the message). No steer is ever silently dropped.
      */
-    suspend fun clearActiveJob() {
+    suspend fun consumePendingSteerOrClear(completedJob: Job?): String? {
+        return mutex.withLock {
+            val steer = pendingSteer
+            if (steer != null) {
+                pendingSteer = null
+                steer
+            } else {
+                if (activeJob === completedJob) {
+                    activeJob = null
+                }
+                null
+            }
+        }
+    }
+
+    /**
+     * Clear the active job (called when a turn completes normally). Compare-and-clear: only nulls
+     * [activeJob] when it still refers to [job], so a newer turn's [setActiveJob] is not clobbered
+     * by a stale prior turn's teardown.
+     */
+    suspend fun clearActiveJob(job: Job? = null) {
         mutex.withLock {
-            activeJob = null
+            if (job == null || activeJob === job) {
+                activeJob = null
+            }
         }
     }
 }

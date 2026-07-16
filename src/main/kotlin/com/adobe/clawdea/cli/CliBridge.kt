@@ -179,14 +179,18 @@ class CliBridge(
         backend.abort()
     }
 
-    /** True when the backend supports native mid-turn steering (codex `turn/steer`). */
+    /**
+     * True when the backend supports mid-turn steering — either native (Codex `turn/steer`) or
+     * cancel-and-continue (OpenAI-compatible HTTP). False only for backends with no steer primitive.
+     */
     val supportsSteer: Boolean
         get() = backend.steeringMode != SteeringMode.NONE
 
     /**
-     * Injects [text] into the running turn without interrupting it (native steer). Returns true
-     * when the backend accepted it into a live turn; false when there is no steerable turn and the
-     * caller should send a normal new message instead.
+     * Injects [text] into the running turn. Native backends steer without interrupting; the
+     * OpenAI-compatible backend cancels the running round and continues with the steer message.
+     * Returns true when the backend accepted it into a live turn; false when there is no steerable
+     * turn and the caller should send a normal new message instead.
      */
     fun steer(text: String): Boolean = backend.steer(text)
 

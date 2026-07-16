@@ -13,6 +13,7 @@ package com.adobe.clawdea.provider.openai.agent
 
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 
@@ -32,11 +33,24 @@ interface AgentToolExecutor {
 
 /**
  * Result of a single turn.
+ *
+ * [streamFailed] is true only when a streaming request failed (HTTP [status] error, remote
+ * [AgentStreamEvent.Failure], or a thrown transport exception) BEFORE the turn reached a natural
+ * terminal state. When [streamFailed] is true the controller does NOT emit a terminal
+ * [CliEvent.Result]; the backend inspects [status]/[retryAfterSeconds]/[emittedText]/[executedTools]
+ * to build a [RetryContext] and decide whether to retry, renew, ask the user, or emit the terminal
+ * error itself. For every other terminal outcome (success, time/context/tool-round limit) the
+ * controller has already emitted the terminal [CliEvent.Result] and [streamFailed] is false.
  */
 data class TurnResult(
     val isError: Boolean,
     val toolRounds: Int,
     val finalText: String = "",
+    val status: Int? = null,
+    val retryAfterSeconds: Long? = null,
+    val emittedText: Boolean = false,
+    val executedTools: Boolean = false,
+    val streamFailed: Boolean = false,
 )
 
 /**
@@ -70,13 +84,25 @@ class AgentLoopController(
      * Run a single user turn: add user message, stream completion(s), execute tools, repeat until
      * no tool calls remain. Returns [TurnResult] with success/error status and tool round count.
      */
-    suspend fun runTurn(userText: String, emit: (CliEvent) -> Unit): TurnResult {
+    suspend fun runTurn(
+        userText: String,
+        appendUserMessage: Boolean = true,
+        emit: (CliEvent) -> Unit,
+    ): TurnResult {
         val turnStart = System.currentTimeMillis()
 
-        // Add user message
-        state.messages.add(AgentMessage(role = "user", content = userText))
+        // Add user message. On a bounded retry of a failed request, the user message is already
+        // in [state.messages] from the first attempt, so the caller passes appendUserMessage=false
+        // to re-issue the exact same request without duplicating the turn's user turn.
+        if (appendUserMessage) {
+            state.messages.add(AgentMessage(role = "user", content = userText))
+        }
 
         var toolRounds = 0
+        // Turn-level output tracking (spans all rounds): used to build a RetryContext when a
+        // later round's stream fails after earlier rounds already produced output.
+        var emittedTextOverall = false
+        var executedToolsOverall = false
 
         while (true) {
             // Check time limit
@@ -126,12 +152,15 @@ class AgentLoopController(
             var finishReason: String? = null
             val reasoning = StringBuilder()
             var streamError: String? = null
+            var failureStatus: Int? = null
+            var failureRetryAfter: Long? = null
 
             try {
                 client.stream(request).collect { event ->
                     when (event) {
                         is AgentStreamEvent.Text -> {
                             state.partialAssistantText += event.text
+                            emittedTextOverall = true
                             emit(CliEvent.TextDelta(event.text))
                         }
                         is AgentStreamEvent.Reasoning -> {
@@ -153,27 +182,35 @@ class AgentLoopController(
                         }
                         is AgentStreamEvent.Failure -> {
                             streamError = event.message
+                            failureStatus = event.status
+                            failureRetryAfter = event.retryAfterSeconds
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // Steering (or shutdown) cancelled this round. Do NOT swallow it: rethrow so
+                // structured concurrency unwinds and the backend's join() observes completion.
+                // The incomplete assembler is a local that never reaches .completed(), so its
+                // partial tool fragments are discarded; the persisted partialAssistantText is
+                // preserved by the backend for the continuation turn.
+                throw e
             } catch (e: Exception) {
                 streamError = e.message ?: "unknown error"
             }
 
-            // Handle stream errors
+            // Handle stream errors WITHOUT emitting a terminal Result: the backend inspects the
+            // returned TurnResult and drives retry / renew / ask-user / terminal-error itself.
             if (streamError != null) {
-                emit(CliEvent.Result(
-                    text = "Stream error: $streamError",
+                return TurnResult(
                     isError = true,
-                    costUsd = 0.0,
-                    sessionId = "",
-                    inputTokens = state.usage.inputTokens,
-                    outputTokens = state.usage.outputTokens,
-                    cacheReadTokens = state.usage.cachedInputTokens,
-                    cacheCreationTokens = 0,
-                    contextWindow = 0,
-                ))
-                return TurnResult(isError = true, toolRounds = toolRounds, finalText = streamError)
+                    toolRounds = toolRounds,
+                    finalText = streamError ?: "",
+                    status = failureStatus,
+                    retryAfterSeconds = failureRetryAfter,
+                    emittedText = emittedTextOverall,
+                    executedTools = executedToolsOverall,
+                    streamFailed = true,
+                )
             }
 
             // Emit reasoning summary if present
@@ -246,6 +283,7 @@ class AgentLoopController(
 
                 // Execute
                 val result = executor.execute(toolCall)
+                executedToolsOverall = true
                 state.completedToolCallIds.add(toolCall.id)
 
                 // Append tool result message

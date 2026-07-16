@@ -18,9 +18,15 @@ import com.adobe.clawdea.provider.openai.agent.AgentClient
 import com.adobe.clawdea.provider.openai.agent.AgentCompletionRequest
 import com.adobe.clawdea.provider.openai.agent.AgentLoopController
 import com.adobe.clawdea.provider.openai.agent.AgentStreamEvent
+import com.adobe.clawdea.provider.openai.agent.AgentRetryPolicy
 import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
 import com.adobe.clawdea.provider.openai.agent.ConversationState
 import com.adobe.clawdea.provider.openai.agent.OpenAiInstructions
+import com.adobe.clawdea.provider.openai.agent.RetryContext
+import com.adobe.clawdea.provider.openai.agent.RetryDecision
+import com.adobe.clawdea.provider.openai.agent.SteeringController
+import com.adobe.clawdea.provider.openai.agent.TurnResult
+import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
 import com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient
 import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
 import com.adobe.clawdea.provider.openai.session.OpenAiSessionLedger
@@ -33,11 +39,15 @@ import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -62,16 +72,29 @@ class OpenAiCompatibleAgentBackend(
     override val agentLabel: String,
     private val readinessError: String? = null,
     ledger: OpenAiSessionLedger? = null, // Test seam: inject ledger with custom base dir
+    // Test seam: construct the streaming client. Production default wraps [OpenAiCompatibleClient].
+    private val clientFactory: (ResolvedProviderProfile, String) -> AgentClient =
+        { p, cred -> HttpAgentClient(OpenAiCompatibleClient(), p, cred) },
+    // Test seam: construct the tool executor. Production default dispatches to MCP + host tools.
+    private val executorFactory: () -> AgentToolExecutor = { defaultExecutor(project, mcpDefs, approvalGate, autoAcceptEdits) },
+    // Test seam: renew the profile credential (real path prompts on the EDT + runs the flow).
+    // Returns true if a fresh credential was persisted. Default runs the EDT renewal flow.
+    private val credentialRenewer: (() -> Boolean)? = null,
 ) : AgentBackend {
 
     private val log = Logger.getInstance(OpenAiCompatibleAgentBackend::class.java)
     private val scope = CoroutineScope(Dispatchers.IO)
-    private val queue = LinkedBlockingQueue<CliEvent?>()
+    // LinkedBlockingQueue forbids null elements, so EOF is signalled with a sentinel event
+    // ([EOF_SENTINEL]) that [readEvent] translates back to null for the caller.
+    private val queue = LinkedBlockingQueue<CliEvent>()
     private val state = ConversationState()
     private val ledger = ledger ?: OpenAiSessionLedger(projectPath)
-    private val httpClient = OpenAiCompatibleClient()
     private val alive = AtomicBoolean(true)
     private var activeJob: Job? = null
+    private val steeringController = SteeringController()
+    // Current credential (mutable: a successful renewal replaces it for subsequent requests).
+    @Volatile
+    private var currentCredential: String = credential
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
 
@@ -91,13 +114,20 @@ class OpenAiCompatibleAgentBackend(
                 costUsd = 0.0,
                 sessionId = "",
             ))
-            queue.put(null) // EOF sentinel
+            queue.put(EOF_SENTINEL) // EOF sentinel
             alive.set(false)
             return
         }
 
-        // Build standing instructions
-        val instructions = OpenAiInstructions.build(project, skills)
+        // Build standing instructions. Degrade to empty when the platform Application is
+        // unavailable (headless/unit-test contexts) — instructions are non-essential to the
+        // turn/steering behavior and must not abort session start.
+        val instructions = try {
+            OpenAiInstructions.build(project, skills)
+        } catch (e: Exception) {
+            log.warn("Failed to build standing instructions; continuing without them", e)
+            ""
+        }
 
         // Determine session ID (resume or fresh)
         sessionId = resumeSessionId ?: "http-session-${System.currentTimeMillis()}"
@@ -231,73 +261,64 @@ class OpenAiCompatibleAgentBackend(
             return
         }
 
-        // Cancel any active turn
+        // Cancel any active turn (abort semantics for a brand-new user message)
         activeJob?.cancel()
 
-        // Start new turn in background
+        // Start new turn in background. The outer job owns the cancel-and-continue orchestration
+        // loop; each round runs in a lazily-started CHILD job so mid-turn steering can cancel just
+        // that round (via SteeringController) without tearing down the orchestration loop.
         activeJob = scope.launch {
+            // Most-recently-registered round job, so the finally can compare-and-clear only the job
+            // this turn actually owns (never a newer turn's job).
+            var lastTurnJob: Job? = null
             try {
-                // Write user message to ledger
                 writeUserMessage(text)
 
-                val client = HttpAgentClient(httpClient, profile, credential)
-                val executor = ProductionToolExecutor(
-                    catalog = OpenAiToolCatalog(mcpDefs, emptyList()),
-                    shellTool = if (project != null) HostShellTool(project, approvalGate, missingRouteBehavior = MissingRouteBehavior.DENY) else null,
-                    patchTool = if (project != null) HostPatchTool(project, autoAcceptEdits, approvalGate) else null,
-                )
+                var turnText = text
+                var appendUserMessage = true
 
-                val loop = AgentLoopController(
-                    client = client,
-                    executor = executor,
-                    state = state,
-                    maxToolRounds = 10,
-                    maxElapsedMs = 600_000,
-                    maxContextChars = 1_000_000,
-                    modelId = modelId,
-                )
-
-                // Buffer for reasoning and assistant text
-                val reasoningBuffer = StringBuilder()
-                var assistantTextBuffer = ""
-
-                loop.runTurn(text) { event ->
-                    // Write to ledger based on event type
-                    when (event) {
-                        is CliEvent.TextDelta -> {
-                            assistantTextBuffer += event.text
-                        }
-                        is CliEvent.ReasoningDelta -> {
-                            if (event.summary) {
-                                // Complete reasoning block
-                                reasoningBuffer.append(event.text)
-                                writeReasoning(reasoningBuffer.toString())
-                                reasoningBuffer.clear()
-                            }
-                        }
-                        is CliEvent.AssistantMessage -> {
-                            // Write assistant text
-                            if (assistantTextBuffer.isNotEmpty()) {
-                                writeAssistant(assistantTextBuffer)
-                            }
-                            // Write tool_use records
-                            event.toolUses.forEachIndexed { index, toolUse ->
-                                writeToolUse(toolUse.id, toolUse.name, toolUse.input, index)
-                            }
-                            assistantTextBuffer = ""
-                        }
-                        is CliEvent.ToolResult -> {
-                            writeToolResult(event.toolUseId, event.content, event.isError)
-                        }
-                        is CliEvent.Result -> {
-                            writeUsage()
-                        }
-                        else -> {
-                            // Skip SystemInit, other events
-                        }
+                while (true) {
+                    // Lazy child so setActiveJob() happens-before the turn body runs — closes the
+                    // race where steer() could arrive before the round's job is registered.
+                    val roundText = turnText
+                    val roundAppend = appendUserMessage
+                    val turnJob = launch(start = CoroutineStart.LAZY) {
+                        runTurnWithRetries(roundText, roundAppend)
                     }
-                    queue.put(event)
+                    lastTurnJob = turnJob
+                    steeringController.setActiveJob(turnJob)
+                    turnJob.start()
+                    turnJob.join()
+
+                    // Atomically decide (under one lock) whether a steer is pending. If so, continue
+                    // WITHOUT emitting the cancelled round's Result; otherwise the active job is
+                    // compare-and-cleared here, closing the natural-completion race where a
+                    // concurrent steer() could otherwise land on a dead job and be silently dropped.
+                    val steer = steeringController.consumePendingSteerOrClear(turnJob)
+                    if (steer == null) {
+                        break
+                    }
+
+                    // Persist any valid partial assistant text from the cancelled round so the
+                    // continuation turn sees the redirected conversation. Incomplete tool-call
+                    // fragments live in the cancelled round's local assembler and are discarded.
+                    val partial = state.partialAssistantText
+                    if (partial.isNotBlank()) {
+                        state.messages.add(com.adobe.clawdea.provider.openai.agent.AgentMessage(
+                            role = "assistant",
+                            content = partial,
+                        ))
+                        writeAssistant(partial)
+                    }
+                    state.partialAssistantText = ""
+
+                    writeUserMessage(steer)
+                    turnText = steer
+                    appendUserMessage = true
                 }
+            } catch (e: CancellationException) {
+                // Whole-turn abort (new message / stop): unwind cleanly, no terminal Result.
+                throw e
             } catch (e: Exception) {
                 log.warn("Turn error", e)
                 errors.add(e.message ?: "unknown error")
@@ -307,8 +328,208 @@ class OpenAiCompatibleAgentBackend(
                     costUsd = 0.0,
                     sessionId = "",
                 ))
+            } finally {
+                // Compare-and-clear: only null the active job if it's still this turn's job, so a
+                // newer sendMessage that already re-registered its own job is not clobbered.
+                steeringController.clearActiveJob(lastTurnJob)
             }
         }
+    }
+
+    /**
+     * Run a single round with bounded retries. Delegates streaming to [AgentLoopController.runTurn]
+     * (which emits the terminal [CliEvent.Result] for natural terminal states) and applies
+     * [AgentRetryPolicy] only when a request stream FAILS. On a terminal decision it emits exactly
+     * one terminal error [CliEvent.Result] here.
+     */
+    private suspend fun runTurnWithRetries(text: String, appendUserMessage: Boolean) {
+        var attempts = 0
+        var authRenewals = 0
+        var append = appendUserMessage
+
+        while (true) {
+            val loop = AgentLoopController(
+                client = clientFactory(profile, currentCredential),
+                executor = executorFactory(),
+                state = state,
+                maxToolRounds = 10,
+                maxElapsedMs = 600_000,
+                maxContextChars = 1_000_000,
+                modelId = modelId,
+            )
+
+            val result = runOneRound(loop, text, append)
+
+            // Natural terminal state (success or limit): runTurn already emitted the Result.
+            if (!result.streamFailed) {
+                return
+            }
+
+            val ctx = RetryContext(
+                status = result.status,
+                retryAfterSeconds = result.retryAfterSeconds,
+                emittedText = result.emittedText,
+                executedTools = result.executedTools,
+                authRenewals = authRenewals,
+                attempts = attempts,
+            )
+
+            when (val decision = AgentRetryPolicy.decide(ctx)) {
+                is RetryDecision.RetryAfter -> {
+                    delay(decision.delayMillis)
+                    attempts++
+                    append = false // user message already in state; re-issue the same request
+                }
+                RetryDecision.RenewCredentialOnce -> {
+                    val renewed = renewCredential()
+                    if (renewed) {
+                        authRenewals++
+                        append = false
+                    } else {
+                        emitTerminalError("Authentication failed. Credential renewal failed or was cancelled.")
+                        return
+                    }
+                }
+                RetryDecision.AskUser -> {
+                    val retry = promptPartialRetry(result)
+                    if (retry) {
+                        attempts++
+                        append = false
+                    } else {
+                        emitTerminalError(result.finalText.ifBlank { "Request failed after partial output." })
+                        return
+                    }
+                }
+                RetryDecision.Fail -> {
+                    emitTerminalError(result.finalText.ifBlank { "Request failed." })
+                    return
+                }
+            }
+        }
+    }
+
+    /** Run one streaming round, forwarding events to the queue and persisting ledger records. */
+    private suspend fun runOneRound(loop: AgentLoopController, text: String, append: Boolean): TurnResult {
+        val reasoningBuffer = StringBuilder()
+        var assistantTextBuffer = ""
+
+        return loop.runTurn(text, appendUserMessage = append) { event ->
+            when (event) {
+                is CliEvent.TextDelta -> {
+                    assistantTextBuffer += event.text
+                }
+                is CliEvent.ReasoningDelta -> {
+                    if (event.summary) {
+                        reasoningBuffer.append(event.text)
+                        writeReasoning(reasoningBuffer.toString())
+                        reasoningBuffer.clear()
+                    }
+                }
+                is CliEvent.AssistantMessage -> {
+                    if (assistantTextBuffer.isNotEmpty()) {
+                        writeAssistant(assistantTextBuffer)
+                    }
+                    event.toolUses.forEachIndexed { index, toolUse ->
+                        writeToolUse(toolUse.id, toolUse.name, toolUse.input, index)
+                    }
+                    assistantTextBuffer = ""
+                }
+                is CliEvent.ToolResult -> {
+                    writeToolResult(event.toolUseId, event.content, event.isError)
+                }
+                is CliEvent.Result -> {
+                    writeUsage()
+                }
+                else -> {
+                    // Skip SystemInit and other events
+                }
+            }
+            queue.put(event)
+        }
+    }
+
+    private fun emitTerminalError(message: String) {
+        errors.add(message)
+        writeUsage()
+        queue.put(CliEvent.Result(
+            text = message,
+            isError = true,
+            costUsd = 0.0,
+            sessionId = sessionId,
+            inputTokens = state.usage.inputTokens,
+            outputTokens = state.usage.outputTokens,
+            cacheReadTokens = state.usage.cachedInputTokens,
+            cacheCreationTokens = 0,
+        ))
+    }
+
+    /**
+     * Renew the profile credential. Uses the injected [credentialRenewer] when provided (tests),
+     * otherwise runs the real EDT prompt + credential flow and re-reads the persisted credential.
+     * Fails closed (returns false) when headless.
+     */
+    private fun renewCredential(): Boolean {
+        val renewer = credentialRenewer ?: { renewCredentialViaEdt() }
+        val renewed = renewer()
+        if (renewed) {
+            // Re-read the freshly persisted credential for subsequent requests.
+            currentCredential = ProfileCredentialStore().get(profile.profile.id).ifBlank { currentCredential }
+        }
+        return renewed
+    }
+
+    /**
+     * Prompt the user (EDT) with [PartialRetryPrompt] to confirm retrying after partial output.
+     * Returns true if the user chose Retry. Fails closed (returns false) when headless.
+     */
+    private fun promptPartialRetry(result: TurnResult): Boolean {
+        val proj = project ?: return false
+        val decision = java.util.concurrent.atomic.AtomicBoolean(false)
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+            decision.set(
+                com.adobe.clawdea.chat.PartialRetryPrompt(
+                    project = proj,
+                    profileName = profile.profile.name,
+                    modelId = modelId,
+                    emittedText = result.emittedText,
+                    toolsCompleted = result.executedTools,
+                ).showAndGet(),
+            )
+        }
+        return decision.get()
+    }
+
+    /**
+     * Real credential-renewal path. Delegates to [CredentialRenewalCoordinator] (the brief's named
+     * integration point): the coordinator's prompt lambda shows a [CredentialRenewalDialog] on the
+     * EDT (a field per declared credential input, password field when secret), runs the credential
+     * flow on this worker thread via [CredentialFlowExecutor], persists the fresh credential, and
+     * clears the secret CharArrays in its own finally. Fails closed (false) when headless or when
+     * the profile declares no credential inputs.
+     */
+    private fun renewCredentialViaEdt(): Boolean {
+        val proj = project ?: return false
+        val flowProfile = profile.profile
+        if (flowProfile.credentialFlow.inputs.isEmpty()) return false
+
+        val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance()
+        val coordinator = com.adobe.clawdea.provider.openai.auth.CredentialRenewalCoordinator(
+            profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings),
+            prompt = { p ->
+                val ref = com.intellij.openapi.util.Ref.create<com.adobe.clawdea.provider.openai.auth.CredentialPromptResult?>()
+                com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+                    ref.set(com.adobe.clawdea.chat.CredentialRenewalDialog(proj, p).promptForCredentials())
+                }
+                ref.get()
+            },
+            executor = com.adobe.clawdea.provider.openai.auth.CredentialFlowExecutor(
+                transport = com.adobe.clawdea.provider.openai.auth.JdkProfileHttpTransport(),
+                credentialStore = ProfileCredentialStore(),
+            ),
+            configuredValues = { profile.configuredValues },
+            environment = { System.getenv() },
+        )
+        return coordinator.renew(flowProfile.id)
     }
 
     private fun writeUserMessage(content: String) {
@@ -396,12 +617,14 @@ class OpenAiCompatibleAgentBackend(
      *
      * **Persistent backend contract**: This backend is PERSISTENT like the Codex backend.
      * Between turns, `readEvent()` blocking on `queue.take()` is the INTENDED behavior — it's
-     * waiting for the user's next message. The EOF sentinel (`queue.put(null)`) is enqueued
-     * ONLY by [stop], never on a per-turn error. A turn error emits an error [CliEvent.Result]
+     * waiting for the user's next message. The EOF sentinel ([EOF_SENTINEL], translated back to
+     * null by [readEvent]) is enqueued ONLY by [stop], never on a per-turn error. A turn error
+     * emits an error [CliEvent.Result]
      * and the session stays alive for the next user message.
      */
     override fun readEvent(): CliEvent? {
-        return queue.take() // Blocks until an event or sentinel
+        val event = queue.take() // Blocks until an event or sentinel
+        return if (event === EOF_SENTINEL) null else event
     }
 
     override fun abort() {
@@ -409,27 +632,56 @@ class OpenAiCompatibleAgentBackend(
         activeJob = null
     }
 
+    /**
+     * Cancel-and-continue steering: cancels the running round and queues [text] as the next user
+     * turn. Returns false when no turn is active. The orchestration loop in [sendMessage] observes
+     * the pending steer, preserves partial assistant text, discards incomplete tool fragments, and
+     * launches the continuation WITHOUT emitting a terminal Result for the cancelled round.
+     */
     override fun steer(text: String): Boolean {
-        // Task 6 implements steering via CANCEL_AND_CONTINUE
-        // For now, return false (not implemented)
-        return false
+        return runBlocking { steeringController.steer(text) }
     }
 
     override fun stop() {
         alive.set(false)
         activeJob?.cancel()
-        queue.put(null) // EOF sentinel
+        queue.put(EOF_SENTINEL) // EOF sentinel
     }
 
     override fun recentErrors(): List<String> {
         return errors.takeLast(5)
     }
+
+    private companion object {
+        /** Non-null placeholder used to signal EOF through the null-hostile [LinkedBlockingQueue]. */
+        private val EOF_SENTINEL = CliEvent.Result(
+            text = "",
+            isError = false,
+            costUsd = 0.0,
+            sessionId = "",
+        )
+    }
 }
+
+/**
+ * Build the production tool executor: dispatches to MCP tools + host shell/patch tools.
+ * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
+ */
+internal fun defaultExecutor(
+    project: Project?,
+    mcpDefs: List<McpToolRouter.ToolDef>,
+    approvalGate: SharedToolApprovalGate,
+    autoAcceptEdits: () -> Boolean,
+): AgentToolExecutor = ProductionToolExecutor(
+    catalog = OpenAiToolCatalog(mcpDefs, emptyList()),
+    shellTool = if (project != null) HostShellTool(project, approvalGate, missingRouteBehavior = MissingRouteBehavior.DENY) else null,
+    patchTool = if (project != null) HostPatchTool(project, autoAcceptEdits, approvalGate) else null,
+)
 
 /**
  * [AgentClient] adapter for [OpenAiCompatibleClient].
  */
-private class HttpAgentClient(
+internal class HttpAgentClient(
     private val httpClient: OpenAiCompatibleClient,
     private val profile: ResolvedProviderProfile,
     private val credential: String,
