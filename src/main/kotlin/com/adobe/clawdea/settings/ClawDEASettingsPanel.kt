@@ -44,8 +44,9 @@ class ClawDEASettingsPanel {
         "Claude subscription (Pro / Max / Team / Enterprise)",
         "OpenAI (direct)",
         "OpenAI (ChatGPT subscription)",
+        "OpenAI-compatible",
     )
-    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription")
+    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription", "openai-compatible")
     val apiProviderCombo = ComboBox(DefaultComboBoxModel(PROVIDERS))
 
     // Anthropic fields
@@ -92,6 +93,9 @@ class ClawDEASettingsPanel {
     // OpenAI (ChatGPT subscription) card
     private val openAiSubscriptionCard = OpenAiSubscriptionCardPanel()
 
+    // OpenAI-compatible card
+    private val openAiCompatibleCard = OpenAiCompatibleSettingsCard()
+
     // Provider-specific sub-panels inside a CardLayout
     private val providerCards = JPanel(CardLayout()).apply {
         add(
@@ -128,6 +132,7 @@ class ClawDEASettingsPanel {
         )
         add(subscriptionCard.panel, "subscription")
         add(openAiSubscriptionCard.panel, "openai-subscription")
+        add(openAiCompatibleCard.panel, "openai-compatible")
     }
 
     // Check Connection
@@ -370,6 +375,13 @@ class ClawDEASettingsPanel {
         val layout = providerCards.layout as CardLayout
         layout.show(providerCards, selectedProviderKey())
         refreshSubscriptionDetectionHint()
+
+        // Hide Claude/Codex CLI path fields when OpenAI-compatible provider is selected
+        val hideCliPaths = selectedProviderKey() == "openai-compatible"
+        cliPathField.isVisible = !hideCliPaths
+        cliPathWarning.isVisible = !hideCliPaths
+        codexCliPathField.isVisible = !hideCliPaths
+        codexCliPathHint.isVisible = !hideCliPaths
     }
 
     private fun refreshSubscriptionDetectionHint() {
@@ -476,6 +488,7 @@ class ClawDEASettingsPanel {
         updateKnowledgeLayerEnabledState()
         showProviderCard()
         updateApiKeyLabel()
+        openAiCompatibleCard.load(state)
     }
 
     fun applyTo(state: ClawDEASettings.State) {
@@ -518,6 +531,7 @@ class ClawDEASettingsPanel {
         state.profilingMaxStorageGb = profilingMaxStorageGbField.text.toIntOrNull() ?: 5
         state.profilingAutoAnalyze = profilingAutoAnalyzeCheckbox.isSelected
         state.profilingTopN = profilingTopNField.text.toIntOrNull() ?: 50
+        openAiCompatibleCard.apply(state)
     }
 
     fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
@@ -559,7 +573,8 @@ class ClawDEASettingsPanel {
             profilingMaxRecordingsField.text != state.profilingMaxRecordings.toString() ||
             profilingMaxStorageGbField.text != state.profilingMaxStorageGb.toString() ||
             profilingAutoAnalyzeCheckbox.isSelected != state.profilingAutoAnalyze ||
-            profilingTopNField.text != state.profilingTopN.toString()
+            profilingTopNField.text != state.profilingTopN.toString() ||
+            openAiCompatibleCard.isModified(state)
     }
 
     fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
@@ -567,6 +582,7 @@ class ClawDEASettingsPanel {
     fun disposeCard() {
         com.intellij.openapi.util.Disposer.dispose(subscriptionCard)
         com.intellij.openapi.util.Disposer.dispose(openAiSubscriptionCard)
+        com.intellij.openapi.util.Disposer.dispose(openAiCompatibleCard)
     }
 
     // ------------------------------------------------------------------
@@ -588,6 +604,20 @@ class ClawDEASettingsPanel {
 
     fun isModelsModified(catalogs: Map<String, List<ModelEntry>>): Boolean {
         flushCurrentTableToTransient()
+
+        // For openai-compatible, check the active profile's catalog
+        if (selectedProviderKey() == "openai-compatible") {
+            val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+            if (activeId.isNotBlank()) {
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                    activeId
+                )
+                val savedCatalog = catalogs[catalogKey] ?: emptyList()
+                if (openAiCompatibleCard.isModelsModified(savedCatalog)) return true
+            }
+        }
+
         if (transientCatalogs.size != catalogs.size) return true
         for ((k, persisted) in catalogs) {
             val transient = transientCatalogs[k] ?: return true
@@ -606,6 +636,19 @@ class ClawDEASettingsPanel {
         for ((k, v) in transientCatalogs) {
             out[k] = v.map { it.copy() }.toMutableList()
         }
+
+        // For openai-compatible, save the active profile's catalog
+        if (selectedProviderKey() == "openai-compatible") {
+            val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+            if (activeId.isNotBlank()) {
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                    activeId
+                )
+                out[catalogKey] = openAiCompatibleCard.saveModels()
+            }
+        }
+
         return out
     }
 
