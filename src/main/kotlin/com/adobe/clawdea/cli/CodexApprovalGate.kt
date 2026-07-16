@@ -13,9 +13,10 @@ package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
 import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRequest
 import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.mcp.McpServer
+import com.adobe.clawdea.provider.openai.tools.MissingRouteBehavior
+import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
 import com.google.gson.JsonObject
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -54,50 +55,38 @@ import java.nio.file.Path
  * attaches to.
  */
 class CodexApprovalGate(
-    private val toolApprovalMode: () -> String,
+    toolApprovalMode: () -> String,
     private val autoAcceptEdits: () -> Boolean,
-    private val policy: () -> PermissionPolicy?,
-    private val route: (toolName: String, inputJson: String, toolUseId: String) -> PermissionRouterRegistry.Routed?,
-    private val promptTimeoutMs: Long = CODEX_PROMPT_TIMEOUT_MS,
+    policy: () -> PermissionPolicy?,
+    route: (toolName: String, inputJson: String, toolUseId: String) -> PermissionRouterRegistry.Routed?,
+    promptTimeoutMs: Long = CODEX_PROMPT_TIMEOUT_MS,
 ) {
-    private val log = Logger.getInstance(CodexApprovalGate::class.java)
+    private val sharedGate = SharedToolApprovalGate(
+        toolApprovalMode = toolApprovalMode,
+        policy = policy,
+        route = route,
+        promptTimeoutMs = promptTimeoutMs,
+    )
 
     /** @return true to accept the shell command, false to deny. */
     fun approveCommand(command: String, toolUseId: String): Boolean =
-        decide("Bash", commandInput(command), toolUseId)
+        sharedGate.approve(
+            toolName = "Bash",
+            inputJson = commandInput(command),
+            toolUseId = toolUseId,
+            autoAcceptEdit = false,
+            missingRouteBehavior = MissingRouteBehavior.APPROVE_FOR_CODEX_COMPATIBILITY,
+        )
 
     /** @return true to accept the file patch, false to deny. */
-    fun approveFileChange(paths: List<String>, toolUseId: String): Boolean {
-        if (autoAcceptEdits()) return true
-        return decide(PATCH_TOOL_NAME, patchInput(paths), toolUseId)
-    }
-
-    private fun decide(toolName: String, inputJson: String, toolUseId: String): Boolean {
-        if (toolApprovalMode() == "allow-all") return true
-
-        when (policy()?.evaluate(toolName, inputJson)?.decision) {
-            PermissionPolicy.Decision.DENY -> return false
-            PermissionPolicy.Decision.ALLOW -> return true
-            PermissionPolicy.Decision.ASK, null -> Unit
-        }
-
-        val routed = route(toolName, inputJson, toolUseId)
-        if (routed == null) {
-            // No panel claimed the call: no card can be shown, so approve rather than dead-end
-            // (non-regression vs. the pre–Phase-C auto-approve). The sandbox still applies.
-            log.info("codex approval: no router claimed $toolName; auto-approving (no prompt shown)")
-            return true
-        }
-        val result = routed.dispatcher.submit(
-            toolName = toolName,
-            inputJson = inputJson,
-            timeoutMs = promptTimeoutMs,
-            toolUseId = routed.toolUseId,
+    fun approveFileChange(paths: List<String>, toolUseId: String): Boolean =
+        sharedGate.approve(
+            toolName = PATCH_TOOL_NAME,
+            inputJson = patchInput(paths),
+            toolUseId = toolUseId,
+            autoAcceptEdit = autoAcceptEdits(),
+            missingRouteBehavior = MissingRouteBehavior.APPROVE_FOR_CODEX_COMPATIBILITY,
         )
-        // codex app-server holds the turn on our reply (no HTTP MCP cap), so a timeout means the
-        // user did not approve within the (generous) window → deny.
-        return result.decision == PermissionRequest.Decision.ALLOW && !result.timedOut
-    }
 
     companion object {
         const val PATCH_TOOL_NAME = "apply_patch"

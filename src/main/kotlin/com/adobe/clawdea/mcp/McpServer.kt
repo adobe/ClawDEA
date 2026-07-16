@@ -236,6 +236,11 @@ class McpServer(private val project: Project) : Disposable {
         exchange.responseBody.use { it.write(bytes) }
     }
 
+    fun toolDefinitions(): List<McpToolRouter.ToolDef> = router.definitions()
+
+    fun dispatchTool(name: String, arguments: Map<String, String>): McpToolRouter.ToolResult =
+        router.dispatch(name, arguments)
+
     private fun stop() {
         httpServer?.let { server ->
             server.stop(1)

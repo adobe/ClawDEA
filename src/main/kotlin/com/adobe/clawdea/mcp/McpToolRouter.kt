@@ -56,6 +56,8 @@ class McpToolRouter {
         }
     }
 
+    fun definitions(): List<ToolDef> = tools.values.toList()
+
     fun toolsListJson(): String {
         val schemas = tools.values.joinToString(",") { tool ->
             McpProtocol.toolSchema(tool.name, tool.description, tool.properties, tool.required)
