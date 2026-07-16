@@ -71,6 +71,56 @@ Codex runs over its native **app-server** protocol, which unlocks a few things b
 
 **Cost Control** for the ChatGPT subscription shows your real remaining credits and rate-limit windows, reported by the app-server, reusing the same gauge as Claude. (An API-key OpenAI provider is billed per turn and shows a dollar figure as usual.)
 
+### OpenAI-compatible provider profiles
+
+Organizations can distribute custom provider profiles that define model catalogs, credential flows, and pricing for OpenAI-compatible APIs. ClawDEA supports **two kinds** of profiles:
+
+- **Template profiles** — contain the API base URL, model catalog, credential schema (including declarative credential exchange flows), and pricing, but NO pre-filled credentials. Users must supply their own credentials when importing.
+- **Configured profiles** — like templates, but with credentials already supplied by the organization (typically via a secure onboarding flow external to ClawDEA). The profile JSON never contains secrets directly; credentials are encrypted and loaded into the IDE's PasswordSafe on import.
+
+#### Importing a profile
+
+1. Obtain the profile JSON from your organization (via email, internal portal, or a secure onboarding tool).
+2. Open **Settings → Tools → ClawDEA → OpenAI-Compatible Providers**.
+3. Click **Import Profile**.
+4. Select the profile JSON file.
+5. **Review the import preview** — a dialog shows the profile ID, label, API base URL, model count, credential requirements, and pricing data. This is your opportunity to confirm the profile matches what you expect.
+6. If the profile requires HTTPS but specifies a plain-HTTP URL (e.g., `http://localhost:8080`), ClawDEA warns and asks for explicit confirmation. Plain HTTP is only safe for localhost testing.
+7. **Confirm** to import. The profile is now listed in the OpenAI-Compatible Providers settings card.
+
+#### Credential handling
+
+- **Template profiles** prompt for credentials at import time (or later when you first select a model from that profile). You supply the credentials via a dialog; ClawDEA encrypts and stores them in the IDE's native PasswordSafe. Credentials are **never written to settings files or disk** outside the PasswordSafe.
+- **Configured profiles** with declarative credential exchange flows (e.g., OAuth2 authorization_code) may require interactive steps (clicking a confirmation link, entering a one-time code). The credential exchange spec defines the HTTP flows; ClawDEA executes them at runtime and persists only the durable credential (e.g., refresh token) in PasswordSafe. Interactive secrets (e.g., authorization codes) are held in memory only and never persisted.
+- **HTTPS requirement**: by default, ClawDEA rejects plain-HTTP base URLs unless they point to `localhost` or `127.0.0.1`. This prevents accidental credential leakage over unencrypted connections. Plain-HTTP localhost is allowed for local testing with explicit confirmation.
+
+#### Exporting a profile
+
+Click **Export Profile** on the settings card to save the profile JSON. Exports come in two flavors:
+
+- **Template export** — strips all credentials and user-specific configuration. Safe to share with teammates or commit to source control. Recipients must supply their own credentials.
+- **Configured export** — like a template, but with credential *schema* and *exchange flows* intact. Still NO secrets in the JSON; credentials remain in your PasswordSafe.
+
+#### Using the provider
+
+1. Import and confirm the profile (see above).
+2. Select the profile from the **OpenAI-Compatible Provider** dropdown in Settings.
+3. Select a model from the **Model** dropdown. The dropdown lists models from the profile's catalog with their capabilities (agentic, completion-only, etc.).
+4. **Inline completions and intention actions** now route to the selected profile and model. The gateway sends requests to the profile's API base URL using the credentials from PasswordSafe.
+5. **Model capability gating**: if a model's capabilities are unknown or not declared in the profile, it defaults to completion-only. Agentic chat (when Plan 2 lands) will only be available for models explicitly marked as agentic-capable.
+6. **Pricing**: per-model pricing estimates (cost per million input/output tokens) are defined in the profile. The cost panel shows usage based on these estimates; this is NOT billing data, just a configured rate card.
+
+#### Profile isolation
+
+Each profile is identified by a stable **profile ID** (a JSON string field). ClawDEA uses this ID to isolate:
+
+- **Credentials** — stored in PasswordSafe under a profile-scoped key.
+- **Model catalog** — each profile's models appear only when that profile is selected.
+- **Pricing** — per-profile rate cards; switching profiles switches the pricing basis.
+- **Settings** — selected profile and model are persisted to IDE settings (but NOT credentials).
+
+**Organizations distribute profiles separately** from ClawDEA. The plugin includes no pre-configured private provider profiles in its artifact; all provider data is imported at runtime.
+
 ---
 
 ## Chat Panel
