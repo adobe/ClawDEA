@@ -155,6 +155,59 @@ class ProfileValidatorTest {
     }
 
     @Test
+    fun `schema version must be exact supported integer`() {
+        listOf("1.5", "1e-1", "2147483648", "2").forEach { version ->
+            val json = validProfileJson().replace("\"schemaVersion\": 1", "\"schemaVersion\": $version")
+            val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+            assertTrue(
+                version,
+                invalid.diagnostics.any { it.path == "$.schemaVersion" },
+            )
+        }
+    }
+
+    @Test
+    fun `expected statuses must be exact Int values`() {
+        listOf("200.5", "2e-1", "2147483648", "-2147483649").forEach { status ->
+            val json = validProfileJson().replace(
+                "\"expectedStatuses\": [200]",
+                "\"expectedStatuses\": [$status]",
+            )
+            val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+            assertTrue(
+                status,
+                invalid.diagnostics.any { it.path == "$.credentialFlow.steps[0].expectedStatuses[0]" },
+            )
+        }
+    }
+
+    @Test
+    fun `expected statuses must be valid HTTP status codes`() {
+        listOf("99", "600").forEach { status ->
+            val json = validProfileJson().replace(
+                "\"expectedStatuses\": [200]",
+                "\"expectedStatuses\": [$status]",
+            )
+            val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+            assertTrue(
+                status,
+                invalid.diagnostics.any {
+                    it.path == "$.credentialFlow.steps[0].expectedStatuses[0]" &&
+                        it.message.contains("100..599")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `integral JSON number forms remain valid`() {
+        val json = validProfileJson()
+            .replace("\"schemaVersion\": 1", "\"schemaVersion\": 1.0")
+            .replace("\"expectedStatuses\": [200]", "\"expectedStatuses\": [2e2]")
+        assertTrue(ProfileValidator.parseAndValidate(json, allowLocalHttp = false) is ValidationResult.Valid)
+    }
+
+    @Test
     fun `boolean schema fields reject JSON strings`() {
         val cases = listOf(
             "\"required\": true" to Pair("\"required\": \"true\"", "$.settings[0].required"),

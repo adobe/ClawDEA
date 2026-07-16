@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import java.math.BigDecimal
 import java.net.URI
 
 data class ValidationDiagnostic(val path: String, val message: String)
@@ -30,6 +31,8 @@ object ProfileValidator {
     private val JSON_PATH = Regex("""^\$(\.[A-Za-z_][A-Za-z0-9_]*)*$""")
     private val LOCALHOST_HOSTS = setOf("localhost", "127.0.0.1", "::1")
     private val ALLOWED_METHODS = setOf("GET", "POST")
+    private val INT_MIN = BigDecimal(Int.MIN_VALUE)
+    private val INT_MAX = BigDecimal(Int.MAX_VALUE)
 
     fun parseAndValidate(json: String, allowLocalHttp: Boolean): ValidationResult {
         val root = try {
@@ -64,7 +67,7 @@ object ProfileValidator {
     }
 
     private fun validateStructure(root: JsonObject, diagnostics: MutableList<ValidationDiagnostic>) {
-        requireNumber(root, "schemaVersion", "$.schemaVersion", diagnostics)
+        validateSchemaVersion(root, diagnostics)
         listOf("id", "name", "description", "baseUrl").forEach { field ->
             requireString(root, field, "$.$field", diagnostics)
         }
@@ -133,11 +136,15 @@ object ProfileValidator {
             ?.let { validateStringMap(it, "$path.headers", diagnostics) }
         requireArray(step, "expectedStatuses", "$path.expectedStatuses", diagnostics)
             ?.forEachIndexed { statusIndex, status ->
-                if (!status.isJsonPrimitive || !status.asJsonPrimitive.isNumber) {
+                val statusPath = "$path.expectedStatuses[$statusIndex]"
+                val statusCode = exactInt(status)
+                if (statusCode == null) {
                     diagnostics += ValidationDiagnostic(
-                        "$path.expectedStatuses[$statusIndex]",
-                        "Expected status must be a JSON number",
+                        statusPath,
+                        "Expected status must be an exact JSON integer within Int range",
                     )
+                } else if (statusCode !in 100..599) {
+                    diagnostics += ValidationDiagnostic(statusPath, "Expected status must be in HTTP range 100..599")
                 }
             }
         requireArray(step, "extracts", "$path.extracts", diagnostics)?.forEachIndexed { extractIndex, extractionValue ->
@@ -186,6 +193,41 @@ object ProfileValidator {
             { it.isJsonPrimitive && it.asJsonPrimitive.isString },
             diagnostics,
         )
+    }
+
+    private fun validateSchemaVersion(
+        root: JsonObject,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val version = root.get("schemaVersion")
+        if (version == null || version.isJsonNull) {
+            diagnostics += ValidationDiagnostic("$.schemaVersion", "Schema version is required")
+            return
+        }
+        val exactVersion = exactInt(version)
+        if (exactVersion != 1) {
+            diagnostics += ValidationDiagnostic(
+                "$.schemaVersion",
+                "Schema version must be the exact supported integer 1",
+            )
+        }
+    }
+
+    private fun exactInt(value: JsonElement): Int? {
+        if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return null
+        val decimal = try {
+            BigDecimal(value.asString)
+        } catch (_: NumberFormatException) {
+            return null
+        }
+        if (decimal.stripTrailingZeros().scale() > 0 || decimal < INT_MIN || decimal > INT_MAX) {
+            return null
+        }
+        return try {
+            decimal.intValueExact()
+        } catch (_: ArithmeticException) {
+            null
+        }
     }
 
     private fun requireNumber(
