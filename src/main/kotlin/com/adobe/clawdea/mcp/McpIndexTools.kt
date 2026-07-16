@@ -12,6 +12,7 @@
 package com.adobe.clawdea.mcp
 
 import com.adobe.clawdea.language.LanguageSupportRegistry
+import com.adobe.clawdea.util.ignoringStaleIndex
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.openapi.diagnostic.Logger
@@ -321,13 +322,15 @@ class McpIndexTools(private val project: Project) {
                 val classes = cache.getClassesByName(name, scope)
                 for (cls in classes) {
                     if (count >= MAX_SYMBOL_RESULTS) break
-                    val file = cls.containingFile ?: continue
-                    val path = PsiUtils.getFilePath(file, project)
-                    val line = PsiUtils.getLineNumber(file, cls.textOffset)
-                    val context = PsiUtils.getSurroundingLines(file, cls.textOffset, 2)
-                    sb.appendLine("--- class $name ($path:$line) ---")
-                    sb.appendLine(context)
-                    sb.appendLine()
+                    val rendered = ignoringStaleIndex(onSkip = { skipStale("class $name", it) }) {
+                        val file = cls.containingFile ?: return@ignoringStaleIndex null
+                        val path = PsiUtils.getFilePath(file, project)
+                        val offset = cls.textOffset
+                        val line = PsiUtils.getLineNumber(file, offset)
+                        val context = PsiUtils.getSurroundingLines(file, offset, 2)
+                        "--- class $name ($path:$line) ---\n$context\n"
+                    } ?: continue
+                    sb.appendLine(rendered)
                     count++
                 }
             }
@@ -336,14 +339,16 @@ class McpIndexTools(private val project: Project) {
                 val methods = cache.getMethodsByName(name, scope)
                 for (method in methods) {
                     if (count >= MAX_SYMBOL_RESULTS) break
-                    val file = method.containingFile ?: continue
-                    val path = PsiUtils.getFilePath(file, project)
-                    val line = PsiUtils.getLineNumber(file, method.textOffset)
-                    val containing = (method.containingClass?.name ?: "")
-                    val context = PsiUtils.getSurroundingLines(file, method.textOffset, 2)
-                    sb.appendLine("--- method $containing.$name ($path:$line) ---")
-                    sb.appendLine(context)
-                    sb.appendLine()
+                    val rendered = ignoringStaleIndex(onSkip = { skipStale("method $name", it) }) {
+                        val file = method.containingFile ?: return@ignoringStaleIndex null
+                        val path = PsiUtils.getFilePath(file, project)
+                        val offset = method.textOffset
+                        val line = PsiUtils.getLineNumber(file, offset)
+                        val containing = (method.containingClass?.name ?: "")
+                        val context = PsiUtils.getSurroundingLines(file, offset, 2)
+                        "--- method $containing.$name ($path:$line) ---\n$context\n"
+                    } ?: continue
+                    sb.appendLine(rendered)
                     count++
                 }
             }
@@ -352,14 +357,16 @@ class McpIndexTools(private val project: Project) {
                 val fields = cache.getFieldsByName(name, scope)
                 for (field in fields) {
                     if (count >= MAX_SYMBOL_RESULTS) break
-                    val file = field.containingFile ?: continue
-                    val path = PsiUtils.getFilePath(file, project)
-                    val line = PsiUtils.getLineNumber(file, field.textOffset)
-                    val containing = ((field as? PsiMember)?.containingClass?.name ?: "")
-                    val context = PsiUtils.getSurroundingLines(file, field.textOffset, 2)
-                    sb.appendLine("--- field $containing.$name ($path:$line) ---")
-                    sb.appendLine(context)
-                    sb.appendLine()
+                    val rendered = ignoringStaleIndex(onSkip = { skipStale("field $name", it) }) {
+                        val file = field.containingFile ?: return@ignoringStaleIndex null
+                        val path = PsiUtils.getFilePath(file, project)
+                        val offset = field.textOffset
+                        val line = PsiUtils.getLineNumber(file, offset)
+                        val containing = ((field as? PsiMember)?.containingClass?.name ?: "")
+                        val context = PsiUtils.getSurroundingLines(file, offset, 2)
+                        "--- field $containing.$name ($path:$line) ---\n$context\n"
+                    } ?: continue
+                    sb.appendLine(rendered)
                     count++
                 }
             }
@@ -372,6 +379,10 @@ class McpIndexTools(private val project: Project) {
 
     private fun dumbResult() = McpToolRouter.ToolResult("Indexing in progress, try again shortly.", isError = true)
     private fun fileNotFound(file: String) = McpToolRouter.ToolResult("File not found: $file", isError = true)
+
+    private fun skipStale(what: String, e: Exception) {
+        log.info("find_symbol: skipping $what — stale index entry (${e.javaClass.simpleName}: ${e.message})")
+    }
 
     companion object {
         private const val MAX_SYMBOL_RESULTS = 10
