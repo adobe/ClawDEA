@@ -116,9 +116,19 @@ class SessionManager(
         bridge.stop()
 
         // Native resume only works when the running backend owns the session's store (Claude→Claude
-        // via `--resume`, Codex→Codex via `exec resume`). Across backends the id is meaningless to
-        // the other CLI, so instead of resuming we replay the transcript as first-turn context.
-        val native = resumeIsNative(origin, bridge.usesCodexBackend)
+        // via `--resume`, Codex→Codex via `exec resume`, OpenAI-compatible→OpenAI-compatible with
+        // matching profile). Across backends or profiles the id is meaningless, so instead of
+        // resuming we replay the transcript as first-turn context.
+        val native = when (origin) {
+            SessionOrigin.OPENAI_COMPATIBLE -> {
+                val sessionProfileId = com.adobe.clawdea.provider.openai.session.OpenAiSessionScanner
+                    .profileIdFor(basePath, sessionId)
+                val activeProfileId = com.adobe.clawdea.settings.ClawDEASettings.getInstance()
+                    .state.activeOpenAiCompatibleProfileId
+                resumeIsNative(origin, bridge.backendKind, sessionProfileId, activeProfileId)
+            }
+            else -> resumeIsNative(origin, bridge.usesCodexBackend)
+        }
         val resumeId = if (native) sessionId else null
         val replay = if (native) null else buildReplay(history, origin)
         if (!native) {
@@ -277,14 +287,35 @@ class SessionManager(
 
     companion object {
         /**
-         * True when the running backend can natively resume a session of the given [origin]:
-         * Claude backend ↔ Claude sessions, codex backend ↔ codex sessions. A mismatch means the
-         * id is unusable by the active CLI, so the caller replays the transcript as context instead.
+         * Profile-aware resume-plan check for OPENAI_COMPATIBLE origins. Native resume requires
+         * both the backend kind and profile id to match. For CLAUDE/CODEX origins, falls back to
+         * the simple backend-kind check.
+         */
+        internal fun resumeIsNative(
+            origin: SessionOrigin,
+            backendKind: com.adobe.clawdea.provider.BackendKind,
+            sessionProfileId: String?,
+            activeProfileId: String?,
+        ): Boolean =
+            when (origin) {
+                SessionOrigin.OPENAI_COMPATIBLE -> {
+                    backendKind == com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP &&
+                        sessionProfileId == activeProfileId
+                }
+                SessionOrigin.CODEX -> backendKind == com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER
+                SessionOrigin.CLAUDE -> backendKind == com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI
+            }
+
+        /**
+         * Legacy 2-arg overload for existing tests/callers during migration. OPENAI_COMPATIBLE
+         * sessions return false here (cross-backend replay) because this overload lacks profile
+         * context to decide native vs replay.
          */
         internal fun resumeIsNative(origin: SessionOrigin, usesCodexBackend: Boolean): Boolean =
             when (origin) {
                 SessionOrigin.CODEX -> usesCodexBackend
                 SessionOrigin.CLAUDE -> !usesCodexBackend
+                SessionOrigin.OPENAI_COMPATIBLE -> false
             }
 
         /**

@@ -11,26 +11,32 @@
  */
 package com.adobe.clawdea.chat.session
 
+import com.adobe.clawdea.provider.openai.session.OpenAiSessionScanner
+
 /**
- * Unifies the two per-backend session stores ([SessionScanner] for Claude, [CodexSessionScanner] for
- * codex) so the resume picker, auto-resume, and view-reload treat sessions uniformly regardless of
- * which CLI produced them. Origin travels on each [SessionInfo]; downstream resume logic uses it to
- * decide native resume vs cross-backend transcript replay.
+ * Unifies the three per-backend session stores ([SessionScanner] for Claude, [CodexSessionScanner]
+ * for codex, [OpenAiSessionScanner] for OpenAI-compatible providers) so the resume picker,
+ * auto-resume, and view-reload treat sessions uniformly regardless of which CLI produced them.
+ * Origin travels on each [SessionInfo]; downstream resume logic uses it to decide native resume vs
+ * cross-backend transcript replay.
  */
 object SessionCatalog {
 
-    /** All sessions for the project from both stores, newest first. */
+    /** All sessions for the project from all stores, newest first. */
     fun scanAll(projectBasePath: String): List<SessionInfo> =
-        (SessionScanner.scan(projectBasePath) + CodexSessionScanner.scan(projectBasePath))
+        (SessionScanner.scan(projectBasePath) +
+            CodexSessionScanner.scan(projectBasePath) +
+            OpenAiSessionScanner.scan(projectBasePath))
             .sortedByDescending { it.timestamp }
 
-    /** The single most-recent session across both stores (for auto-resume), or null if none. */
+    /** The single most-recent session across all stores (for auto-resume), or null if none. */
     fun mostRecent(projectBasePath: String): SessionInfo? = scanAll(projectBasePath).firstOrNull()
 
-    /** Which store holds [sessionId], or null if neither does. */
+    /** Which store holds [sessionId], or null if none does. */
     fun resolveOrigin(projectBasePath: String, sessionId: String): SessionOrigin? = when {
         SessionScanner.hasSessionFile(projectBasePath, sessionId) -> SessionOrigin.CLAUDE
         CodexSessionScanner.hasSession(projectBasePath, sessionId) -> SessionOrigin.CODEX
+        OpenAiSessionScanner.hasSession(projectBasePath, sessionId) -> SessionOrigin.OPENAI_COMPATIBLE
         else -> null
     }
 
@@ -38,5 +44,6 @@ object SessionCatalog {
         when (origin) {
             SessionOrigin.CLAUDE -> SessionScanner.loadHistory(projectBasePath, sessionId)
             SessionOrigin.CODEX -> CodexSessionScanner.loadHistory(projectBasePath, sessionId)
+            SessionOrigin.OPENAI_COMPATIBLE -> OpenAiSessionScanner.loadHistory(projectBasePath, sessionId)
         }
 }

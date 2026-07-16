@@ -247,16 +247,45 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
     private fun doRemove() {
         val profile = selectedProfile() ?: return
-        val choice = Messages.showYesNoDialog(
-            "Remove profile '${profile.name}'? This will clear stored credentials and settings.",
+
+        // Step 1: Confirm removal
+        val confirmChoice = Messages.showYesNoDialog(
+            "Remove profile '${profile.name}'? This will remove the profile configuration and settings.",
             "Remove Profile",
             Messages.getQuestionIcon(),
         )
-        if (choice == Messages.YES) {
-            profileStore.remove(profile.id)
+        if (confirmChoice != Messages.YES) return
+
+        // Step 2: Opt-in to delete credential (default: NO)
+        val deleteCredential = Messages.showYesNoDialog(
+            "Also delete the stored credential for '${profile.name}'?\n\n" +
+                "Select Yes to permanently delete the credential from PasswordSafe.\n" +
+                "Select No to keep the credential (you can reconnect later).",
+            "Delete Credential?",
+            Messages.getQuestionIcon(),
+        )
+
+        // Step 3: Opt-in to delete local sessions (default: NO)
+        val deleteSessions = Messages.showYesNoDialog(
+            "Also delete local session ledgers for '${profile.name}'?\n\n" +
+                "Select Yes to permanently delete all chat history for this profile.\n" +
+                "Select No to keep the session history.",
+            "Delete Sessions?",
+            Messages.getQuestionIcon(),
+        )
+
+        // Execute removal in order: profile config, then optional credential/sessions
+        profileStore.remove(profile.id)
+
+        if (deleteCredential == Messages.YES) {
             credentialStore.clear(profile.id)
-            rebuildProfileList()
         }
+
+        if (deleteSessions == Messages.YES) {
+            com.adobe.clawdea.provider.openai.session.OpenAiSessionScanner.deleteSessionsForProfile(profile.id)
+        }
+
+        rebuildProfileList()
     }
 
     private fun doConnect() {
