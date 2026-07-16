@@ -709,16 +709,13 @@ class ChatPanel(
                 com.adobe.clawdea.settings.SettingsChangedListener.TOPIC,
                 object : com.adobe.clawdea.settings.SettingsChangedListener {
                     override fun onSettingsChanged() {
-                        // A provider switch that flips the backend type (Codex⇄Claude) can't be
-                        // applied by restarting this bridge: its backend and label are fixed at
-                        // construction (a codex app-server vs. the claude CLI are different
-                        // processes). Rebuild the tab's ChatSession on the correct backend and
-                        // auto-resume so the running CLI, its label, and the model dropdown all
-                        // agree again — and the prior conversation is carried over as context.
-                        val newIsCodex = CliBridge.isCodexProvider(
-                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
-                        )
-                        if (newIsCodex != bridge.usesCodexBackend) {
+                        // A provider switch that changes the exact backend kind can't be applied by
+                        // restarting this bridge: its process and label are fixed at construction.
+                        // Rebuild the tab's ChatSession on the correct backend and auto-resume so the
+                        // running process, its label, and the model dropdown all agree again.
+                        val newProviderId =
+                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                        if (CliBridge.requiresBackendRebuild(bridge.backendKind, newProviderId)) {
                             if (!turnController.isStreaming) {
                                 ApplicationManager.getApplication().invokeLater(
                                     { rebuildSessionForBackendChange() },

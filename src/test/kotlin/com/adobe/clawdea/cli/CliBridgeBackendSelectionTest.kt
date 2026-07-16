@@ -18,10 +18,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Guards the provider→backend classification that drives ChatPanel's provider-switch handling:
- * when [CliBridge.isCodexProvider] disagrees with a running bridge's fixed backend, the tab's
- * ChatSession must be rebuilt (the backend can't change in place). A regression here would let a
- * codex⇄claude auth switch silently keep the wrong backend/label while the model dropdown flips.
+ * Guards the provider→backend classification that drives ChatPanel's provider-switch handling.
+ * Any exact [BackendKind] change must rebuild the tab's ChatSession because a bridge's process is
+ * fixed at construction.
  */
 class CliBridgeBackendSelectionTest {
 
@@ -54,16 +53,35 @@ class CliBridgeBackendSelectionTest {
 
     @Test
     fun `a codex to claude switch is a backend change`() {
-        // The exact predicate ChatPanel uses: newProvider's backend vs. the running backend.
-        val runningIsCodex = CliBridge.isCodexProvider("openai-subscription")
-        val newIsCodex = CliBridge.isCodexProvider("bedrock")
-        assertTrue("switching openai-subscription→bedrock must flip the backend", newIsCodex != runningIsCodex)
+        assertTrue(
+            CliBridge.requiresBackendRebuild(BackendKind.CODEX_APP_SERVER, "bedrock"),
+        )
+    }
+
+    @Test
+    fun `a claude to HTTP switch is a backend change`() {
+        assertTrue(
+            CliBridge.requiresBackendRebuild(BackendKind.CLAUDE_CLI, "openai-compatible"),
+        )
+    }
+
+    @Test
+    fun `an HTTP to claude switch is a backend change`() {
+        assertTrue(
+            CliBridge.requiresBackendRebuild(BackendKind.OPENAI_COMPATIBLE_HTTP, "anthropic"),
+        )
     }
 
     @Test
     fun `a same-backend provider switch is not a backend change`() {
-        val runningIsCodex = CliBridge.isCodexProvider("anthropic")
-        val newIsCodex = CliBridge.isCodexProvider("bedrock")
-        assertFalse("anthropic→bedrock stays on claude; no rebuild needed", newIsCodex != runningIsCodex)
+        assertFalse(
+            CliBridge.requiresBackendRebuild(BackendKind.CLAUDE_CLI, "bedrock"),
+        )
+        assertFalse(
+            CliBridge.requiresBackendRebuild(BackendKind.CODEX_APP_SERVER, "openai-subscription"),
+        )
+        assertFalse(
+            CliBridge.requiresBackendRebuild(BackendKind.OPENAI_COMPATIBLE_HTTP, "openai-compatible"),
+        )
     }
 }

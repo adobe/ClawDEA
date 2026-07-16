@@ -72,6 +72,10 @@ class CliBridge(
     val usesCodexBackend: Boolean
         get() = useCodexBackend
 
+    /** Exact backend process kind, fixed for the bridge's lifetime. */
+    val backendKind: BackendKind
+        get() = backendSelection.kind
+
     /**
      * Human-readable name of the backend this bridge actually runs ("Codex" / "Claude"), fixed at
      * construction. Prefer this over [AgentLabel.current] for anything tied to the *running* session:
@@ -313,6 +317,11 @@ class CliBridge(
 
         /** Compatibility delegate for callers that only distinguish Codex from other backends. */
         internal fun isCodexProvider(providerId: String): Boolean = ProviderRegistry.isCodex(providerId)
+
+        internal fun requiresBackendRebuild(
+            currentKind: BackendKind,
+            newProviderId: String,
+        ): Boolean = currentKind != ProviderRegistry.require(newProviderId).backendKind
     }
 
     private fun isCurrentReader(readerGeneration: Long): Boolean =
