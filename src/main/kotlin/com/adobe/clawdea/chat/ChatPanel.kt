@@ -281,6 +281,7 @@ class ChatPanel(
 
     private lateinit var turnController: TurnController
     private val pendingPromptController = PendingPromptController()
+    private val backendRebuildCoordinator = BackendRebuildCoordinator()
 
     // Skill tracking
     private var cliBridgeHandlesSkills: Boolean = true
@@ -419,6 +420,11 @@ class ChatPanel(
             },
             onContextLabelUpdate = { updateContextLabel() },
             onSyncStreamingUi = { syncStreamingUi() },
+            onTurnBecameIdle = {
+                backendRebuildCoordinator.rebuildIfPending {
+                    rebuildSessionForBackendChange()
+                }
+            },
             onTurnCompleted = { flushQueuedPromptIfReady() },
             onTurnStartStalled = { recoverStalledPromptTurn() },
             onToolResultStalled = { recoverStalledToolTurn() },
@@ -715,14 +721,30 @@ class ChatPanel(
                         // running process, its label, and the model dropdown all agree again.
                         val newProviderId =
                             com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-                        if (CliBridge.requiresBackendRebuild(bridge.backendKind, newProviderId)) {
-                            if (!turnController.isStreaming) {
+                        val selectedKind =
+                            com.adobe.clawdea.provider.ProviderRegistry.require(newProviderId).backendKind
+                        when (
+                            backendRebuildCoordinator.onBackendSelection(
+                                bridge.backendKind,
+                                selectedKind,
+                                turnController.isStreaming,
+                            )
+                        ) {
+                            BackendRebuildAction.REBUILD_NOW -> {
                                 ApplicationManager.getApplication().invokeLater(
-                                    { rebuildSessionForBackendChange() },
+                                    {
+                                        backendRebuildCoordinator.rebuildIfPending {
+                                            rebuildSessionForBackendChange()
+                                        }
+                                    },
                                     com.intellij.openapi.application.ModalityState.any(),
                                 )
+                                return
                             }
-                            return
+                            BackendRebuildAction.DEFER,
+                            BackendRebuildAction.ALREADY_PENDING,
+                            -> return
+                            BackendRebuildAction.NONE -> Unit
                         }
                         if (bridge.isRunning && !turnController.isStreaming) {
                             scope.launch {

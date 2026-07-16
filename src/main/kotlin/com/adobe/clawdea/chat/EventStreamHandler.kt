@@ -36,6 +36,7 @@ class EventStreamHandler(
     private val onFilesystemRefresh: (path: String) -> Unit,
     private val onContextLabelUpdate: () -> Unit,
     private val onSyncStreamingUi: () -> Unit,
+    private val onTurnBecameIdle: () -> Boolean,
     private val onTurnCompleted: () -> Unit,
     private val onTurnStartStalled: () -> Unit,
     private val onToolResultStalled: () -> Unit,
@@ -736,6 +737,15 @@ class EventStreamHandler(
                     contextWindow = event.contextWindow
                 }
                 onContextLabelUpdate()
+
+                // Give lifecycle changes first access to the now-idle boundary. A deferred backend
+                // rebuild must replace this fixed bridge before edit feedback or a queued prompt can
+                // start another turn on it.
+                if (onTurnBecameIdle()) {
+                    editReviewCoordinator.clearForNewTurn()
+                    turnGenuinelyEnded = true
+                    return
+                }
 
                 // Layer 2 post-turn feedback for rejected/modified edits
                 var sentEditFeedback = false
