@@ -491,8 +491,14 @@ em { color: var(--subtext0); }
     border-top: 1px solid rgba(137, 180, 250, 0.12);
 }
 /* Stacked active cards keep a small gap; the last one has no bottom margin so
-   it sits flush above the thinking indicator. */
-#active-agents > .subagent-block { margin: 4px 0; }
+   it sits flush above the thinking indicator. flex-shrink:0 is load-bearing:
+   .subagent-block sets overflow:hidden (to clip its rounded corners), which per
+   the flexbox spec drops a flex item's automatic min-height to 0. Without it a
+   tall running card is squashed to the 45vh column height and its steps are
+   clipped — not scrolled — so #active-agents never overflows, shows no scrollbar,
+   and the newest steps stay hidden. Holding the card at its content height makes
+   #active-agents the real scroll container its overflow-y:auto already promises. */
+#active-agents > .subagent-block { margin: 4px 0; flex-shrink: 0; }
 #active-agents > .subagent-block:first-child { margin-top: 0; }
 
 /* Thinking indicator — pinned by its #dock parent, no own sticky needed. */

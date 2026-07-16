@@ -83,6 +83,31 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `running sub-agent cards hold their content height so the dock stays scrollable`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        // Load-bearing: .subagent-block sets overflow:hidden (rounded-corner clip),
+        // which per the flexbox spec drops a flex item's auto min-height to 0. Without
+        // flex-shrink:0 a tall running card is squashed to the 45vh #active-agents
+        // column and its steps are clipped — not scrolled — so no scrollbar appears and
+        // the newest steps stay hidden. Pinning the card at content height makes
+        // #active-agents overflow and its overflow-y:auto scroll for real.
+        assertContains(html, "#active-agents > .subagent-block { margin: 4px 0; flex-shrink: 0; }")
+        assertContains(
+            html,
+            """
+            #active-agents {
+                display: flex;
+                flex-direction: column;
+                max-height: 45vh;
+                overflow-y: auto;
+            }
+            """.trimIndent(),
+        )
+    }
+
+    @Test
     fun `thinking indicator is rendered into the pinned slot not the message flow`() {
         val template = ChatHtmlTemplate()
         val html = template.buildPage()
