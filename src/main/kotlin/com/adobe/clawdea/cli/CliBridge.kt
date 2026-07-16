@@ -12,9 +12,11 @@
 package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.cli.backend.AgentBackend
+import com.adobe.clawdea.cli.backend.AgentBackendFactory
+import com.adobe.clawdea.cli.backend.SteeringMode
 import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
-import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
@@ -36,11 +38,7 @@ class CliBridge(
     // switch requires a session/bridge restart (ChatSession recreates this), which re-runs the
     // selection.
     private val effectiveProviderId: String = AuthManager.getInstance().effectiveProviderId()
-    private val backendSelection = backendSelection(effectiveProviderId, workingDirectory, mcpPort, project)
-    private val useCodexBackend: Boolean = backendSelection.kind == BackendKind.CODEX_APP_SERVER
-
-    private val agentProcess: AgentProcess = backendSelection.process
-    private val parser: AgentEventParser = backendSelection.parser
+    private val backend: AgentBackend = AgentBackendFactory.create(effectiveProviderId, workingDirectory, mcpPort, project)
 
     private val _events = MutableSharedFlow<CliEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<CliEvent> = _events
@@ -70,11 +68,11 @@ class CliBridge(
 
     /** True when this bridge drives the `codex` CLI (OpenAI providers). Fixed for the bridge's life. */
     val usesCodexBackend: Boolean
-        get() = useCodexBackend
+        get() = backendKind == BackendKind.CODEX_APP_SERVER
 
     /** Exact backend process kind, fixed for the bridge's lifetime. */
     val backendKind: BackendKind
-        get() = backendSelection.kind
+        get() = backend.backendKind
 
     /**
      * Human-readable name of the backend this bridge actually runs ("Codex" / "Claude"), fixed at
@@ -82,14 +80,10 @@ class CliBridge(
      * the effective provider can change in settings mid-session while the bridge keeps its backend.
      */
     val agentLabel: String
-        get() = when (backendSelection.kind) {
-            BackendKind.CLAUDE_CLI -> "Claude"
-            BackendKind.CODEX_APP_SERVER -> "Codex"
-            BackendKind.OPENAI_COMPATIBLE_HTTP -> ProviderRegistry.require(effectiveProviderId).displayLabel
-        }
+        get() = backend.agentLabel
 
     val isRunning: Boolean
-        get() = agentProcess.isAlive
+        get() = backend.isAlive
 
     fun start(
         resumeSessionId: String? = null,
@@ -106,16 +100,13 @@ class CliBridge(
         sessionId = requestedResumeSessionId
         pendingReplayContext = replayContext?.takeIf { it.isNotBlank() }
 
-        agentProcess.start(requestedResumeSessionId, skills)
+        backend.start(requestedResumeSessionId, skills)
 
         readerJob = scope.launch {
             try {
-                while (isActive && isCurrentReader(readerGeneration) && agentProcess.isAlive) {
-                    val line = agentProcess.readLine() ?: break
+                while (isActive && isCurrentReader(readerGeneration) && backend.isAlive) {
+                    val event = backend.readEvent() ?: break
                     if (!isCurrentReader(readerGeneration)) break
-                    if (line.isBlank()) continue
-
-                    val event = parser.parse(line)
 
                     if (event is CliEvent.AuthFailure) {
                         onAuthFailure(event.reason)
@@ -130,7 +121,9 @@ class CliBridge(
 
                     if (event is CliEvent.Result) {
                         sessionId = sessionAfterResult(sessionId, event.sessionId)
-                        if (agentProcess is UnavailableAgentProcess) {
+                        // UnavailableAgentProcess emits a result then exits immediately
+                        if (backend is com.adobe.clawdea.cli.backend.ProcessAgentBackend &&
+                            backend.process is UnavailableAgentProcess) {
                             expectedExitGeneration = readerGeneration
                         }
                     }
@@ -171,15 +164,7 @@ class CliBridge(
         // the new backend can continue it (neither CLI can natively resume the other's session).
         val outgoing = firstMessagePayload(text)
 
-        val escaped = outgoing
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-
-        val json = """{"type":"user","message":{"role":"user","content":"$escaped"}}"""
-        agentProcess.writeLine(json)
+        backend.sendMessage(outgoing)
     }
 
     /** Prepends any pending replay transcript to the first user turn, then clears it. */
@@ -191,19 +176,19 @@ class CliBridge(
 
     fun abort() {
         expectedExitGeneration = activeGeneration
-        agentProcess.sendInterrupt()
+        backend.abort()
     }
 
     /** True when the backend supports native mid-turn steering (codex `turn/steer`). */
     val supportsSteer: Boolean
-        get() = agentProcess.supportsSteer
+        get() = backend.steeringMode != SteeringMode.NONE
 
     /**
      * Injects [text] into the running turn without interrupting it (native steer). Returns true
      * when the backend accepted it into a live turn; false when there is no steerable turn and the
      * caller should send a normal new message instead.
      */
-    fun steer(text: String): Boolean = agentProcess.steer(text)
+    fun steer(text: String): Boolean = backend.steer(text)
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         val sessionToResume = resumeSessionForRestart(sessionId, resumeSessionId)
@@ -223,7 +208,7 @@ class CliBridge(
         expectedExitGeneration = activeGeneration
         readerJob?.cancel()
         readerJob = null
-        agentProcess.stop()
+        backend.stop()
         sessionId = null
         pendingReplayContext = null
     }
@@ -249,38 +234,6 @@ class CliBridge(
     }
 
     companion object {
-        internal data class BackendSelection(
-            val kind: BackendKind,
-            val process: AgentProcess,
-            val parser: AgentEventParser,
-        )
-
-        internal fun backendSelection(
-            providerId: String,
-            workingDirectory: String = "",
-            mcpPort: Int = 0,
-            project: Project? = null,
-        ): BackendSelection {
-            val kind = ProviderRegistry.require(providerId).backendKind
-            return when (kind) {
-                BackendKind.CLAUDE_CLI -> BackendSelection(
-                    kind,
-                    CliProcess(workingDirectory, mcpPort, project),
-                    CliEventParser(),
-                )
-                BackendKind.CODEX_APP_SERVER -> BackendSelection(
-                    kind,
-                    CodexAppServerProcess(workingDirectory, mcpPort, project),
-                    CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId)),
-                )
-                BackendKind.OPENAI_COMPATIBLE_HTTP -> BackendSelection(
-                    kind,
-                    UnavailableAgentProcess("OpenAI-compatible HTTP agent backend is not available yet."),
-                    CliEventParser(),
-                )
-            }
-        }
-
         internal fun resumeSessionForRestart(
             currentSessionId: String?,
             requestedResumeSessionId: String?,
@@ -335,14 +288,14 @@ class CliBridge(
         readerGeneration: Long,
         skills: List<SkillInfo>,
     ): Boolean {
-        if (!shouldRecoverFromRejectedResume(resumeSessionId, agentProcess.recentStderrLines())) {
+        if (!shouldRecoverFromRejectedResume(resumeSessionId, backend.recentErrors())) {
             return false
         }
 
         log.info("CLI rejected resume session $resumeSessionId; restarting fresh")
         expectedExitGeneration = readerGeneration
         sessionId = null
-        agentProcess.stop()
+        backend.stop()
         start(resumeSessionId = null, skills = skills)
         return true
     }
