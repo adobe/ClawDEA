@@ -68,6 +68,16 @@ class CliFixtureReplayTest {
             // CliEventParser only models text deltas; message_start, content_block_start,
             // content_block_stop, message_delta, message_stop all return Unknown by design.
             "stream_event",
+            // type:"system" subtypes with no per-card action. Hook lifecycle and
+            // status telemetry are surfaced nowhere; background_tasks_changed is a
+            // roster snapshot and task_updated is a task_id-only nudge (the actionable
+            // transition arrives as task_notification, which carries the tool_use_id).
+            // (Previously these fell through to SystemInit, churning model/status.)
+            "system:hook_started",
+            "system:hook_response",
+            "system:status",
+            "system:background_tasks_changed",
+            "system:task_updated",
         )
     }
 }
