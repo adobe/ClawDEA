@@ -64,7 +64,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class OpenAiCompatibleAgentBackend(
     private val profile: ResolvedProviderProfile,
-    private val credential: String,
+    // Lazily resolves the profile credential the first time a turn actually needs it. Evaluated
+    // inside the pooled turn coroutine (never on the EDT), so the PasswordSafe read cannot violate
+    // IntelliJ's slow-operations-on-EDT assertion during backend construction.
+    private val credentialProvider: () -> String,
     private val modelId: String,
     private val project: Project?,
     private val projectPath: String,
@@ -95,8 +98,10 @@ class OpenAiCompatibleAgentBackend(
     private var activeJob: Job? = null
     private val steeringController = SteeringController()
     // Current credential (mutable: a successful renewal replaces it for subsequent requests).
+    // Null until the first turn resolves it off the EDT via [credentialProvider]; blank means the
+    // provider returned no stored credential (surfaced as a terminal error, never a crash).
     @Volatile
-    private var currentCredential: String = credential
+    private var currentCredential: String? = null
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
 
@@ -349,9 +354,17 @@ class OpenAiCompatibleAgentBackend(
         var authRenewals = 0
         var append = appendUserMessage
 
+        // Resolve the credential off the EDT, lazily, on first use. Empty here means no credential is
+        // stored for the profile — surface a clear terminal error instead of streaming with a blank key.
+        val credential = currentCredential ?: credentialProvider().also { currentCredential = it }
+        if (credential.isBlank()) {
+            emitTerminalError("Credential not configured for profile '${profile.profile.id}'. Connect the profile in Settings.")
+            return
+        }
+
         while (true) {
             val loop = AgentLoopController(
-                client = clientFactory(profile, currentCredential),
+                client = clientFactory(profile, currentCredential!!),
                 executor = executorFactory(),
                 state = state,
                 maxToolRounds = 10,
@@ -475,8 +488,10 @@ class OpenAiCompatibleAgentBackend(
         val renewer = credentialRenewer ?: { renewCredentialViaEdt() }
         val renewed = renewer()
         if (renewed) {
-            // Re-read the freshly persisted credential for subsequent requests.
-            currentCredential = ProfileCredentialStore().get(profile.profile.id).ifBlank { currentCredential }
+            // Re-read the freshly persisted credential for subsequent requests. Runs on the pooled
+            // turn worker (this method is called from within runTurnWithRetries), never the EDT.
+            val fresh = ProfileCredentialStore().get(profile.profile.id)
+            if (fresh.isNotBlank()) currentCredential = fresh
         }
         return renewed
     }

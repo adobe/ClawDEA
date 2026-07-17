@@ -219,7 +219,7 @@ class OpenAiCompatibleIntegrationTest {
         // tools are unavailable and MCP tools route through the real catalog) instead of a fake.
         private val backend = OpenAiCompatibleAgentBackend(
             profile = profile,
-            credential = "fixture-key",
+            credentialProvider = { "fixture-key" },
             modelId = model,
             project = null,
             projectPath = projectPath,

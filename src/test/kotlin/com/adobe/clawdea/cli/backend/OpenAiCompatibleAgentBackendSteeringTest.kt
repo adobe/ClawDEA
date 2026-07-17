@@ -120,7 +120,7 @@ class OpenAiCompatibleAgentBackendSteeringTest {
                 baseUrl = URI("https://test"),
                 configuredValues = emptyMap(),
             ),
-            credential = "test-key",
+            credentialProvider = { "test-key" },
             modelId = "test-model",
             project = null,
             projectPath = tempFolder.root.canonicalPath,

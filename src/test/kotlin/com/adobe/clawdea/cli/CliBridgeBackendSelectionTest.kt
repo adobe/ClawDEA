@@ -15,11 +15,14 @@ import com.adobe.clawdea.cli.backend.AgentBackendFactory
 import com.adobe.clawdea.cli.backend.OpenAiCompatibleAgentBackend
 import com.adobe.clawdea.cli.backend.ProcessAgentBackend
 import com.adobe.clawdea.provider.BackendKind
+import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Guards the provider→backend classification that drives ChatPanel's provider-switch handling.
@@ -94,6 +97,40 @@ class CliBridgeBackendSelectionTest {
         assertFalse(
             CliBridge.requiresBackendRebuild(BackendKind.OPENAI_COMPATIBLE_HTTP, "openai-compatible"),
         )
+    }
+
+    @Test
+    fun `factory does not read the credential at construction (off-EDT lazy provider)`() {
+        // Regression: reading PasswordSafe in the factory throws on the EDT ("Slow operations are
+        // prohibited on EDT"), which surfaced as the misleading "CLI process exited unexpectedly".
+        // The factory must only wrap the store in a lazy provider; it must never call get() itself.
+        val getCalls = AtomicInteger(0)
+        val countingStore = object : ProfileCredentialStore() {
+            override fun get(profileId: String): String {
+                getCalls.incrementAndGet()
+                return "secret"
+            }
+        }
+
+        // Configure a fully valid profile + selected model so the factory reaches the SUCCESS path
+        // (where the real provider is wired) rather than an early error return.
+        val settings = ClawDEASettings()
+        settings.state.activeOpenAiCompatibleProfileId = "p1"
+        settings.state.importedOpenAiProfiles["p1"] =
+            """{"id":"p1","name":"P1","baseUrl":"https://example.com","modelRules":[{"pattern":"*","capability":"agentic"}]}"""
+        val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1")
+        settings.state.modelCatalogs[catalogKey] =
+            mutableListOf(com.adobe.clawdea.gateway.ModelEntry(id = "m1"))
+        settings.state.selectedModels["$catalogKey|"] = "m1"
+
+        val backend = AgentBackendFactory.create(
+            "openai-compatible",
+            settings = settings,
+            credentialStore = countingStore,
+        )
+
+        assertTrue(backend is OpenAiCompatibleAgentBackend)
+        assertEquals("credential must not be read during EDT construction", 0, getCalls.get())
     }
 
     @Test

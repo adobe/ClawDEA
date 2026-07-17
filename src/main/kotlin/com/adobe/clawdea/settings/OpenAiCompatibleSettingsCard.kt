@@ -107,6 +107,11 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
     private val dynamicTextFields = mutableMapOf<String, JBTextField>()
 
+    // Bumped on every profile selection. An async credential-presence read captures the value at
+    // dispatch time and only writes the status label back if it is still current on the EDT, so a
+    // slow read for a previously-selected profile cannot clobber the label after the user switches.
+    private var credentialCheckGeneration = 0
+
     init {
         importButton.addActionListener { doImport() }
         exportTemplateButton.addActionListener { doExportTemplate() }
@@ -154,6 +159,8 @@ class OpenAiCompatibleSettingsCard : Disposable {
     private fun onProfileSelected() {
         val profile = selectedProfile()
         if (profile == null) {
+            // Invalidate any in-flight async credential read so it cannot overwrite this label.
+            credentialCheckGeneration++
             credentialStatusLabel.text = "No profile selected"
             connectButton.isEnabled = false
             exportTemplateButton.isEnabled = false
@@ -168,8 +175,8 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
         settings.state.activeOpenAiCompatibleProfileId = profile.id
 
-        val hasCredential = credentialStore.get(profile.id).isNotEmpty()
-        credentialStatusLabel.text = if (hasCredential) "Credentials stored" else "No credentials"
+        // Synchronous, PasswordSafe-free UI runs immediately on the EDT so the model catalog/dropdown
+        // is always populated regardless of the async credential read below.
         connectButton.isEnabled = true
         exportTemplateButton.isEnabled = true
         exportConfiguredButton.isEnabled = true
@@ -185,6 +192,21 @@ class OpenAiCompatibleSettingsCard : Disposable {
         endpointOverrideField.text = override
 
         loadModelCatalogForProfile(profile.id)
+
+        // Read credential presence OFF the EDT (PasswordSafe I/O is prohibited on the EDT). Show a
+        // neutral placeholder until it resolves, then update the label only if this is still the
+        // selected profile (guard against a stale async result overwriting a newer selection).
+        credentialStatusLabel.text = "Checking…"
+        val generation = ++credentialCheckGeneration
+        val profileId = profile.id
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val hasCredential = credentialStore.get(profileId).isNotEmpty()
+            ApplicationManager.getApplication().invokeLater({
+                if (generation == credentialCheckGeneration) {
+                    credentialStatusLabel.text = if (hasCredential) "Credentials stored" else "No credentials"
+                }
+            }, ModalityState.any())
+        }
     }
 
     private fun rebuildDynamicFields(settings: List<com.adobe.clawdea.provider.openai.profile.ProfileSetting>) {
@@ -373,11 +395,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
     private fun doRefreshModels() {
         val profile = selectedProfile() ?: return
-        val credential = credentialStore.get(profile.id)
-        if (credential.isBlank()) {
-            Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Refresh Models")
-            return
-        }
 
         val resolved = profileStore.resolve(profile.id, System.getenv())
         if (resolved == null) {
@@ -395,6 +412,15 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
         refreshModelsButton.isEnabled = false
         ApplicationManager.getApplication().executeOnPooledThread {
+            // Read the credential OFF the EDT (PasswordSafe I/O is prohibited on the EDT).
+            val credential = credentialStore.get(profile.id)
+            if (credential.isBlank()) {
+                ApplicationManager.getApplication().invokeLater({
+                    refreshModelsButton.isEnabled = true
+                    Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Refresh Models")
+                }, ModalityState.any())
+                return@executeOnPooledThread
+            }
             val client = com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient()
             val freshModels = client.listModels(resolvedWithLiveValues, credential)
             ApplicationManager.getApplication().invokeLater({
@@ -439,11 +465,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
             Messages.showErrorDialog("Could not resolve the profile configuration.", "Verify Tool Support")
             return
         }
-        val credential = credentialStore.get(profile.id)
-        if (credential.isBlank()) {
-            Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Verify Tool Support")
-            return
-        }
 
         val liveFieldValues = captureConfiguredValues()
         val liveConfiguredValues = OpenAiCompatibleSettingsModel.mergeLiveValues(
@@ -455,6 +476,15 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
         verifyToolSupportButton.isEnabled = false
         ApplicationManager.getApplication().executeOnPooledThread {
+            // Read the credential OFF the EDT (PasswordSafe I/O is prohibited on the EDT).
+            val credential = credentialStore.get(profile.id)
+            if (credential.isBlank()) {
+                ApplicationManager.getApplication().invokeLater({
+                    verifyToolSupportButton.isEnabled = true
+                    Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Verify Tool Support")
+                }, ModalityState.any())
+                return@executeOnPooledThread
+            }
             val capability = try {
                 com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(resolvedWithLiveValues, credential, modelId)
             } catch (e: Exception) {

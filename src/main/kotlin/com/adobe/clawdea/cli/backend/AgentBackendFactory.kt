@@ -49,6 +49,11 @@ object AgentBackendFactory {
         // Test seam: inject settings so the HTTP branch can run fully headless (no platform
         // Application). Production passes the application-service singleton.
         settings: ClawDEASettings = ClawDEASettings.getInstance(),
+        // Test seam: inject the credential store. Production uses the default (PasswordSafe-backed).
+        // NOTE: the factory MUST NOT call `.get(...)` here — it is invoked on the EDT during backend
+        // rebuild, where PasswordSafe I/O is prohibited. The store is only wrapped in a lazy provider
+        // that the backend evaluates off the EDT on first turn.
+        credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
     ): AgentBackend {
         val kind = ProviderRegistry.require(providerId).backendKind
         return when (kind) {
@@ -69,7 +74,6 @@ object AgentBackendFactory {
             BackendKind.OPENAI_COMPATIBLE_HTTP -> {
                 // Simplified: create backend with readinessError if any prerequisite missing
                 val profileStore = ProfileStore(settings)
-                val credentialStore = ProfileCredentialStore()
                 val agentLabel = ProviderRegistry.require(providerId).displayLabel
                 val projectPath = workingDirectory.ifEmpty { project?.basePath ?: System.getProperty("user.dir") }
 
@@ -92,7 +96,7 @@ object AgentBackendFactory {
                     )
                     return OpenAiCompatibleAgentBackend(
                         profile = stubProfile,
-                        credential = "",
+                        credentialProvider = { "" },
                         modelId = "",
                         project = project,
                         projectPath = projectPath,
@@ -113,12 +117,6 @@ object AgentBackendFactory {
                 // Resolve profile
                 val profileEntry = profileStore.resolve(activeProfileId, System.getenv())
                     ?: return errorBackend("Profile '$activeProfileId' not configured")
-
-                // Get credential
-                val credential = credentialStore.get(activeProfileId)
-                if (credential.isBlank()) {
-                    return errorBackend("Credential not configured for profile '$activeProfileId'")
-                }
 
                 // Get selected model
                 val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, activeProfileId)
@@ -160,7 +158,9 @@ object AgentBackendFactory {
 
                 OpenAiCompatibleAgentBackend(
                     profile = profileEntry,
-                    credential = credential,
+                    // Lazy: the backend reads the credential off the EDT on first turn. The factory
+                    // runs on the EDT during rebuild, where a PasswordSafe read would throw.
+                    credentialProvider = { credentialStore.get(activeProfileId) },
                     modelId = selectedModelId,
                     project = project,
                     projectPath = projectPath,
