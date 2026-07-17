@@ -117,11 +117,11 @@ object ModelCapabilityVerifier {
         if (failed) return@runBlocking ModelCapability.UNKNOWN
 
         val calls = assembler.completed()
-        // TEMP diagnostic (tool-call NAMES + event counts only — never argument values or text):
-        // a false COMPLETION_ONLY for a model that calls tools in real chat shows here as
-        // toolFragments=0 (model didn't call the probe) vs. calls with unexpected names. INFO so it
-        // is visible without enabling debug logging; demote/remove once diagnosed.
-        log.info(
+        // Diagnostic (DEBUG; tool-call NAMES + event counts only — never argument values or text):
+        // distinguishes a genuine COMPLETION_ONLY (toolFragments=0, model didn't call the probe) from
+        // a parse/name mismatch (calls with unexpected names). Enable debug logging for this category
+        // to inspect a surprising verification result.
+        log.debug(
             "openai-compatible probe: toolFragments=$toolFragments text=$textEvents reasoning=$reasoningEvents " +
                 "calls=${calls.map { it.name }}",
         )

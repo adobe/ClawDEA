@@ -556,7 +556,9 @@ class OpenAiCompatibleSettingsCard : Disposable {
                         )
                     com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN ->
                         Messages.showErrorDialog(
-                            "The verification request to “$modelId” failed. Capability is unknown; try again after checking the endpoint and credential.",
+                            "Couldn’t verify “$modelId”: the chat-completions request failed. This usually means " +
+                                "it isn’t a chat model (e.g. an embedding or reranker model), or the endpoint/credential " +
+                                "is unavailable. Capability is left unknown — the model can’t start agentic chat until verified.",
                             "Verify Tool Support",
                         )
                 }
