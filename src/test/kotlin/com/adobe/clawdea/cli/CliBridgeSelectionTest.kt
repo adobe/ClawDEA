@@ -55,20 +55,46 @@ class CliBridgeSelectionTest {
 
     @Test
     fun `null selection falls back to effective provider default and exposes resolved selection`() {
-        // Configure settings: effective provider is "anthropic" (legacy path).
+        // The effective provider is resolved via the injectable seam (production uses AuthManager's
+        // env-fallthrough). Here we inject "anthropic" directly.
         val settings = ClawDEASettings()
-        settings.state.apiProvider = "anthropic" // this is the fallback provider
-        // No openai-compatible profile configured.
 
         val bridge = CliBridge(
             workingDirectory = "",
             selection = null, // the default
             settings = settings,
             credentialStore = ProfileCredentialStore(),
+            effectiveProviderIdProvider = { "anthropic" },
         )
 
         assertEquals(BackendKind.CLAUDE_CLI, bridge.backendKind)
         // The bridge should expose the resolved selection: anthropic provider
         assertEquals("anthropic", bridge.selection.providerId)
+    }
+
+    @Test
+    fun `null selection honors effective-provider env-fallthrough not configured apiProvider`() {
+        // Regression: the default selection MUST use the effective provider (AuthManager's
+        // env-fallthrough), NOT the configured apiProvider. Scenario: apiProvider is "anthropic"
+        // but only Bedrock is credentialed, so effectiveProviderId() resolves to "bedrock". The
+        // bridge must build the bedrock backend, not anthropic (which would auth-fail).
+        val settings = ClawDEASettings()
+        settings.state.apiProvider = "anthropic" // configured, but NOT the effective provider
+
+        val bridge = CliBridge(
+            workingDirectory = "",
+            selection = null,
+            settings = settings,
+            credentialStore = ProfileCredentialStore(),
+            effectiveProviderIdProvider = { "bedrock" }, // env-fallthrough result
+        )
+
+        // Bedrock is a Claude-CLI backend, same as anthropic — but the selection must carry bedrock.
+        assertEquals(BackendKind.CLAUDE_CLI, bridge.backendKind)
+        assertEquals(
+            "default selection must use the effective provider (bedrock), not configured apiProvider (anthropic)",
+            "bedrock",
+            bridge.selection.providerId,
+        )
     }
 }

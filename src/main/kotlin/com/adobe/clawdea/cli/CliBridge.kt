@@ -36,6 +36,10 @@ class CliBridge(
     selection: AgentSelection? = null,
     settings: ClawDEASettings = ClawDEASettings.getInstance(),
     credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
+    // Test seam: resolve the effective provider id. Production uses AuthManager's fallthrough
+    // (byte-identical to the pre-per-tab CliBridge, which applies env-fallthrough: a configured
+    // provider lacking creds resolves to a credentialed one). Tests inject a fixed id.
+    effectiveProviderIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
 ) : Disposable {
 
     private val log = Logger.getInstance(CliBridge::class.java)
@@ -44,7 +48,8 @@ class CliBridge(
     // use it; when null, fall back to the effective provider (preserving today's behavior). A
     // provider switch requires a session/bridge restart (ChatSession recreates this), which
     // re-runs the selection.
-    private val resolvedSelection: AgentSelection = selection ?: computeDefaultSelection(settings, workingDirectory)
+    private val resolvedSelection: AgentSelection =
+        selection ?: computeDefaultSelection(effectiveProviderIdProvider(), settings, workingDirectory)
 
     private val backend: AgentBackend = AgentBackendFactory.create(
         resolvedSelection,
@@ -261,21 +266,17 @@ class CliBridge(
 
     companion object {
         /**
-         * Computes the default AgentSelection when none is explicitly provided. Uses the effective
-         * provider from settings (or AuthManager in production). For openai-compatible, includes
-         * the active profile + model; for others, profileId=null and modelId="" (they resolve model
-         * in their backend branch).
+         * Computes the default AgentSelection when none is explicitly provided. The [effectiveProviderId]
+         * is resolved by the caller (production: AuthManager's env-fallthrough; tests: a fixed id).
+         * For openai-compatible, includes the active profile + selected model from [settings]; for
+         * others, profileId=null and modelId="" (they resolve model in their backend branch). This
+         * mirrors the legacy delegating `AgentBackendFactory.create(providerId, …)` overload.
          */
         private fun computeDefaultSelection(
+            effectiveProviderId: String,
             settings: ClawDEASettings,
             workingDirectory: String,
         ): AgentSelection {
-            // In production, settings is the singleton and apiProvider reflects AuthManager's effective
-            // provider. In tests, settings is a headless instance where apiProvider must be set explicitly.
-            val effectiveProviderId = settings.state.apiProvider.ifBlank {
-                // Fallback for production: read from AuthManager (requires Application running).
-                AuthManager.getInstance().effectiveProviderId()
-            }
             return if (effectiveProviderId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
                 val profileId = settings.state.activeOpenAiCompatibleProfileId
                 val catalogKey = ProviderRegistry.catalogKey(effectiveProviderId, profileId)
