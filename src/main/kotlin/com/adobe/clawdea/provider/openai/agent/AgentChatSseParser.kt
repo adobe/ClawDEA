@@ -22,6 +22,9 @@ class AgentChatSseParser {
     /**
      * Parse a single SSE line.
      * Precedence when multiple fields present: tool_calls > reasoning_content > content.
+     * The delta payload is extracted BEFORE finish_reason so a final chunk that carries BOTH a
+     * delta and a non-null finish_reason (common in OpenAI/vLLM streams) does not drop its trailing
+     * content. finish_reason is surfaced only when the chunk has no delta payload.
      * Returns null for blank lines, comments, [DONE], and unrecognized lines.
      */
     fun parse(line: String): AgentStreamEvent? {
@@ -70,41 +73,44 @@ class AgentChatSseParser {
 
             val choice = choices[0].asJsonObject
 
-            // Check finish_reason
+            // Parse delta FIRST. The final chunk of an OpenAI/vLLM stream can carry BOTH a
+            // delta payload AND a non-null finish_reason; extracting the delta before handling
+            // finish_reason guarantees that trailing content/reasoning/tool fragment is not dropped.
+            // Precedence: tool_calls > reasoning_content > content
+            val delta = choice.getAsJsonObject("delta")
+            if (delta != null) {
+                if (delta.has("tool_calls")) {
+                    val toolCalls = delta.getAsJsonArray("tool_calls")
+                    if (toolCalls != null && !toolCalls.isEmpty) {
+                        val toolCall = toolCalls[0].asJsonObject
+                        val index = toolCall.get("index")?.asInt ?: return null
+                        val id = toolCall.get("id")?.asString
+                        val function = toolCall.getAsJsonObject("function")
+                        val name = function?.get("name")?.asString
+                        val arguments = function?.get("arguments")?.asString ?: ""
+                        return AgentStreamEvent.ToolFragment(index, id, name, arguments)
+                    }
+                }
+
+                if (delta.has("reasoning_content")) {
+                    val reasoning = delta.get("reasoning_content")
+                    if (reasoning != null && !reasoning.isJsonNull) {
+                        return AgentStreamEvent.Reasoning(reasoning.asString)
+                    }
+                }
+
+                if (delta.has("content")) {
+                    val content = delta.get("content")
+                    if (content != null && !content.isJsonNull && !content.asString.isEmpty()) {
+                        return AgentStreamEvent.Text(content.asString)
+                    }
+                }
+            }
+
+            // No delta payload — surface finish_reason if present (terminal chunk).
             val finishReason = choice.get("finish_reason")
             if (finishReason != null && !finishReason.isJsonNull) {
                 return AgentStreamEvent.Finished(finishReason.asString)
-            }
-
-            // Parse delta
-            val delta = choice.getAsJsonObject("delta") ?: return null
-
-            // Precedence: tool_calls > reasoning_content > content
-            if (delta.has("tool_calls")) {
-                val toolCalls = delta.getAsJsonArray("tool_calls")
-                if (toolCalls != null && !toolCalls.isEmpty) {
-                    val toolCall = toolCalls[0].asJsonObject
-                    val index = toolCall.get("index")?.asInt ?: return null
-                    val id = toolCall.get("id")?.asString
-                    val function = toolCall.getAsJsonObject("function")
-                    val name = function?.get("name")?.asString
-                    val arguments = function?.get("arguments")?.asString ?: ""
-                    return AgentStreamEvent.ToolFragment(index, id, name, arguments)
-                }
-            }
-
-            if (delta.has("reasoning_content")) {
-                val reasoning = delta.get("reasoning_content")
-                if (reasoning != null && !reasoning.isJsonNull) {
-                    return AgentStreamEvent.Reasoning(reasoning.asString)
-                }
-            }
-
-            if (delta.has("content")) {
-                val content = delta.get("content")
-                if (content != null && !content.isJsonNull) {
-                    return AgentStreamEvent.Text(content.asString)
-                }
             }
 
             null

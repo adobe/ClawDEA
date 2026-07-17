@@ -58,6 +58,41 @@ class AgentChatSseParserTest {
     }
 
     @Test
+    fun `parser keeps trailing content when finish_reason arrives in the same chunk`() {
+        // OpenAI/vLLM final chunk can carry BOTH a last delta.content AND finish_reason. The
+        // content must not be dropped in favour of the Finished signal.
+        val parser = AgentChatSseParser()
+        val result = parser.parse(
+            """data: {"choices":[{"delta":{"content":"bye"},"finish_reason":"stop"}]}"""
+        )
+        assertEquals(AgentStreamEvent.Text("bye"), result)
+    }
+
+    @Test
+    fun `parser keeps trailing reasoning when finish_reason arrives in the same chunk`() {
+        val parser = AgentChatSseParser()
+        val result = parser.parse(
+            """data: {"choices":[{"delta":{"reasoning_content":"hmm"},"finish_reason":"stop"}]}"""
+        )
+        assertEquals(AgentStreamEvent.Reasoning("hmm"), result)
+    }
+
+    @Test
+    fun `parser surfaces finish_reason for empty delta chunk`() {
+        // The common terminal shape is an empty delta object plus finish_reason: nothing to emit
+        // from the delta, so Finished is surfaced.
+        val parser = AgentChatSseParser()
+        assertEquals(
+            AgentStreamEvent.Finished("stop"),
+            parser.parse("""data: {"choices":[{"delta":{},"finish_reason":"stop"}]}"""),
+        )
+        assertEquals(
+            AgentStreamEvent.Finished("stop"),
+            parser.parse("""data: {"choices":[{"delta":{"content":""},"finish_reason":"stop"}]}"""),
+        )
+    }
+
+    @Test
     fun `parser handles top-level error`() {
         val parser = AgentChatSseParser()
         val result = parser.parse("""data: {"error":{"message":"Rate limit exceeded"}}""")

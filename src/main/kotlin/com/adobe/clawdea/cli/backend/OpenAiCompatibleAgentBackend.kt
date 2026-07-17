@@ -71,7 +71,11 @@ class OpenAiCompatibleAgentBackend(
     // inside the pooled turn coroutine (never on the EDT), so the PasswordSafe read cannot violate
     // IntelliJ's slow-operations-on-EDT assertion during backend construction.
     private val credentialProvider: () -> String,
-    private val modelId: String,
+    // Lazily resolves the selected model id. Read fresh on every [start] into [currentModelId] so a
+    // stop→start (the chat's model-switch restart path) picks up the current dropdown selection —
+    // a plain val would freeze the model at construction and make dropdown switches a no-op (the
+    // backend instance is reused across restarts). Mirrors [credentialProvider].
+    private val modelIdProvider: () -> String,
     private val project: Project?,
     private val projectPath: String,
     private val mcpDefs: List<McpToolRouter.ToolDef>,
@@ -115,6 +119,12 @@ class OpenAiCompatibleAgentBackend(
     // provider returned no stored credential (surfaced as a terminal error, never a crash).
     @Volatile
     private var currentCredential: String? = null
+    // Model id in effect for the current session. Resolved fresh from [modelIdProvider] on every
+    // [start] so a restart after a dropdown switch uses the newly-selected model. Seeds SystemInit's
+    // model label (drives the footer), the ledger meta, and each turn's request body. Falls back to
+    // the last known id if the provider ever returns blank (should not happen post readiness gate).
+    @Volatile
+    private var currentModelId: String = ""
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
 
@@ -155,6 +165,17 @@ class OpenAiCompatibleAgentBackend(
         // A resume rebuilds state from the ledger below, so clearing here is safe in both paths.
         state = ConversationState()
 
+        // Resolve the selected model fresh on every start so a stop→start after a dropdown switch
+        // uses the newly-selected model (the backend instance is reused across restarts). Keep the
+        // last known id if the provider returns blank (defensive — the readiness gate already
+        // requires a non-blank model before this backend is constructed for real use).
+        val resolvedModelId = modelIdProvider()
+        if (resolvedModelId.isNotBlank()) {
+            currentModelId = resolvedModelId
+        } else {
+            log.warn("modelIdProvider returned blank at start; keeping last known model '$currentModelId'")
+        }
+
         // Build standing instructions. Degrade to empty when the platform Application is
         // unavailable (headless/unit-test contexts) — instructions are non-essential to the
         // turn/steering behavior and must not abort session start.
@@ -184,7 +205,7 @@ class OpenAiCompatibleAgentBackend(
         val toolNames = mcpDefs.map { it.name }
         queue.put(CliEvent.SystemInit(
             sessionId = sessionId,
-            model = modelId,
+            model = currentModelId,
             tools = toolNames,
         ))
 
@@ -280,7 +301,7 @@ class OpenAiCompatibleAgentBackend(
             addProperty("sessionId", sessionId)
             addProperty("profileId", profile.profile.id)
             addProperty("projectPath", java.io.File(projectPath).canonicalPath)
-            addProperty("model", modelId)
+            addProperty("model", currentModelId)
             addProperty("createdAt", java.time.Instant.ofEpochMilli(System.currentTimeMillis()).toString())
         }
         val record = com.adobe.clawdea.provider.openai.session.SessionLedgerRecord(
@@ -399,7 +420,7 @@ class OpenAiCompatibleAgentBackend(
                 maxToolRounds = 10,
                 maxElapsedMs = 600_000,
                 maxContextChars = 1_000_000,
-                modelId = modelId,
+                modelId = currentModelId,
                 tools = agentToolDefinitions(mcpDefs),
             )
 
@@ -537,7 +558,7 @@ class OpenAiCompatibleAgentBackend(
                 com.adobe.clawdea.chat.PartialRetryPrompt(
                     project = proj,
                     profileName = profile.profile.name,
-                    modelId = modelId,
+                    modelId = currentModelId,
                     emittedText = result.emittedText,
                     toolsCompleted = result.executedTools,
                 ).showAndGet(),

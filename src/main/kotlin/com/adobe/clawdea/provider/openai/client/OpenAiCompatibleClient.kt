@@ -89,18 +89,29 @@ class OpenAiCompatibleClient(
         try {
             val response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofLines())
 
-            if (response.statusCode() != 200) {
+            val status = response.statusCode()
+            if (status != 200) {
+                // Diagnostic (status only, no body): a non-200 here is the top empty-answer suspect.
+                log.info("openai-compatible agent stream: http=$status (non-200, aborting)")
                 emit(handleAgentHttpError(response))
                 return@flow
             }
 
+            // Diagnostic counters (counts only, never SSE content which carries prompts/output):
+            // pairs with AgentLoopController's per-turn summary to localise an empty answer to the
+            // wire (0 lines => wrong endpoint/model) vs. parsing/model behaviour.
+            var lineCount = 0
+            var parsedCount = 0
             val lines = response.body()
             for (line in lines) {
+                lineCount++
                 val event = agentParser.parse(line)
                 if (event != null) {
+                    parsedCount++
                     emit(event)
                 }
             }
+            log.info("openai-compatible agent stream: http=$status lines=$lineCount parsed=$parsedCount")
         } catch (e: Exception) {
             log.info("openai-compatible agent stream error: ${e.javaClass.simpleName}")
             emit(AgentStreamEvent.Failure(null, e.message ?: "Connection error", null))

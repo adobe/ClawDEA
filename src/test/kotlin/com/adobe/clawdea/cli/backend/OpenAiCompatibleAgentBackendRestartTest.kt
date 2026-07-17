@@ -91,7 +91,52 @@ class OpenAiCompatibleAgentBackendRestartTest {
         backend.stop()
     }
 
-    private fun newBackend(): OpenAiCompatibleAgentBackend {
+    @Test
+    fun `backend uses the current model id from the provider on each start`() {
+        // Regression guard for the frozen-model bug: switching the model in the chat dropdown
+        // restarts the reused backend instance; start() must re-read the current selection so the
+        // SystemInit model (which drives the footer + request body) reflects the new model.
+        var selectedModel = "model-a"
+        val backend = newBackend(modelIdProvider = { selectedModel })
+
+        backend.start(null, emptyList())
+        val firstInit = backend.readEvent() as CliEvent.SystemInit
+        assertEquals("first start uses the initial model", "model-a", firstInit.model)
+        backend.stop()
+        assertEquals(null, backend.readEvent())
+
+        // Simulate a dropdown switch: the provider now returns a different model.
+        selectedModel = "model-b"
+        backend.start(null, emptyList())
+        val secondInit = backend.readEvent() as CliEvent.SystemInit
+        assertEquals("restart must pick up the newly-selected model", "model-b", secondInit.model)
+
+        backend.stop()
+    }
+
+    @Test
+    fun `backend keeps last known model when provider returns blank at start`() {
+        var selectedModel = "model-a"
+        val backend = newBackend(modelIdProvider = { selectedModel })
+
+        backend.start(null, emptyList())
+        val firstInit = backend.readEvent() as CliEvent.SystemInit
+        assertEquals("model-a", firstInit.model)
+        backend.stop()
+        assertEquals(null, backend.readEvent())
+
+        // Blank should not clobber the last known model (defensive; readiness gate normally prevents).
+        selectedModel = ""
+        backend.start(null, emptyList())
+        val secondInit = backend.readEvent() as CliEvent.SystemInit
+        assertEquals("blank provider keeps last known model", "model-a", secondInit.model)
+
+        backend.stop()
+    }
+
+    private fun newBackend(
+        modelIdProvider: () -> String = { "test-model" },
+    ): OpenAiCompatibleAgentBackend {
         val fakeClient = object : AgentClient {
             override suspend fun stream(request: AgentCompletionRequest): Flow<AgentStreamEvent> = flow {
                 emit(AgentStreamEvent.Text("done"))
@@ -109,7 +154,7 @@ class OpenAiCompatibleAgentBackendRestartTest {
                 configuredValues = emptyMap(),
             ),
             credentialProvider = { "test-key" },
-            modelId = "test-model",
+            modelIdProvider = modelIdProvider,
             project = null,
             projectPath = tempFolder.root.canonicalPath,
             mcpDefs = emptyList(),

@@ -13,6 +13,7 @@ package com.adobe.clawdea.provider.openai.agent
 
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -82,6 +83,8 @@ class AgentLoopController(
     // dispatch (MCP tools + host Bash/apply_patch). Empty means the model is told of no tools.
     private val tools: List<OpenAiToolDefinition> = emptyList(),
 ) {
+
+    private val log = Logger.getInstance(AgentLoopController::class.java)
 
     /**
      * Run a single user turn: add user message, stream completion(s), execute tools, repeat until
@@ -160,21 +163,34 @@ class AgentLoopController(
             var failureStatus: Int? = null
             var failureRetryAfter: Long? = null
 
+            // Diagnostic counters (never content): let the empty-answer symptom be read off idea.log.
+            var parsedEvents = 0
+            var textDeltas = 0
+            var reasoningEvents = 0
+            var toolFragments = 0
+            var usageEvents = 0
+            var failureEvents = 0
+
             try {
                 client.stream(request).collect { event ->
+                    parsedEvents++
                     when (event) {
                         is AgentStreamEvent.Text -> {
+                            textDeltas++
                             state.partialAssistantText += event.text
                             emittedTextOverall = true
                             emit(CliEvent.TextDelta(event.text))
                         }
                         is AgentStreamEvent.Reasoning -> {
+                            reasoningEvents++
                             reasoning.append(event.text)
                         }
                         is AgentStreamEvent.ToolFragment -> {
+                            toolFragments++
                             assembler.accept(event)
                         }
                         is AgentStreamEvent.Usage -> {
+                            usageEvents++
                             state.usage = AgentUsage(
                                 inputTokens = event.inputTokens,
                                 outputTokens = event.outputTokens,
@@ -186,6 +202,7 @@ class AgentLoopController(
                             finishReason = event.reason
                         }
                         is AgentStreamEvent.Failure -> {
+                            failureEvents++
                             streamError = event.message
                             failureStatus = event.status
                             failureRetryAfter = event.retryAfterSeconds
@@ -202,6 +219,18 @@ class AgentLoopController(
             } catch (e: Exception) {
                 streamError = e.message ?: "unknown error"
             }
+
+            // Diagnostic (INFO, counts/lengths only — never prompt or generated content): reveals
+            // why a turn came back empty (e.g. text-deltas=0 reasoning>0 => reasoning-only model;
+            // events=0 => wrong endpoint/model; failure!=null => remote error). Grep idea.log for
+            // "openai-compatible turn:".
+            log.info(
+                "openai-compatible turn: events=$parsedEvents text-deltas=$textDeltas " +
+                    "reasoning=$reasoningEvents tool-frags=$toolFragments usage=$usageEvents " +
+                    "failures=$failureEvents finish=${finishReason ?: "none"} " +
+                    "assistantChars=${state.partialAssistantText.length}" +
+                    (failureStatus?.let { " failureStatus=$it" } ?: "")
+            )
 
             // Handle stream errors WITHOUT emitting a terminal Result: the backend inspects the
             // returned TurnResult and drives retry / renew / ask-user / terminal-error itself.

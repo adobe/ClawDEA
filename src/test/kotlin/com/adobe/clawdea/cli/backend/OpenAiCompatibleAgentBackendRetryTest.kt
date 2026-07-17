@@ -105,7 +105,7 @@ class OpenAiCompatibleAgentBackendRetryTest {
                 configuredValues = emptyMap(),
             ),
             credentialProvider = { "test-key" },
-            modelId = "test-model",
+            modelIdProvider = { "test-model" },
             project = null,
             projectPath = tempFolder.root.canonicalPath,
             mcpDefs = emptyList(),

@@ -220,7 +220,7 @@ class OpenAiCompatibleIntegrationTest {
         private val backend = OpenAiCompatibleAgentBackend(
             profile = profile,
             credentialProvider = { "fixture-key" },
-            modelId = model,
+            modelIdProvider = { model },
             project = null,
             projectPath = projectPath,
             mcpDefs = mcpDefs,

@@ -97,7 +97,7 @@ object AgentBackendFactory {
                     return OpenAiCompatibleAgentBackend(
                         profile = stubProfile,
                         credentialProvider = { "" },
-                        modelId = "",
+                        modelIdProvider = { "" },
                         project = project,
                         projectPath = projectPath,
                         mcpDefs = emptyList(),
@@ -161,7 +161,10 @@ object AgentBackendFactory {
                     // Lazy: the backend reads the credential off the EDT on first turn. The factory
                     // runs on the EDT during rebuild, where a PasswordSafe read would throw.
                     credentialProvider = { credentialStore.get(activeProfileId) },
-                    modelId = selectedModelId,
+                    // Lazy: re-read the selected model on every backend start so a dropdown switch
+                    // (which restarts the reused backend instance) picks up the new model. Uses the
+                    // same composite catalogKey the readiness check above resolved the model with.
+                    modelIdProvider = { settings.getSelectedModelId(workingDirectory, catalogKey) ?: selectedModelId },
                     project = project,
                     projectPath = projectPath,
                     mcpDefs = mcpDefs,
