@@ -168,7 +168,7 @@ class DefaultWikiAuthorInvoker(
                 // the proof is on disk: only ack signatures whose target page now
                 // exists. Unverifiable events (no wikiDir, or kinds that edit an
                 // existing page) keep the exit-0 contract.
-                val (acked, unverified) = events.partition { isAuthored(it) }
+                val (acked, unverified) = events.partition { WikiAuthorVerification.isAuthored(it, wikiDir) }
                 val ackedSignatures = acked.map { it.signature }.toSet()
                 val unverifiedSignatures = unverified.map { it.signature }.toSet()
                 if (unverifiedSignatures.isNotEmpty()) {
@@ -180,23 +180,6 @@ class DefaultWikiAuthorInvoker(
                 WikiAuthorInvoker.Result(ackedSignatures, unverifiedSignatures, null)
             }
         }
-    }
-
-    /**
-     * Whether [event] can be treated as authored after an exit-0 run. A
-     * `missingConcept` suggestion is only authored if its target page now exists
-     * on disk; this is the verification that closes the "claimed but did not
-     * write" gap. Other events can't be cheaply verified by existence (they edit
-     * an already-present page), so they keep the exit-0 contract.
-     */
-    private fun isAuthored(event: DriftEvent): Boolean {
-        if (event !is DriftEvent.WikiSuggestion) return true
-        if (event.kind != SuggestionKind.missingConcept) return true
-        val dir = wikiDir ?: return true
-        val target = DriftEvent.WikiSuggestion.primaryTarget(event.targetFiles)
-        if (target.isBlank()) return true
-        val rel = target.removePrefix(".claude/wiki/")
-        return java.nio.file.Files.exists(dir.resolve(rel))
     }
 
     interface ProcessRunner {
@@ -246,6 +229,29 @@ class DefaultWikiAuthorInvoker(
 
     companion object {
         private val LOG = Logger.getInstance(DefaultWikiAuthorInvoker::class.java)
+    }
+}
+
+/**
+ * Shared post-run verification for BOTH wiki-author paths (Claude CLI and the agentic
+ * openai-compatible path). Closes the "model claimed success but wrote nothing" gap: a clean run is
+ * only trusted for a `missingConcept` event if its target page now exists on disk.
+ */
+object WikiAuthorVerification {
+    /**
+     * Whether [event] can be treated as authored after a clean (exit-0 / no-error) run. A
+     * `missingConcept` suggestion is only authored if its target page now exists on disk. Other
+     * events can't be cheaply verified by existence (they edit an already-present page), so they
+     * keep the clean-completion contract.
+     */
+    fun isAuthored(event: DriftEvent, wikiDir: Path?): Boolean {
+        if (event !is DriftEvent.WikiSuggestion) return true
+        if (event.kind != SuggestionKind.missingConcept) return true
+        val dir = wikiDir ?: return true
+        val target = DriftEvent.WikiSuggestion.primaryTarget(event.targetFiles)
+        if (target.isBlank()) return true
+        val rel = target.removePrefix(".claude/wiki/")
+        return java.nio.file.Files.exists(dir.resolve(rel))
     }
 }
 
@@ -303,8 +309,19 @@ class AgenticWikiAuthorInvoker(
         }
 
         return if (result.isSuccess) {
-            LOG.info("wiki-author (agentic) dismissed ${signatures.size} events")
-            WikiAuthorInvoker.Result(signatures, emptySet(), null)
+            // Same on-disk proof the Claude path uses: a missingConcept whose target page was NOT
+            // written is WITHHELD (reported skipped → retries), guarding the "model finished without
+            // calling Write/apply_patch" failure that would otherwise silently dismiss the event.
+            val (acked, unverified) = events.partition { WikiAuthorVerification.isAuthored(it, wikiDir) }
+            val ackedSignatures = acked.map { it.signature }.toSet()
+            val unverifiedSignatures = unverified.map { it.signature }.toSet()
+            if (unverifiedSignatures.isNotEmpty()) {
+                LOG.warn("wiki-author (agentic) completed but ${unverifiedSignatures.size} event(s) " +
+                    "left no file on disk; not dismissing so they retry: $unverifiedSignatures")
+            }
+            LOG.info("wiki-author (agentic) dismissed ${ackedSignatures.size} events; " +
+                "withheld ${unverifiedSignatures.size} unverified")
+            WikiAuthorInvoker.Result(ackedSignatures, unverifiedSignatures, null)
         } else {
             val err = result.exceptionOrNull()?.message ?: "unknown error"
             LOG.warn("wiki-author (agentic) failed for ${signatures.size} events: $err")

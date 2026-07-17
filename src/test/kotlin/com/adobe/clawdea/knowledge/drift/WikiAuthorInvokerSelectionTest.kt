@@ -149,6 +149,83 @@ class WikiAuthorInvokerSelectionTest {
         assertNull(result.errorMessage)
     }
 
+    @Test fun `agentic invoker maps a failed session to skipped signatures with error`() = runBlocking {
+        val session = AgenticWikiSession { kotlin.Result.failure(RuntimeException("gateway 500")) }
+        val invoker = AgenticWikiAuthorInvoker(
+            selection = AgentSelection("openai-compatible", "p1", "gw/model"),
+            wikiDir = null,
+            capability = ModelCapability.AGENTIC,
+            session = session,
+        )
+        val result = invoker.invoke(sampleEvents)
+        assertTrue("nothing dismissed on failure", result.actedOnSignatures.isEmpty())
+        assertEquals("all events retry", signatures, result.skippedSignatures)
+        assertTrue("error is surfaced", result.errorMessage!!.contains("gateway 500"))
+    }
+
+    @Test fun `LoopBackedWikiSession maps an error terminal Result to failure`() = runBlocking {
+        val noopExecutor = object : AgentToolExecutor {
+            override fun execute(toolCall: AgentToolCall) = ToolExecutionResult(toolCall.id, "", isError = false)
+        }
+        val fakeClient = object : AgentClient {
+            override suspend fun stream(request: AgentCompletionRequest): Flow<AgentStreamEvent> = flow {
+                emit(AgentStreamEvent.Failure(status = 500, message = "boom", retryAfterSeconds = null))
+            }
+        }
+        val session = LoopBackedWikiSession(
+            client = fakeClient, executor = noopExecutor, tools = emptyList(),
+            modelId = "gw/model", systemPrompt = null, streaming = true,
+        )
+        val invoker = AgenticWikiAuthorInvoker(
+            selection = AgentSelection("openai-compatible", "p1", "gw/model"),
+            wikiDir = null, capability = ModelCapability.AGENTIC, session = session,
+        )
+        val result = invoker.invoke(sampleEvents)
+        assertTrue(result.actedOnSignatures.isEmpty())
+        assertEquals(signatures, result.skippedSignatures)
+        assertNotNull(result.errorMessage)
+    }
+
+    @Test fun `agentic clean run withholds missingConcept whose page was never written`() = runBlocking {
+        val wikiDir = java.nio.file.Files.createTempDirectory("agentic-wiki-verify")
+        val missing = DriftEvent.WikiSuggestion(
+            kind = SuggestionKind.missingConcept,
+            title = "t", rationale = "r",
+            targetFiles = listOf(".claude/wiki/concepts/never-written.md"),
+            sourcePage = null, recordedAt = "2026-05-17T16:30:00Z",
+        )
+        // Session "succeeds" but writes nothing to disk (the model claimed success without Write).
+        val session = AgenticWikiSession { kotlin.Result.success(Unit) }
+        val invoker = AgenticWikiAuthorInvoker(
+            selection = AgentSelection("openai-compatible", "p1", "gw/model"),
+            wikiDir = wikiDir, capability = ModelCapability.AGENTIC, session = session,
+        )
+        val result = invoker.invoke(listOf(missing))
+        assertTrue("missingConcept withheld when page absent", result.actedOnSignatures.isEmpty())
+        assertEquals(setOf(missing.signature), result.skippedSignatures)
+        assertNull("withholding for retry is not an error", result.errorMessage)
+    }
+
+    @Test fun `agentic clean run acks missingConcept whose page now exists on disk`() = runBlocking {
+        val wikiDir = java.nio.file.Files.createTempDirectory("agentic-wiki-verify")
+        java.nio.file.Files.createDirectories(wikiDir.resolve("concepts"))
+        java.nio.file.Files.writeString(wikiDir.resolve("concepts/written.md"), "# page\n")
+        val written = DriftEvent.WikiSuggestion(
+            kind = SuggestionKind.missingConcept,
+            title = "t", rationale = "r",
+            targetFiles = listOf(".claude/wiki/concepts/written.md"),
+            sourcePage = null, recordedAt = "2026-05-17T16:30:00Z",
+        )
+        val session = AgenticWikiSession { kotlin.Result.success(Unit) }
+        val invoker = AgenticWikiAuthorInvoker(
+            selection = AgentSelection("openai-compatible", "p1", "gw/model"),
+            wikiDir = wikiDir, capability = ModelCapability.AGENTIC, session = session,
+        )
+        val result = invoker.invoke(listOf(written))
+        assertEquals(setOf(written.signature), result.actedOnSignatures)
+        assertTrue(result.skippedSignatures.isEmpty())
+    }
+
     // ---- (c) capability guard ----
 
     @Test fun `completion-only WIKI model is blocked without running`() = runBlocking {
@@ -167,6 +244,20 @@ class WikiAuthorInvokerSelectionTest {
         val err = result.errorMessage!!
         assertTrue("error names the tool-capability problem", err.contains("not tool-capable"))
         assertTrue("error names the model id", err.contains("gw/text-only"))
+    }
+
+    @Test fun `UNKNOWN capability WIKI model is blocked without running`() = runBlocking {
+        var ran = false
+        val invoker = AgenticWikiAuthorInvoker(
+            selection = AgentSelection("openai-compatible", "p1", "gw/mystery"),
+            wikiDir = null,
+            capability = ModelCapability.UNKNOWN,
+            session = AgenticWikiSession { ran = true; kotlin.Result.success(Unit) },
+        )
+        val result = invoker.invoke(sampleEvents)
+        assertTrue("no run for an unknown-capability model", !ran)
+        assertEquals(signatures, result.skippedSignatures)
+        assertTrue(result.errorMessage!!.contains("not tool-capable"))
     }
 
     @Test fun `codex WIKI selection returns a clear not-supported result`() = runBlocking {
