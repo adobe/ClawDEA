@@ -52,6 +52,18 @@ object WikiAgentsArg {
         return root.toString()
     }
 
+    /**
+     * The wiki-author agent's fully-substituted prompt body (same text the Claude path injects via
+     * `--agents`). Reused as the system prompt for the non-Claude (openai-compatible) agentic path,
+     * which cannot use `--agents`. Throws if the bundled resource is missing (a packaging defect).
+     */
+    fun authorPromptBody(): String {
+        val raw = WikiAgentsArg::class.java.getResourceAsStream(AUTHOR_PATH)
+            ?: throw IllegalStateException("Plugin resource not found: $AUTHOR_PATH")
+        val text = raw.bufferedReader().use { it.readText() }
+        return substituteTemplates(parse(text).body)
+    }
+
     private fun addAgentTo(root: JsonObject, resourcePath: String) {
         val raw = WikiAgentsArg::class.java.getResourceAsStream(resourcePath)
             ?: throw IllegalStateException("Plugin resource not found: $resourcePath")

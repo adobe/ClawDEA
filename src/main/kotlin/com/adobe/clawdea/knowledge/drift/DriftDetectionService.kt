@@ -191,32 +191,142 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
         return repo.state != com.intellij.dvcs.repo.Repository.State.NORMAL
     }
 
+    /**
+     * The ROUTING SEAM. Resolves the WIKI role's [com.adobe.clawdea.provider.AgentSelection] and
+     * branches on the selection's backend kind (capability-tiered per design §5.2):
+     *  - CLAUDE_CLI → the EXISTING [DefaultWikiAuthorInvoker] (byte-identical `claude -p --agents`
+     *    path), with its `--model` sourced from the WIKI selection and its subprocess env applied
+     *    for the WIKI selection's provider.
+     *  - OPENAI_COMPATIBLE_HTTP → an [AgenticWikiAuthorInvoker] running the digest through the
+     *    agentic tool loop (find_symbol/Edit/Write via the MCP + host catalog), NO `--agents`.
+     *  - CODEX_APP_SERVER → [CodexUnsupportedWikiAuthorInvoker] (documented follow-up).
+     */
     private fun buildInvoker(basePath: String, wikiDir: Path): WikiAuthorInvoker {
         val settings = ClawDEASettings.getInstance()
-        val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
-        val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
-        val effectiveProvider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        // Match the chat's behaviour: pass --model only if the user has
-        // explicitly selected one for this project. Otherwise let the CLI
-        // pick its built-in default (Opus 4.7 on the current Anthropic CLI).
-        val modelId = settings.getCliModelId(basePath, effectiveProvider)
-        return DefaultWikiAuthorInvoker(
-            claudeCliPath = cliPath,
-            projectRoot = Paths.get(basePath),
-            mcpPort = mcpPort,
-            modelId = modelId,
-            wikiDir = wikiDir,
-            // Attribute the subprocess's cost to the WIKI_UPDATE knowledge bucket + daily/provider
-            // totals. Runs outside any chat, so it never touches a chat's session total.
-            onStdout = { stdout ->
-                project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
-                    .recordWikiAuthorCost(stdout)
+        val wikiSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings).get(com.adobe.clawdea.provider.AgentRole.WIKI)
+        val kind = com.adobe.clawdea.provider.ProviderRegistry.require(wikiSelection.providerId).backendKind
+        return chooseWikiInvoker(
+            kind = kind,
+            claude = {
+                val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
+                val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+                // Model now comes from the WIKI selection (post-migration this equals today's value,
+                // so the Claude path is unchanged by default). Everything else — --agents,
+                // disallowedTools, digest, timeouts, cost attribution — stays byte-identical.
+                DefaultWikiAuthorInvoker(
+                    claudeCliPath = cliPath,
+                    projectRoot = Paths.get(basePath),
+                    mcpPort = mcpPort,
+                    modelId = wikiSelection.modelId,
+                    wikiDir = wikiDir,
+                    selection = wikiSelection,
+                    // Attribute the subprocess's cost to the WIKI_UPDATE knowledge bucket + daily/provider
+                    // totals. Runs outside any chat, so it never touches a chat's session total.
+                    onStdout = { stdout ->
+                        project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
+                            .recordWikiAuthorCost(stdout)
+                    },
+                )
             },
+            agentic = { buildAgenticWikiInvoker(wikiSelection, wikiDir) },
+            codexUnsupported = { CodexUnsupportedWikiAuthorInvoker },
         )
+    }
+
+    /**
+     * Build the openai-compatible agentic wiki-author invoker: resolve the profile + capability,
+     * construct a headless [LoopBackedWikiSession] over the SAME MCP/host tool catalog the chat
+     * uses. The capability guard lives inside [AgenticWikiAuthorInvoker.invoke] so a completion-only
+     * model produces a clear error rather than a silent no-op author.
+     */
+    private fun buildAgenticWikiInvoker(
+        wikiSelection: com.adobe.clawdea.provider.AgentSelection,
+        wikiDir: Path,
+    ): WikiAuthorInvoker {
+        val settings = ClawDEASettings.getInstance()
+        val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
+        val profileId = wikiSelection.profileId ?: ""
+        val profile = profileStore.resolve(profileId, System.getenv())
+        // Resolve capability so the guard can refuse tool-less models.
+        val capability = if (profile != null) {
+            com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
+                modelId = wikiSelection.modelId,
+                endpointCapability = null,
+                profileRules = profile.profile.modelRules,
+                userOverride = null,
+            )
+        } else {
+            com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
+        }
+
+        val mcpDefs = com.adobe.clawdea.mcp.McpServer.getInstance(project).toolDefinitions()
+        val approvalGate = com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate(
+            toolApprovalMode = { settings.state.toolApprovalMode },
+            policy = { null },
+            route = { toolName, inputJson, toolUseId ->
+                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
+            },
+            promptTimeoutMs = 300_000,
+        )
+
+        val session = AgenticWikiSession { digest ->
+            val credential = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore().get(profileId)
+            if (profile == null) {
+                Result.failure(RuntimeException("OpenAI-compatible profile '$profileId' not configured"))
+            } else if (credential.isBlank()) {
+                Result.failure(RuntimeException("Credential not configured for profile '$profileId'"))
+            } else {
+                val client = com.adobe.clawdea.cli.backend.HttpAgentClient(
+                    com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient(), profile, credential,
+                )
+                val executor = com.adobe.clawdea.cli.backend.defaultExecutor(
+                    project, mcpDefs, approvalGate, { settings.state.autoAcceptEdits },
+                )
+                LoopBackedWikiSession(
+                    client = client,
+                    executor = executor,
+                    tools = com.adobe.clawdea.cli.backend.agentToolDefinitions(mcpDefs),
+                    modelId = wikiSelection.modelId,
+                    systemPrompt = wikiAuthorSystemPrompt(),
+                    streaming = profile.profile.streaming,
+                ).run(digest)
+            }
+        }
+        return AgenticWikiAuthorInvoker(wikiSelection, wikiDir, capability, session)
+    }
+
+    /**
+     * The wiki-author agent's prompt body (from `/agents/wiki-author.md`) reused as the system
+     * prompt for the non-Claude path. On the Claude path this is injected via `--agents`; here it
+     * seeds the single agentic session. Degrades to null on any packaging error (the digest itself
+     * still carries the instructions).
+     */
+    private fun wikiAuthorSystemPrompt(): String? = try {
+        com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.authorPromptBody()
+    } catch (e: Throwable) {
+        LOG.warn("wiki-author (agentic) could not load author prompt body: ${e.message}")
+        null
     }
 
     companion object {
         private val LOG = Logger.getInstance(DriftDetectionService::class.java)
+
+        /**
+         * Pure routing decision for the WIKI role: pick the invoker factory for [kind]. Extracted so
+         * the capability-tiered branch is unit-testable without IntelliJ services. The factories are
+         * evaluated lazily so only the chosen branch runs (a Claude selection never touches the
+         * agentic/codex builders and vice-versa).
+         */
+        fun chooseWikiInvoker(
+            kind: com.adobe.clawdea.provider.BackendKind,
+            claude: () -> WikiAuthorInvoker,
+            agentic: () -> WikiAuthorInvoker,
+            codexUnsupported: () -> WikiAuthorInvoker,
+        ): WikiAuthorInvoker = when (kind) {
+            com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI -> claude()
+            com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP -> agentic()
+            com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER -> codexUnsupported()
+        }
 
         data class ApplyResult(val events: List<DriftEvent>, val newState: DriftState)
 
