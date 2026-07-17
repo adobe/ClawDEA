@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.gateway
 
+import com.adobe.clawdea.provider.AgentSelection
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -76,6 +77,46 @@ class ClaudeGatewaySelectionTest {
             "Should not fall through to Anthropic — explicit openai-compatible selection takes precedence",
             GatewayPath.OPENAI_COMPATIBLE_API,
             path,
+        )
+    }
+
+    @Test
+    fun `resolveCompletionsProfileId uses the selection profile`() {
+        val sel = AgentSelection(
+            com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profileId = "p",
+            modelId = "hosted_vllm/x",
+        )
+        assertEquals("p", ClaudeGateway.resolveCompletionsProfileId(sel))
+    }
+
+    @Test
+    fun `resolveCompletionsProfileId returns blank when selection profile is null - no global fallback`() {
+        val sel = AgentSelection("anthropic", profileId = null, modelId = "claude-haiku-4-5")
+        assertEquals(
+            "Null profile must yield blank (not the global active profile) — selection is authoritative",
+            "",
+            ClaudeGateway.resolveCompletionsProfileId(sel),
+        )
+    }
+
+    @Test
+    fun `resolveCompletionsModel prefers the selection modelId over request model`() {
+        val sel = AgentSelection("anthropic", profileId = null, modelId = "claude-opus-4-8")
+        assertEquals(
+            "Non-blank selection modelId is authoritative",
+            "claude-opus-4-8",
+            ClaudeGateway.resolveCompletionsModel(sel, requestModel = "claude-haiku-4-5"),
+        )
+    }
+
+    @Test
+    fun `resolveCompletionsModel falls back to request model when selection modelId blank`() {
+        val sel = AgentSelection("anthropic", profileId = null, modelId = "")
+        assertEquals(
+            "Blank selection modelId falls back to the request model (legacy migration source)",
+            "claude-haiku-4-5",
+            ClaudeGateway.resolveCompletionsModel(sel, requestModel = "claude-haiku-4-5"),
         )
     }
 }

@@ -40,4 +40,24 @@ class RoleSelectionStoreTest {
     @Test fun `get returns anthropic default when unset with blank legacy provider`() {
         assertEquals("anthropic", RoleSelectionStore(settings()).get(AgentRole.CHAT_DEFAULT).providerId)
     }
+    @Test fun `default openai-compatible selection snapshots the active profile`() {
+        val s = settings()
+        s.state.apiProvider = ProviderRegistry.OPENAI_COMPATIBLE_ID
+        s.state.activeOpenAiCompatibleProfileId = "p1"
+        val sel = RoleSelectionStore(s).get(AgentRole.COMPLETIONS)
+        assertEquals(ProviderRegistry.OPENAI_COMPATIBLE_ID, sel.providerId)
+        assertEquals("selection captures the global active profile so it is self-contained", "p1", sel.profileId)
+    }
+    @Test fun `default openai-compatible selection has null profile when no active profile`() {
+        val s = settings()
+        s.state.apiProvider = ProviderRegistry.OPENAI_COMPATIBLE_ID
+        s.state.activeOpenAiCompatibleProfileId = ""
+        assertNull(RoleSelectionStore(s).get(AgentRole.COMPLETIONS).profileId)
+    }
+    @Test fun `default anthropic selection keeps null profile`() {
+        val s = settings()
+        s.state.apiProvider = "anthropic"
+        s.state.activeOpenAiCompatibleProfileId = "p1" // must be ignored for non-openai-compatible
+        assertNull(RoleSelectionStore(s).get(AgentRole.CHAT_DEFAULT).profileId)
+    }
 }

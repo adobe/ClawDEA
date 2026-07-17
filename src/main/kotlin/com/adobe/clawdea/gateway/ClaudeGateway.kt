@@ -80,7 +80,9 @@ class ClaudeGateway {
             bedrock?.resolvedRegion()?.isNotBlank() == true &&
             bedrock.resolvedBearerToken()?.isNotBlank() == true
 
-        val activeProfileId = completionsSelection.profileId ?: settings.state.activeOpenAiCompatibleProfileId
+        // Selection is authoritative — no fallback to the global active profile. A blank profileId
+        // means the selection is incompletely specified → openAiProfileReady fails → degrades to CLI.
+        val activeProfileId = resolveCompletionsProfileId(completionsSelection)
         val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
         val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
         val openAiProfileReady = providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
@@ -90,7 +92,7 @@ class ClaudeGateway {
         val path = selectPath(providerId, anthropicKeyPresent, bedrockDirectReady, openAiProfileReady)
 
         // Use model from COMPLETIONS selection if present, otherwise fall back to request.model
-        val effectiveModel = completionsSelection.modelId.ifBlank { request.model }
+        val effectiveModel = resolveCompletionsModel(completionsSelection, request.model)
         val effectiveRequest = if (effectiveModel != request.model) {
             request.copy(model = effectiveModel)
         } else {
@@ -476,6 +478,23 @@ class ClaudeGateway {
     }
 
     companion object {
+
+        /**
+         * Resolve the completions profile id from the role selection. The selection is
+         * authoritative — a null/blank profileId yields "" (no global fallback), which makes
+         * the openai-compatible readiness check fail and the gateway degrade to CLI.
+         */
+        internal fun resolveCompletionsProfileId(selection: com.adobe.clawdea.provider.AgentSelection): String =
+            selection.profileId ?: ""
+
+        /**
+         * Resolve the effective completions model: the selection's modelId when non-blank,
+         * otherwise the model carried by the incoming request.
+         */
+        internal fun resolveCompletionsModel(
+            selection: com.adobe.clawdea.provider.AgentSelection,
+            requestModel: String,
+        ): String = selection.modelId.ifBlank { requestModel }
 
         /**
          * Determine the execution path based on the selected provider and available credentials.

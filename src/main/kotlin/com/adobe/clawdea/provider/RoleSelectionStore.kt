@@ -17,9 +17,16 @@ class RoleSelectionStore(private val settings: ClawDEASettings) {
     fun get(role: String): AgentSelection {
         settings.state.roleSelections[role]?.let { return gson.fromJson(it, AgentSelection::class.java) }
         // Fallback default: legacy provider (or anthropic) with its global selected model.
+        // For openai-compatible, snapshot the current global active profile so the selection
+        // is self-contained (does not depend on the global active profile later changing).
         val providerId = settings.state.apiProvider.ifBlank { "anthropic" }
         val modelId = settings.getSelectedModelId("", providerId)
-        return AgentSelection(providerId, null, modelId)
+        val profileId = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            settings.state.activeOpenAiCompatibleProfileId.ifBlank { null }
+        } else {
+            null
+        }
+        return AgentSelection(providerId, profileId, modelId)
     }
     fun set(role: String, sel: AgentSelection) { settings.state.roleSelections[role] = gson.toJson(sel) }
     fun migrateFromLegacyIfNeeded() {
