@@ -221,8 +221,22 @@ class ModelComboManager(
     }
 
     fun refresh() {
-        val options = buildChatOptions(collectSources())
         val current = currentSelection()
+        val options = buildChatOptions(collectSources()).toMutableList()
+        // When the tab's model is unset (a fresh-bridge default), the CLI runs on its OWN default
+        // model. Don't auto-highlight a concrete model row — that would misrepresent it as pinned and
+        // silently pin it on re-pick. Prepend a "Default" row mapping to the blank-model selection and
+        // select it, so the combo honestly shows "<provider> › Default".
+        if (current.modelId.isBlank()) {
+            options.add(
+                0,
+                ProviderModelOption(
+                    selection = current,
+                    label = "${providerLabel(current)} › Default",
+                    enabled = true,
+                ),
+            )
+        }
         suppressEvents = true
         try {
             modelCombo.model = DefaultComboBoxModel(options.toTypedArray())
@@ -233,6 +247,15 @@ class ModelComboManager(
         } finally {
             suppressEvents = false
         }
+    }
+
+    /** Human-readable label for a selection's provider (profile name for openai-compatible). */
+    private fun providerLabel(sel: AgentSelection): String {
+        if (sel.providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID && sel.profileId != null) {
+            val name = ProfileStore(ClawDEASettings.getInstance()).profile(sel.profileId)?.name
+            if (!name.isNullOrBlank()) return name
+        }
+        return ProviderRegistry.require(sel.providerId).displayLabel
     }
 
     /**
@@ -279,23 +302,31 @@ class ModelComboManager(
         /**
          * Effect of switching the tab's [AgentSelection] from [current] to [picked]:
          * - identical (providerId + profileId + modelId all equal) → [RebuildAction.NONE].
-         * - same providerId AND same profileId, only modelId differs → [RebuildAction.RESTART]
-         *   (bridge keeps its backend and re-reads the model on restart).
-         * - providerId differs, profileId differs, or the backend kind differs →
-         *   [RebuildAction.REBUILD_SESSION] (backend kind is fixed per bridge, so a new session/bridge
-         *   must be built carrying the picked selection).
+         * - providerId or profileId differs → [RebuildAction.REBUILD_SESSION] (backend kind is fixed
+         *   per bridge, so a new session/bridge must be built carrying the picked selection).
+         * - same providerId AND same profileId, only modelId differs:
+         *     - Claude (CLAUDE_CLI) and Codex (CODEX_APP_SERVER) re-read the model on `start()`, so a
+         *       plain [RebuildAction.RESTART] applies the new model.
+         *     - the openai-compatible HTTP backend freezes the model in its immutable selection at
+         *       construction (AgentBackendFactory `modelIdProvider = { selection.modelId }`), and
+         *       `restart()` reuses the same backend instance — so it must [RebuildAction.REBUILD_SESSION]
+         *       to construct a fresh backend from the new selection (carrying sessionId replay).
+         *
+         * (Backend kind is a pure function of providerId, so a provider difference already implies a
+         * kind difference; no separate same-kind check is needed.)
          */
         fun rebuildActionFor(current: AgentSelection, picked: AgentSelection): RebuildAction {
             if (current == picked) return RebuildAction.NONE
-            val sameProvider = current.providerId == picked.providerId
-            val sameProfile = current.profileId == picked.profileId
-            val sameBackendKind =
-                ProviderRegistry.require(current.providerId).backendKind ==
-                    ProviderRegistry.require(picked.providerId).backendKind
-            return if (sameProvider && sameProfile && sameBackendKind) {
-                RebuildAction.RESTART
-            } else {
+            val sameProviderAndProfile =
+                current.providerId == picked.providerId && current.profileId == picked.profileId
+            if (!sameProviderAndProfile) return RebuildAction.REBUILD_SESSION
+            // Same provider + profile, model differs.
+            return if (ProviderRegistry.require(picked.providerId).backendKind ==
+                com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP
+            ) {
                 RebuildAction.REBUILD_SESSION
+            } else {
+                RebuildAction.RESTART
             }
         }
 

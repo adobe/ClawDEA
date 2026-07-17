@@ -50,6 +50,15 @@ class ModelComboManagerTest {
     }
 
     @Test
+    fun `model-only difference on openai-compatible same profile yields REBUILD_SESSION`() {
+        // The HTTP backend freezes the model in its immutable selection at construction, so a
+        // model-only change on the same profile must rebuild (restart would keep the old model).
+        val current = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-a")
+        val picked = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-b")
+        assertEquals(RebuildAction.REBUILD_SESSION, rebuildActionFor(current, picked))
+    }
+
+    @Test
     fun `profile difference on openai-compatible yields REBUILD_SESSION`() {
         val current = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-x")
         val picked = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p2", "model-x")
