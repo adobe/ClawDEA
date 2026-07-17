@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.application.ApplicationManager
@@ -105,6 +106,25 @@ class AuthManager(
     fun preflight(): AuthValidation = activeProvider().validate()
 
     fun providerById(id: String): AuthProvider? = providers[id]
+
+    /**
+     * Resolves the [AuthProvider] for the given [AgentSelection], returning the requested provider
+     * by its [AgentSelection.providerId], with a fallback to anthropic if not found.
+     */
+    fun providerFor(sel: AgentSelection): AuthProvider =
+        providers[sel.providerId] ?: providers.getValue("anthropic")
+
+    /**
+     * Returns whether the provider specified in the [AgentSelection] is authenticated.
+     */
+    fun isAuthenticated(sel: AgentSelection): Boolean = providerFor(sel).isConfigured()
+
+    /**
+     * Applies the credentials of the provider specified in the [AgentSelection] to the environment.
+     */
+    fun applyToEnvironment(env: MutableMap<String, String>, sel: AgentSelection) {
+        providerFor(sel).applyToEnvironment(env)
+    }
 
     companion object {
         fun getInstance(): AuthManager =

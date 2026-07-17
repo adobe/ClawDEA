@@ -18,6 +18,7 @@ import com.adobe.clawdea.cli.CodexAppServerParser
 import com.adobe.clawdea.cli.CodexAppServerProcess
 import com.adobe.clawdea.cli.UnavailableAgentProcess
 import com.adobe.clawdea.mcp.McpServer
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
@@ -38,11 +39,11 @@ import java.net.URI
 object AgentBackendFactory {
 
     /**
-     * Creates an [AgentBackend] for the given provider. The backend kind is resolved from
-     * [ProviderRegistry], and the appropriate process + parser + steering mode are selected.
+     * Creates an [AgentBackend] for the given [AgentSelection]. The backend kind is resolved from
+     * [ProviderRegistry], and provider/profile/model come from the selection (no env-fallthrough).
      */
     fun create(
-        providerId: String,
+        selection: AgentSelection,
         workingDirectory: String = "",
         mcpPort: Int = 0,
         project: Project? = null,
@@ -55,6 +56,7 @@ object AgentBackendFactory {
         // that the backend evaluates off the EDT on first turn.
         credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
     ): AgentBackend {
+        val providerId = selection.providerId
         val kind = ProviderRegistry.require(providerId).backendKind
         return when (kind) {
             BackendKind.CLAUDE_CLI -> ProcessAgentBackend(
@@ -108,8 +110,8 @@ object AgentBackendFactory {
                     )
                 }
 
-                // Get active profile id
-                val activeProfileId = settings.state.activeOpenAiCompatibleProfileId
+                // Get profile ID from the selection (explicit pick, no fallback)
+                val activeProfileId = selection.profileId ?: ""
                 if (activeProfileId.isBlank()) {
                     return errorBackend("No OpenAI-compatible profile selected")
                 }
@@ -118,9 +120,9 @@ object AgentBackendFactory {
                 val profileEntry = profileStore.resolve(activeProfileId, System.getenv())
                     ?: return errorBackend("Profile '$activeProfileId' not configured")
 
-                // Get selected model
-                val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, activeProfileId)
-                val selectedModelId = settings.getSelectedModelId(workingDirectory, catalogKey)
+                // Get selected model from the selection (explicit pick, no fallback)
+                val catalogKey = selection.catalogKey()
+                val selectedModelId = selection.modelId.ifBlank { null }
                 if (selectedModelId.isNullOrBlank()) {
                     return errorBackend("No model selected for profile '$activeProfileId'")
                 }
@@ -161,10 +163,9 @@ object AgentBackendFactory {
                     // Lazy: the backend reads the credential off the EDT on first turn. The factory
                     // runs on the EDT during rebuild, where a PasswordSafe read would throw.
                     credentialProvider = { credentialStore.get(activeProfileId) },
-                    // Lazy: re-read the selected model on every backend start so a dropdown switch
-                    // (which restarts the reused backend instance) picks up the new model. Uses the
-                    // same composite catalogKey the readiness check above resolved the model with.
-                    modelIdProvider = { settings.getSelectedModelId(workingDirectory, catalogKey) ?: selectedModelId },
+                    // The selection has already captured the model ID; return it directly.
+                    // (No re-read: the caller rebuilds the backend on model change.)
+                    modelIdProvider = { selectedModelId },
                     project = project,
                     projectPath = projectPath,
                     mcpDefs = mcpDefs,
@@ -174,5 +175,30 @@ object AgentBackendFactory {
                 )
             }
         }
+    }
+
+    /**
+     * Legacy overload: creates an [AgentBackend] for the given provider ID, reading the active
+     * profile and selected model from current settings. Delegates to [create(selection, ...)].
+     * All existing callers use this overload and compile unchanged.
+     */
+    fun create(
+        providerId: String,
+        workingDirectory: String = "",
+        mcpPort: Int = 0,
+        project: Project? = null,
+        settings: ClawDEASettings = ClawDEASettings.getInstance(),
+        credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
+    ): AgentBackend {
+        // Build an AgentSelection from current settings (global provider + active profile + selected model)
+        val profileId = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            settings.state.activeOpenAiCompatibleProfileId
+        } else {
+            null
+        }
+        val catalogKey = ProviderRegistry.catalogKey(providerId, profileId ?: "")
+        val modelId = settings.getSelectedModelId(workingDirectory, catalogKey) ?: ""
+        val selection = AgentSelection(providerId, profileId, modelId)
+        return create(selection, workingDirectory, mcpPort, project, settings, credentialStore)
     }
 }
