@@ -47,5 +47,5 @@
 - [AnthropicModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/AnthropicModelProbe.kt), [BedrockModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/BedrockModelProbe.kt), [SubscriptionModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/SubscriptionModelProbe.kt) — per-provider probes
 - [ModelCatalogMerger.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/ModelCatalogMerger.kt) — merges per-provider results into the picker model list
 - [ModelEntry.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/ModelEntry.kt) — picker entry record
-- [OpenAiCompatibleModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/OpenAiCompatibleModelProbe.kt) — model catalog probe for OpenAI-compatible profiles
-- [ProfileRegistry.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/ProfileRegistry.kt) — profile management and model catalog access
+- [OpenAiCompatibleModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/catalog/OpenAiCompatibleModelProbe.kt) — model catalog probe for OpenAI-compatible profiles
+- [ProfileStore.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileStore.kt) — profile persistence, resolved-profile lookup, and base-URL / credential access

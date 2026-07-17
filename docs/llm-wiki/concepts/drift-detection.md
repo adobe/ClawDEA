@@ -19,7 +19,7 @@
 1. **Trigger** — Called from `DriftStartupActivity` (project open), `RefreshWikiArgs` (`/refresh-wiki` command), `CommitWikiDriftDetector` (post-commit), or test fixtures.
 2. **Resolve wiki path** — `WikiLocator.getInstance(project).wikiDir()` returns the active wiki directory (default `<projectBase>/<claudeDirName>/<wikiSubdir>` or, in team mode, `<projectBase>/<wikiPath>` from `.clawdea/config.json`). All detectors and the state store key off this single resolved path.
 3. **Collect raw events** — `collectRaw` runs each detector in turn:
-   - `CodeRenameDetector` — scans every `<wikiDir>/concepts/*.md`, parses `[label](../../../src/...)` links, flags links whose target file doesn't exist
+   - `CodeRenameDetector` — scans every `<wikiDir>/concepts/*.md`, parses standard markdown links whose target resolves under `../../../src/`, and flags any whose target file doesn't exist
    - `ManifestStaleDetector` — parses `.clawdea-workspace.md`, flags `path:` entries that don't resolve
    - `CommitWikiDriftDetector` — walks commits in `lastSyncedCommit..HEAD` via Git4Idea, intersects each commit's touched files with the per-page mention index, and emits one `CommitDrift` per affected page. First-run / unreachable SHA returns no events; HEAD becomes the new baseline.
 4. **Filter dismissed** — `filterDismissed(raw, state)` removes events whose signature appears in `state.dismissed`.

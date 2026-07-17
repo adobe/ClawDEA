@@ -68,6 +68,8 @@ As of 2.1, ClawDEA supports **OpenAI-compatible provider profiles** for inline c
 - [OpenAiSubscriptionAuthProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/OpenAiSubscriptionAuthProvider.kt) — ChatGPT subscription provider (codex backend); "configured" == `codex login status` signed in, and it removes `OPENAI_API_KEY` from the CLI env
 - [SubscriptionAuth.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/SubscriptionAuth.kt) — interactive `claude auth login --claudeai` driver
 - [SubscriptionAuthProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/SubscriptionAuthProbe.kt) — `claude auth status` probe
-- [OpenAiCompatibleAuthProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/OpenAiCompatibleAuthProvider.kt) — profile-scoped PasswordSafe credential provider
-- [ProfileRegistry.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/ProfileRegistry.kt) — profile import, validation, export, and persistence
-- [CredentialExchangeFlow.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/CredentialExchangeFlow.kt) — declarative OAuth2 credential exchange execution
+- [OpenAiCompatibleAuthProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/auth/OpenAiCompatibleAuthProvider.kt) — profile-scoped PasswordSafe credential provider
+- [ProfileStore.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileStore.kt) — profile persistence and resolution against `ClawDEASettings`
+- [ProfileImportExport.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileImportExport.kt) — profile import / export
+- [ProfileValidator.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileValidator.kt) — profile validation
+- [CredentialFlowExecutor.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/auth/CredentialFlowExecutor.kt) — declarative OAuth2 credential exchange execution
