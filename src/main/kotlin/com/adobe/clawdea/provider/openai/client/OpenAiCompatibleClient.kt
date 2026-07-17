@@ -84,6 +84,10 @@ class OpenAiCompatibleClient(
         val chatEndpoint = profile.baseUrl.resolve(profile.profile.endpoints.chatCompletions)
         val body = buildAgentRequestBody(request)
 
+        // Diagnostic (no content): confirms what we actually send — endpoint, requested stream flag,
+        // and model — so a persistent gateway error can be attributed to request vs. server.
+        log.info("openai-compatible agent request: url=$chatEndpoint stream=${request.stream} model=${request.model}")
+
         val httpRequest = buildHttpRequest(chatEndpoint, credential, profile, body)
 
         try {
