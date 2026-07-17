@@ -48,7 +48,10 @@ object ModelCapabilityResolver {
     }
 
     private fun matchesGlob(modelId: String, pattern: String): Boolean {
-        if (pattern == "*") return true
+        // Match-all: the glob "*" and the regex-style ".*" (a very common authoring mistake, since
+        // people reach for regex) both mean "every model". Treat them identically so a profile that
+        // writes ".*" to mark all models agentic doesn't silently fall through to COMPLETION_ONLY.
+        if (pattern == "*" || pattern == ".*") return true
         if (!pattern.contains("*")) return modelId == pattern
 
         // Convert glob to regex: escape literal parts, replace * with .*

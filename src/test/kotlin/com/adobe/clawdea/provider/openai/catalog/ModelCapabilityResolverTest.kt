@@ -70,4 +70,21 @@ class ModelCapabilityResolverTest {
             ),
         )
     }
+
+    @Test
+    fun `star and regex-style match-all patterns both match any model id`() {
+        val slashyId = "hosted_vllm/openai/gpt-oss-120b"
+        listOf("*", ".*").forEach { pattern ->
+            assertEquals(
+                "pattern '$pattern' should mark all models agentic",
+                ModelCapability.AGENTIC,
+                ModelCapabilityResolver.resolve(
+                    modelId = slashyId,
+                    endpointCapability = null,
+                    profileRules = listOf(ModelRule(pattern = pattern, capability = "agentic")),
+                    userOverride = null,
+                ),
+            )
+        }
+    }
 }

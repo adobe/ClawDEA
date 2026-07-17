@@ -114,7 +114,10 @@ class OpenAiCompatibleAgentBackend(
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (readinessError != null) {
-            // Not ready: emit error and sentinel
+            // Not ready: log the concrete reason (otherwise the chat only shows CliBridge's generic
+            // "CLI process exited unexpectedly" and the actual cause — no profile / no model /
+            // not agentic / no credential — is invisible), then emit it and stop.
+            log.warn("OpenAI-compatible backend not ready: $readinessError")
             queue.put(CliEvent.Result(
                 text = readinessError,
                 isError = true,

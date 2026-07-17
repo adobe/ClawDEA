@@ -325,18 +325,23 @@ class OpenAiCompatibleSettingsCard : Disposable {
             Messages.getQuestionIcon(),
         )
 
-        // Execute removal in order: profile config, then optional credential/sessions
+        // Execute removal in order: profile config, then optional credential/sessions.
         profileStore.remove(profile.id)
-
-        if (deleteCredential == Messages.YES) {
-            credentialStore.clear(profile.id)
-        }
-
-        if (deleteSessions == Messages.YES) {
-            com.adobe.clawdea.provider.openai.session.OpenAiSessionScanner.deleteSessionsForProfile(profile.id)
-        }
-
         rebuildProfileList()
+
+        // PasswordSafe I/O and session-ledger file deletion are prohibited on the EDT — run them off
+        // the EDT (fire-and-forget; the profile is already removed from the visible list above).
+        val profileId = profile.id
+        val clearCredential = deleteCredential == Messages.YES
+        val clearSessions = deleteSessions == Messages.YES
+        if (clearCredential || clearSessions) {
+            ApplicationManager.getApplication().executeOnPooledThread {
+                if (clearCredential) credentialStore.clear(profileId)
+                if (clearSessions) {
+                    com.adobe.clawdea.provider.openai.session.OpenAiSessionScanner.deleteSessionsForProfile(profileId)
+                }
+            }
+        }
     }
 
     private fun doConnect() {
