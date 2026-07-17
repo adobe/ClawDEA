@@ -12,7 +12,10 @@
 package com.adobe.clawdea.completions
 
 import com.adobe.clawdea.completions.ClawDEACompletionProvider.Companion.isProviderCompletionEnabled
+import com.adobe.clawdea.completions.ClawDEACompletionProvider.Companion.resolveCompletionsGateModelId
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.ProviderRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -138,5 +141,38 @@ class ClawDEACompletionProviderGatingTest {
             selectedModelId = "",
         )
         assertTrue("Subscription with login + blank model should enable completions", result)
+    }
+
+    // --- Gate model resolution uses the COMPLETIONS role selection (T13 fix (d)) ---
+    // The gate must resolve provider/model from the COMPLETIONS selection (what the gateway runs),
+    // NOT the global apiProvider. These guard the selection-driven model resolution.
+
+    @Test
+    fun `gate model for a Claude role selection is blank (CLI fallback)`() {
+        // A Claude COMPLETIONS role selection needs no model — the gate returns "" regardless of the
+        // global provider, so a Claude role stays enabled even when the global is a Codex/OpenAI model.
+        val sel = AgentSelection(providerId = "anthropic", profileId = null, modelId = "")
+        val model = resolveCompletionsGateModelId(sel) { error("Claude branch must not read stored model") }
+        assertEquals("", model)
+    }
+
+    @Test
+    fun `gate model for an openai-compatible role selection uses the selection's own model`() {
+        // The role selection carries its own model; the gate uses it directly (no global read).
+        val sel = AgentSelection(providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID, profileId = "p1", modelId = "gpt-4o")
+        val model = resolveCompletionsGateModelId(sel) { error("should not fall back when selection has a model") }
+        assertEquals("gpt-4o", model)
+    }
+
+    @Test
+    fun `gate model for an openai-compatible selection with blank model falls back to profile catalog`() {
+        // When the selection's model is blank, fall back to the profile's stored model keyed by the
+        // selection's own catalog key (provider:profile) — not the global active profile.
+        val sel = AgentSelection(providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID, profileId = "p1", modelId = "")
+        val expectedKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1")
+        var seenKey: String? = null
+        val model = resolveCompletionsGateModelId(sel) { key -> seenKey = key; "stored-model" }
+        assertEquals(expectedKey, seenKey)
+        assertEquals("stored-model", model)
     }
 }

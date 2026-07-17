@@ -58,20 +58,18 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
         // the hotkey/action. See issue #146.
         if (settings.state.completionsManualOnly && !isManualTrigger(event)) return false
 
+        // Gate on the COMPLETIONS role selection, not the global provider. The completion
+        // EXECUTES via RoleSelectionStore.get(COMPLETIONS) (ClaudeGateway, T8); the gate must
+        // consult the same provider so it can't offer/suppress against a different one.
         val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
-        val providerId = authManager.effectiveProviderId()
+        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
+        val providerId = completionsSelection.providerId
         val descriptor = com.adobe.clawdea.provider.ProviderRegistry.require(providerId)
-        val providerConfigured = authManager.activeProvider().isConfigured()
+        val providerConfigured = authManager.isAuthenticated(completionsSelection)
 
-        val selectedModelId = if (providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
-            val profileId = settings.state.activeOpenAiCompatibleProfileId
-            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(providerId, profileId)
-            // Try to get project path from the event; fall back to empty string if unavailable.
-            // getSelectedModelId with empty path uses the global selected model.
-            val projectPath = ""
-            settings.getSelectedModelId(projectPath, catalogKey)
-        } else {
-            "" // Claude providers allow blank model (they fall back to CLI defaults)
+        val selectedModelId = resolveCompletionsGateModelId(completionsSelection) { catalogKey ->
+            settings.getSelectedModelId("", catalogKey)
         }
 
         return isProviderCompletionEnabled(
@@ -175,6 +173,29 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
             }
 
             return true
+        }
+
+        /**
+         * Resolves the model id used by the completions enablement gate for the given COMPLETIONS
+         * [selection]. Pure/testable (no IntelliJ deps): for openai-compatible it uses the selection's
+         * own model, falling back to the profile's stored model (via [storedModelLookup] keyed by the
+         * catalog key) when the selection's model is blank; for Claude providers it returns "" (they
+         * fall back to CLI defaults, so no model is required to enable completions).
+         */
+        internal fun resolveCompletionsGateModelId(
+            selection: com.adobe.clawdea.provider.AgentSelection,
+            storedModelLookup: (catalogKey: String) -> String,
+        ): String {
+            if (selection.providerId != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                return ""
+            }
+            return selection.modelId.ifBlank {
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    selection.providerId,
+                    selection.profileId.orEmpty(),
+                )
+                storedModelLookup(catalogKey)
+            }
         }
 
         /**

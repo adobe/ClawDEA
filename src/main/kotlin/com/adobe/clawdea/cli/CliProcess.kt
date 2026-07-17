@@ -32,6 +32,11 @@ class CliProcess(
     private val workingDirectory: String,
     private val mcpPort: Int = 0,
     private val project: Project? = null,
+    // Resolves the provider id whose pinned model feeds `--model`. Defaults to the global effective
+    // provider (today's behavior) so non-factory callers are unaffected. AgentBackendFactory passes
+    // the SELECTION's provider id so a per-tab CLAUDE tab reads the Claude-pinned model, not the
+    // global provider's (which may be a Codex/OpenAI model → "invalid model" failure).
+    private val providerIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
 ) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
@@ -47,6 +52,15 @@ class CliProcess(
 
     override val isAlive: Boolean
         get() = process?.isAlive == true
+
+    /**
+     * Resolves the `--model` value for the CLI from the provider this process was built for
+     * (via [providerIdProvider]) rather than the global effective provider. A per-tab Claude tab
+     * therefore reads the Claude-pinned model even when the global default is a Codex/OpenAI
+     * provider. Internal for headless testing of the selection→model routing.
+     */
+    internal fun resolveCliModel(settings: ClawDEASettings): String =
+        settings.getCliModelId(workingDirectory, providerIdProvider())
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
@@ -183,8 +197,7 @@ class CliProcess(
         // tool call will silently fail in stream-json. This is a degraded mode
         // triggered only when the local MCP HTTP server fails to bind.
 
-        val effectiveProvider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        val selectedModel = ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProvider)
+        val selectedModel = resolveCliModel(ClawDEASettings.getInstance())
         command.addAll(buildModelArg(selectedModel))
 
         val selectedEffort = ClawDEASettings.getInstance().getSelectedEffort(workingDirectory)
