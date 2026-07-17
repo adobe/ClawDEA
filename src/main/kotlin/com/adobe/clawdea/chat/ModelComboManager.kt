@@ -11,10 +11,14 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.auth.CodexSubscriptionAuthEventListener
 import com.adobe.clawdea.auth.SubscriptionAuthEventListener
 import com.adobe.clawdea.gateway.ModelCatalogListener
 import com.adobe.clawdea.gateway.ModelEntry
+import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.profile.ProfileStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -27,17 +31,27 @@ import javax.swing.JComboBox
 import javax.swing.JList
 
 /**
- * Manages the model selector combo box: rendering, persistence, action
+ * Manages the combined provider+model selector combo box: rendering, persistence, action
  * listener, and message-bus subscriptions for catalog/auth changes.
+ *
+ * Each entry is a [ProviderModelOption] (a provider › model row). Picking an option updates the
+ * tab's [AgentSelection] and routes to one of three effects via [rebuildActionFor]:
+ * - [RebuildAction.NONE] — no change.
+ * - [RebuildAction.RESTART] — same provider+profile, model-only change: restart the bridge in place
+ *   (the bridge re-reads its model on restart).
+ * - [RebuildAction.REBUILD_SESSION] — provider, profile, or backend-kind change: rebuild the tab's
+ *   [ChatSession] carrying the picked selection (backend kind is fixed per bridge).
  *
  * Extracted from [ChatPanel] to reduce its size.
  */
 class ModelComboManager(
     private val project: com.intellij.openapi.project.Project,
-    private val modelCombo: JComboBox<ModelEntry>,
+    private val modelCombo: JComboBox<ProviderModelOption>,
     parentDisposable: Disposable,
     private val isBridgeAvailable: () -> Boolean,
+    private val currentSelection: () -> AgentSelection,
     private val restartBridge: () -> Unit,
+    private val rebuildSession: (AgentSelection) -> Unit,
     private val appendInfo: (String) -> Unit,
     private val appendError: (String) -> Unit,
 ) {
@@ -48,46 +62,37 @@ class ModelComboManager(
 
     init {
         modelCombo.font = modelCombo.font.deriveFont(11f)
-        modelCombo.renderer = object : SimpleListCellRenderer<ModelEntry>() {
+        modelCombo.renderer = object : SimpleListCellRenderer<ProviderModelOption>() {
             init {
                 font = modelCombo.font.deriveFont(11f)
             }
 
             override fun customize(
-                list: JList<out ModelEntry>,
-                value: ModelEntry?,
+                list: JList<out ProviderModelOption>,
+                value: ProviderModelOption?,
                 index: Int,
                 selected: Boolean,
                 hasFocus: Boolean,
             ) {
-                text = value?.displayName.orEmpty()
+                text = value?.label.orEmpty()
+                // Disabled (unauthenticated) rows render greyed and are non-selectable.
+                isEnabled = value?.enabled ?: true
+                if (value?.enabled == false) {
+                    foreground = com.intellij.util.ui.UIUtil.getLabelDisabledForeground()
+                }
             }
         }
         modelCombo.putClientProperty("JComponent.sizeVariant", "small")
 
         modelCombo.addActionListener {
             if (suppressEvents) return@addActionListener
-            val entry = modelCombo.selectedItem as? ModelEntry ?: return@addActionListener
-            ClawDEASettings.getInstance().setSelectedModelId(
-                project.basePath.orEmpty(),
-                entry.id,
-                providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey(),
-            )
-            if (isBridgeAvailable()) {
-                scope.launch {
-                    try {
-                        restartBridge()
-                        withContext(Dispatchers.Main) { appendInfo("Switched to ${entry.displayName}") }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        log.warn("failed to restart bridge after model switch", e)
-                        withContext(Dispatchers.Main) { appendError("Failed to switch model: ${e.message}") }
-                    }
-                }
-            } else {
-                appendInfo("Model set to ${entry.displayName} (applied on next send)")
+            val option = modelCombo.selectedItem as? ProviderModelOption ?: return@addActionListener
+            // A disabled (sign-in) row is not a valid pick: revert to the current tab selection.
+            if (!option.enabled) {
+                reselectCurrent()
+                return@addActionListener
             }
+            onOptionPicked(option)
         }
 
         val connection = ApplicationManager.getApplication().messageBus.connect(parentDisposable)
@@ -135,14 +140,13 @@ class ModelComboManager(
             },
         )
 
-        // Re-label "Default (<model>)" when a turn is observed (live or resume).
+        // Rebuild the combo when a turn is observed (live or resume), so the Default-derived label
+        // and any newly-authenticated provider are reflected.
         project.messageBus.connect(parentDisposable).subscribe(
             com.adobe.clawdea.cost.CostSnapshotListener.TOPIC,
             object : com.adobe.clawdea.cost.CostSnapshotListener {
                 private var lastSeenResolved: String? = null
                 override fun onCostChanged() {
-                    // Only refresh when the resolved Default model actually changed, to
-                    // avoid rebuilding the combo on every cost tick.
                     val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()
                     if (resolved != lastSeenResolved) {
                         lastSeenResolved = resolved
@@ -156,33 +160,144 @@ class ModelComboManager(
         refresh()
     }
 
-    fun refresh() {
-        val settings = ClawDEASettings.getInstance()
-        val state = settings.state
-        val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
-        val selectedId = settings.getSelectedModelId(project.basePath.orEmpty(), catalogKey)
-        val rawCatalog = (state.modelCatalogs[catalogKey] ?: emptyList())
-        // For the openai-compatible provider, only tool-capable (AGENTIC) + enabled models can start
-        // agentic chat, so hide the rest — a completion-only/unknown pick would only error. Other
-        // providers (Claude/Codex) have no per-model capability semantics; show their catalog as-is.
-        val effectiveProviderId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        val catalog = chatSelectableModels(rawCatalog, effectiveProviderId)
-        // Annotate "Default" only with the model a Default-selection turn actually
-        // resolved to (never an explicit pick or stale history). Project-wide value.
-        val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()
-        val entries = mutableListOf(ModelEntry(id = "", displayName = defaultLabel(resolved, catalog)))
-        entries += catalog.map { it.copy() }
+    /** Handle a valid (enabled) option pick: persist, update tab selection, restart or rebuild. */
+    private fun onOptionPicked(option: ProviderModelOption) {
+        val current = currentSelection()
+        val picked = option.selection
+        val action = rebuildActionFor(current, picked)
+
+        // Persist the model selection keyed by the picked provider/profile catalog key, so a later
+        // refresh() re-selects it and the rebuilt/restarted bridge reads the same model.
+        ClawDEASettings.getInstance().setSelectedModelId(
+            project.basePath.orEmpty(),
+            picked.modelId,
+            providerId = picked.catalogKey(),
+        )
+
+        when (action) {
+            RebuildAction.NONE -> Unit
+            RebuildAction.RESTART -> {
+                if (isBridgeAvailable()) {
+                    scope.launch {
+                        try {
+                            restartBridge()
+                            withContext(Dispatchers.Main) { appendInfo("Switched to ${option.label}") }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            log.warn("failed to restart bridge after model switch", e)
+                            withContext(Dispatchers.Main) { appendError("Failed to switch model: ${e.message}") }
+                        }
+                    }
+                } else {
+                    appendInfo("Model set to ${option.label} (applied on next send)")
+                }
+            }
+            RebuildAction.REBUILD_SESSION -> {
+                // Backend kind / provider / profile change: rebuild the tab's session carrying the
+                // picked selection (must run on the EDT — it swaps tool-window content).
+                ApplicationManager.getApplication().invokeLater(
+                    { rebuildSession(picked) },
+                    ModalityState.any(),
+                )
+            }
+        }
+    }
+
+    private fun reselectCurrent() {
+        val current = currentSelection()
+        val model = modelCombo.model
         suppressEvents = true
         try {
-            modelCombo.model = DefaultComboBoxModel(entries.toTypedArray())
-            modelCombo.selectedIndex = entries.indexOfFirst { it.id == selectedId }.coerceAtLeast(0)
+            val idx = (0 until model.size).firstOrNull { i ->
+                model.getElementAt(i)?.selection == current
+            } ?: (0 until model.size).firstOrNull { i ->
+                model.getElementAt(i)?.enabled == true
+            } ?: -1
+            if (idx >= 0) modelCombo.selectedIndex = idx
         } finally {
             suppressEvents = false
         }
     }
 
+    fun refresh() {
+        val options = buildChatOptions(collectSources())
+        val current = currentSelection()
+        suppressEvents = true
+        try {
+            modelCombo.model = DefaultComboBoxModel(options.toTypedArray())
+            // Re-select the row matching the current tab selection; otherwise first enabled row.
+            val idx = options.indexOfFirst { it.selection == current }
+                .let { if (it >= 0) it else options.indexOfFirst { o -> o.enabled } }
+            if (idx >= 0) modelCombo.selectedIndex = idx
+        } finally {
+            suppressEvents = false
+        }
+    }
+
+    /**
+     * Build the [ProviderModelSource] list from every provider ClawDEA supports. For the
+     * openai-compatible provider, one source per imported profile (each with its own catalog and
+     * authentication state); for every other provider, one source keyed by its bare provider id.
+     */
+    private fun collectSources(): List<ProviderModelSource> {
+        val settings = ClawDEASettings.getInstance()
+        val state = settings.state
+        val auth = AuthManager.getInstance()
+        val sources = mutableListOf<ProviderModelSource>()
+
+        for (descriptor in ProviderRegistry.all()) {
+            if (descriptor.id == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                // One source per imported profile.
+                for (profile in ProfileStore(settings).profiles()) {
+                    val sel = AgentSelection(descriptor.id, profile.id, "")
+                    val catalogKey = ProviderRegistry.catalogKey(descriptor.id, profile.id)
+                    sources += ProviderModelSource(
+                        providerId = descriptor.id,
+                        profileId = profile.id,
+                        displayLabel = profile.name.ifBlank { descriptor.displayLabel },
+                        authenticated = auth.isAuthenticated(sel),
+                        models = state.modelCatalogs[catalogKey] ?: emptyList(),
+                    )
+                }
+            } else {
+                val sel = AgentSelection(descriptor.id, null, "")
+                sources += ProviderModelSource(
+                    providerId = descriptor.id,
+                    profileId = null,
+                    displayLabel = descriptor.displayLabel,
+                    authenticated = auth.isAuthenticated(sel),
+                    models = state.modelCatalogs[descriptor.id] ?: emptyList(),
+                )
+            }
+        }
+        return sources
+    }
+
     companion object {
-        val DEFAULT_SENTINEL = ModelEntry(id = "", displayName = "Default")
+
+        /**
+         * Effect of switching the tab's [AgentSelection] from [current] to [picked]:
+         * - identical (providerId + profileId + modelId all equal) → [RebuildAction.NONE].
+         * - same providerId AND same profileId, only modelId differs → [RebuildAction.RESTART]
+         *   (bridge keeps its backend and re-reads the model on restart).
+         * - providerId differs, profileId differs, or the backend kind differs →
+         *   [RebuildAction.REBUILD_SESSION] (backend kind is fixed per bridge, so a new session/bridge
+         *   must be built carrying the picked selection).
+         */
+        fun rebuildActionFor(current: AgentSelection, picked: AgentSelection): RebuildAction {
+            if (current == picked) return RebuildAction.NONE
+            val sameProvider = current.providerId == picked.providerId
+            val sameProfile = current.profileId == picked.profileId
+            val sameBackendKind =
+                ProviderRegistry.require(current.providerId).backendKind ==
+                    ProviderRegistry.require(picked.providerId).backendKind
+            return if (sameProvider && sameProfile && sameBackendKind) {
+                RebuildAction.RESTART
+            } else {
+                RebuildAction.REBUILD_SESSION
+            }
+        }
 
         /**
          * The models offered in the chat dropdown for [effectiveProviderId]. For the
@@ -195,7 +310,7 @@ class ModelComboManager(
             catalog: List<ModelEntry>,
             effectiveProviderId: String,
         ): List<ModelEntry> {
-            if (effectiveProviderId != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            if (effectiveProviderId != ProviderRegistry.OPENAI_COMPATIBLE_ID) {
                 return catalog
             }
             return catalog.filter { it.capability == "agentic" && it.enabled }
@@ -240,4 +355,7 @@ class ModelComboManager(
             return if (version.isBlank()) name else "$name $version"
         }
     }
+
+    /** The effect of picking a new [AgentSelection] for a chat tab. */
+    enum class RebuildAction { NONE, RESTART, REBUILD_SESSION }
 }

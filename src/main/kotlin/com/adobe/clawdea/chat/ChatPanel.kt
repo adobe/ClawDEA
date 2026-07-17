@@ -23,7 +23,6 @@ import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.chat.permission.PermissionRequestHandler
 import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
-import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.settings.ClawDEASettings
@@ -122,7 +121,7 @@ class ChatPanel(
         border = BorderFactory.createEmptyBorder(2, 8, 2, 8)
     }
 
-    private val modelCombo: JComboBox<ModelEntry> = JComboBox()
+    private val modelCombo: JComboBox<ProviderModelOption> = JComboBox()
     private lateinit var modelComboManager: ModelComboManager
 
     private val effortCombo: JComboBox<EffortComboManager.EffortEntry> = JComboBox()
@@ -1139,15 +1138,22 @@ class ChatPanel(
     }
 
     /**
-     * Rebuild this tab's [ChatSession] on the backend the *current* provider selects (Codex⇄Claude).
+     * Rebuild this tab's [ChatSession] on the backend the selected provider requires (Codex⇄Claude⇄HTTP).
      *
      * The backend a [CliBridge] drives is fixed at construction, so when a provider switch flips the
      * backend type there is no way to restart into the other CLI in place. Instead we replace this
      * panel's tool-window content with a brand-new [ChatSession] — its fresh bridge picks the right
      * backend/label, the model dropdown already reflects the new provider, and auto-resume replays the
      * current conversation as context so the switch doesn't lose history. Must run on the EDT.
+     *
+     * When [selection] is non-null (a per-tab dropdown pick), the new session/bridge is built on that
+     * exact [AgentSelection] so it uses the picked provider/profile/model. When null (a global
+     * provider change applied via Settings), the new session seeds CHAT_DEFAULT and the bridge resolves
+     * the effective provider — preserving the pre-per-tab behavior.
      */
-    private fun rebuildSessionForBackendChange() {
+    private fun rebuildSessionForBackendChange(
+        selection: com.adobe.clawdea.provider.AgentSelection? = null,
+    ) {
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ClawDEA") ?: return
         val contentManager = toolWindow.contentManager
         val oldContent = contentManager.contents.firstOrNull { it.component === this } ?: return
@@ -1165,6 +1171,7 @@ class ChatPanel(
             tabName,
             autoResumeSessionId = resumeId,
             initialComposerDraft = transferredDraft,
+            selection = selection,
         )
         val newContent = com.intellij.ui.content.ContentFactory.getInstance()
             .createContent(session.panel, tabName, true)
@@ -1261,10 +1268,12 @@ class ChatPanel(
             modelCombo = modelCombo,
             parentDisposable = this,
             isBridgeAvailable = { bridge.isRunning && !turnController.isStreaming },
+            currentSelection = { bridge.selection },
             restartBridge = {
                 clearQueuedPrompt()
                 bridge.restart(skills = discoveredSkills)
             },
+            rebuildSession = { selection -> rebuildSessionForBackendChange(selection) },
             appendInfo = { msg -> browserRenderer.appendHtml(renderer.renderInfoMessage(msg)) },
             appendError = { msg -> browserRenderer.appendHtml(renderer.renderError(msg)) },
         )
