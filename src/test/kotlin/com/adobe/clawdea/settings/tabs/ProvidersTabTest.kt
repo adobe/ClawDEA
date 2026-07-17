@@ -41,32 +41,22 @@ class ProvidersTabTest {
     }
 
     @Test
-    fun `openai-compatible catalog key is excluded from generic transient catalogs`() {
-        // The generic table's saveModels/loadModels/isModelsModified exclude openai-compatible keys
-        // (both the base key and profile-scoped keys) because the card owns those catalogs.
-        // This test verifies the filtering logic by checking a simulated catalog map.
-        val catalogs = mapOf<String, List<com.adobe.clawdea.gateway.ModelEntry>>(
-            "anthropic" to emptyList(),
-            "bedrock" to emptyList(),
-            ProviderRegistry.OPENAI_COMPATIBLE_ID to emptyList(),
-            "${ProviderRegistry.OPENAI_COMPATIBLE_ID}:profile1" to emptyList(),
-        )
-
-        val genericKeys = catalogs.keys.filter { k ->
-            k != ProviderRegistry.OPENAI_COMPATIBLE_ID &&
-                !k.startsWith("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
-        }
-
-        // Assert: only non-openai-compatible keys are included.
-        assertTrue(genericKeys.contains("anthropic"))
-        assertTrue(genericKeys.contains("bedrock"))
+    fun `isGenericCatalogKey excludes openai-compatible base and composite keys`() {
+        // loadModels/saveModels/isModelsModified all route through this single predicate, so
+        // asserting it here guarantees all three seams are symmetric and cannot drift.
+        assertTrue(ProvidersTab.isGenericCatalogKey("anthropic"))
+        assertTrue(ProvidersTab.isGenericCatalogKey("bedrock"))
+        assertTrue(ProvidersTab.isGenericCatalogKey("vertex"))
         assertFalse(
-            "base openai-compatible key should be excluded from generic catalogs",
-            genericKeys.contains(ProviderRegistry.OPENAI_COMPATIBLE_ID)
+            "base openai-compatible key is card-owned, not generic",
+            ProvidersTab.isGenericCatalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID)
         )
         assertFalse(
-            "profile-scoped openai-compatible keys should be excluded from generic catalogs",
-            genericKeys.any { it.startsWith("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:") }
+            "composite openai-compatible:<profile> key is card-owned, not generic",
+            ProvidersTab.isGenericCatalogKey("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:profile1")
+        )
+        assertFalse(
+            ProvidersTab.isGenericCatalogKey("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:p2")
         )
     }
 }
