@@ -448,16 +448,22 @@ class ChatPanel(
                     .getSelectedEffort(project.basePath ?: "")
             },
             resolveIsDefaultModel = {
-                // Default ⇔ no explicit model id stored for this provider/dir
-                // (same condition under which buildModelArg omits --model).
-                val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
+                // Default ⇔ no explicit model id stored for THIS TAB's provider/profile.
+                // Use the bridge's selection to get the catalog key, not the global provider.
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    bridge.selection.providerId,
+                    bridge.selection.profileId.orEmpty(),
+                )
                 ClawDEASettings.getInstance()
                     .getSelectedModelId(project.basePath ?: "", catalogKey).isBlank()
             },
             resolveModelLabel = {
-                // Only consulted when the stream reports no model (codex). Fall back to the
-                // user's selection for this provider, or "Default" when none is pinned.
-                val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
+                // Only consulted when the stream reports no model (codex). Fall back to THIS TAB's
+                // selected model, or "Default" when none is pinned.
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    bridge.selection.providerId,
+                    bridge.selection.profileId.orEmpty(),
+                )
                 ClawDEASettings.getInstance()
                     .getSelectedModelId(project.basePath ?: "", catalogKey)
                     .ifBlank { "Default" }
@@ -1527,9 +1533,10 @@ class ChatPanel(
         commandRegistry.register("/login", LocalHandler(
             CommandInfo("/login", "Sign in with your Claude or OpenAI (ChatGPT) subscription", CommandCategory.LOCAL),
         ) { _, _ ->
-            // Route to the sign-in flow for the configured provider: codex (ChatGPT) when the
-            // OpenAI subscription provider is selected, else the Claude subscription flow.
-            val isCodex = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.apiProvider == "openai-subscription"
+            // Route to the sign-in flow for THIS TAB's provider, not the global default.
+            // The bridge's selection reflects the per-tab provider (or the effective default
+            // when no explicit tab selection was made).
+            val isCodex = bridge.selection.providerId == "openai-subscription"
             appendHtml(renderer.renderInfoMessage(if (isCodex) "Signing in with ChatGPT..." else "Signing in..."))
             if (isCodex) {
                 com.adobe.clawdea.auth.CodexSubscriptionAuth.getInstance().signIn { status ->

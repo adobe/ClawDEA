@@ -684,12 +684,16 @@ class EventStreamHandler(
                         renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
                     )
                 }
-                val effectiveProviderId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-                val providerKey = if (effectiveProviderId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
-                    val profileId = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
-                    com.adobe.clawdea.provider.ProviderRegistry.catalogKey(effectiveProviderId, profileId)
+                // Attribute cost to THIS TAB's provider selection, not the global effectiveProviderId.
+                // The bridge's selection reflects the per-tab override or the effective default.
+                val tabProviderId = bridge.selection.providerId
+                val providerKey = if (tabProviderId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                    // For openai-compatible, include the profile ID in the catalog key (cost is tracked
+                    // per profile, not just per provider).
+                    val profileId = bridge.selection.profileId.orEmpty()
+                    com.adobe.clawdea.provider.ProviderRegistry.catalogKey(tabProviderId, profileId)
                 } else {
-                    effectiveProviderId
+                    tabProviderId
                 }
                 costTracker.recordTurn(
                     chatId,

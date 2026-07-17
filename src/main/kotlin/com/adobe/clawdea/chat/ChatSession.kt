@@ -37,10 +37,12 @@ class ChatSession(
         workingDirectory = project.basePath ?: System.getProperty("user.home"),
         mcpPort = McpServer.getInstance(project).port,
         onAuthFailure = { reason ->
-            // Route the auth failure to the subscription subsystem for the configured provider.
-            // For the OpenAI subscription, CliBridge now drives the codex CLI, so a 401 on the
-            // codex stream surfaces here as a real CodexSubscription auth failure.
-            if (ClawDEASettings.getInstance().state.apiProvider == "openai-subscription") {
+            // Route auth failures to the subscription subsystem for THIS TAB's provider selection,
+            // not the global apiProvider. When an explicit per-tab selection is given, use it;
+            // otherwise fall back to the effective provider (matching CliBridge's selection logic).
+            val effectiveProvider = selection?.providerId
+                ?: com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+            if (effectiveProvider == "openai-subscription") {
                 CodexSubscriptionAuth.getInstance().invalidateCache()
                 ApplicationManager.getApplication().messageBus
                     .syncPublisher(CodexSubscriptionAuthEventListener.TOPIC)
