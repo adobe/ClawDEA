@@ -13,6 +13,9 @@ package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.chat.session.ChatAutoResumeState
 import com.adobe.clawdea.chat.session.SessionCatalog
+import com.adobe.clawdea.provider.AgentRole
+import com.adobe.clawdea.provider.RoleSelectionStore
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.project.DumbAware
@@ -54,7 +57,15 @@ class ChatToolWindowFactory : ToolWindowFactory, DumbAware {
                 null
             }
 
-            val session = ChatSession(project, name, autoResumeSessionId = resumeId)
+            // New tabs seed their selection from the CHAT_DEFAULT role.
+            val selection = RoleSelectionStore(ClawDEASettings.getInstance()).get(AgentRole.CHAT_DEFAULT)
+
+            val session = ChatSession(
+                project,
+                name,
+                autoResumeSessionId = resumeId,
+                selection = selection,
+            )
             val content = ContentFactory.getInstance().createContent(
                 session.panel,
                 name,

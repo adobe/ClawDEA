@@ -16,6 +16,7 @@ import com.adobe.clawdea.auth.CodexSubscriptionAuthEventListener
 import com.adobe.clawdea.auth.SubscriptionAuth
 import com.adobe.clawdea.auth.SubscriptionAuthEventListener
 import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.gateway.ModelSelectorProbeStarter
 import com.adobe.clawdea.mcp.McpServer
@@ -29,11 +30,12 @@ class ChatSession(
     val name: String = "Chat",
     private val autoResumeSessionId: String? = null,
     private val initialComposerDraft: String = "",
+    selection: AgentSelection? = null,
 ) : Disposable {
 
     val bridge = CliBridge(
-        project.basePath ?: System.getProperty("user.home"),
-        McpServer.getInstance(project).port,
+        workingDirectory = project.basePath ?: System.getProperty("user.home"),
+        mcpPort = McpServer.getInstance(project).port,
         onAuthFailure = { reason ->
             // Route the auth failure to the subscription subsystem for the configured provider.
             // For the OpenAI subscription, CliBridge now drives the codex CLI, so a 401 on the
@@ -51,6 +53,7 @@ class ChatSession(
             }
         },
         project = project,
+        selection = selection,
     )
     val panel = ChatPanel(bridge, project, initialComposerDraft)
 

@@ -15,8 +15,11 @@ import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.cli.backend.AgentBackend
 import com.adobe.clawdea.cli.backend.AgentBackendFactory
 import com.adobe.clawdea.cli.backend.SteeringMode
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.Logger
@@ -30,15 +33,34 @@ class CliBridge(
     mcpPort: Int = 0,
     private val onAuthFailure: (reason: String) -> Unit = {},
     private val project: Project? = null,
+    selection: AgentSelection? = null,
+    settings: ClawDEASettings = ClawDEASettings.getInstance(),
+    credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
 ) : Disposable {
 
     private val log = Logger.getInstance(CliBridge::class.java)
 
-    // Choose the agentic backend once, at construction, from the effective provider. A provider
-    // switch requires a session/bridge restart (ChatSession recreates this), which re-runs the
-    // selection.
-    private val effectiveProviderId: String = AuthManager.getInstance().effectiveProviderId()
-    private val backend: AgentBackend = AgentBackendFactory.create(effectiveProviderId, workingDirectory, mcpPort, project)
+    // Choose the agentic backend once, at construction. When an explicit selection is provided,
+    // use it; when null, fall back to the effective provider (preserving today's behavior). A
+    // provider switch requires a session/bridge restart (ChatSession recreates this), which
+    // re-runs the selection.
+    private val resolvedSelection: AgentSelection = selection ?: computeDefaultSelection(settings, workingDirectory)
+
+    private val backend: AgentBackend = AgentBackendFactory.create(
+        resolvedSelection,
+        workingDirectory,
+        mcpPort,
+        project,
+        settings,
+        credentialStore,
+    )
+
+    /**
+     * The [AgentSelection] that this bridge was constructed from (effective selection, resolved from
+     * the default when null was passed). Exposed for T6/tests to read.
+     */
+    val selection: AgentSelection
+        get() = resolvedSelection
 
     private val _events = MutableSharedFlow<CliEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<CliEvent> = _events
@@ -238,6 +260,32 @@ class CliBridge(
     }
 
     companion object {
+        /**
+         * Computes the default AgentSelection when none is explicitly provided. Uses the effective
+         * provider from settings (or AuthManager in production). For openai-compatible, includes
+         * the active profile + model; for others, profileId=null and modelId="" (they resolve model
+         * in their backend branch).
+         */
+        private fun computeDefaultSelection(
+            settings: ClawDEASettings,
+            workingDirectory: String,
+        ): AgentSelection {
+            // In production, settings is the singleton and apiProvider reflects AuthManager's effective
+            // provider. In tests, settings is a headless instance where apiProvider must be set explicitly.
+            val effectiveProviderId = settings.state.apiProvider.ifBlank {
+                // Fallback for production: read from AuthManager (requires Application running).
+                AuthManager.getInstance().effectiveProviderId()
+            }
+            return if (effectiveProviderId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                val profileId = settings.state.activeOpenAiCompatibleProfileId
+                val catalogKey = ProviderRegistry.catalogKey(effectiveProviderId, profileId)
+                val modelId = settings.getSelectedModelId(workingDirectory, catalogKey) ?: ""
+                AgentSelection(effectiveProviderId, profileId.ifBlank { null }, modelId)
+            } else {
+                AgentSelection(effectiveProviderId)
+            }
+        }
+
         internal fun resumeSessionForRestart(
             currentSessionId: String?,
             requestedResumeSessionId: String?,
