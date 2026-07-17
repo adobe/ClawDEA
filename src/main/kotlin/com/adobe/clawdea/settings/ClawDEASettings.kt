@@ -144,6 +144,8 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         var modelCatalogs: MutableMap<String, MutableList<ModelEntry>> = defaultModelCatalogsMap(),
         var selectedModels: MutableMap<String, String> = mutableMapOf(),
         var selectedEfforts: MutableMap<String, String> = mutableMapOf(),
+        var roleSelections: MutableMap<String, String> = mutableMapOf(),
+        var roleSelectionsMigrated: Boolean = false,
 
         // OpenAI-compatible provider profiles
         var activeOpenAiCompatibleProfileId: String = "",
@@ -209,6 +211,7 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         mergeMissingModelCatalogs(state.modelCatalogs)
         migrateSecretsToPasswordSafe()
         preloadSecrets()
+        com.adobe.clawdea.provider.RoleSelectionStore(this).migrateFromLegacyIfNeeded()
     }
 
     private fun migrateSecretsToPasswordSafe() {
