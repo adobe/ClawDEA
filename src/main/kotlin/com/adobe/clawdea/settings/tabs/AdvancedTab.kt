@@ -1,0 +1,93 @@
+/*
+ * Copyright 2026 Adobe. All rights reserved.
+ * This file is licensed to you under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under
+ * the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+ * OF ANY KIND, either express or implied. See the License for the specific language
+ * governing permissions and limitations under the License.
+ */
+// src/main/kotlin/com/adobe/clawdea/settings/tabs/AdvancedTab.kt
+package com.adobe.clawdea.settings.tabs
+
+import com.adobe.clawdea.settings.ClawDEASettings
+import com.intellij.ui.components.JBCheckBox
+import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.FormBuilder
+import javax.swing.JComponent
+import javax.swing.JPanel
+
+/** Advanced section extracted from the flat settings panel. */
+class AdvancedTab : SettingsTab {
+
+    override val title: String = "Advanced"
+
+    val completionTokenBudgetField = JBTextField("2048", 6)
+    val chatTokenBudgetField = JBTextField("16384", 6)
+    val actionTokenBudgetField = JBTextField("4096", 6)
+    val cliExtraArgsField = JBTextField("", 30)
+    val cliEnvScriptField = JBTextField("", 30)
+    val enablePsiCollectorCheckbox = JBCheckBox("Enable PSI semantic context", true)
+    val enableGitCollectorCheckbox = JBCheckBox("Enable Git context", true)
+    val preloadSkillCatalogCheckbox = JBCheckBox("Preload skill catalog into system prompt", true)
+    val enableBaselineDefaultsCheckbox = JBCheckBox("Inject baseline working defaults into system prompt", true)
+    val gatewayBareModeCheckbox = JBCheckBox(
+        "Use minimal-mode CLI for completions (--bare; requires API-key auth)",
+        true,
+    )
+
+    override val component: JComponent = FormBuilder.createFormBuilder()
+        .addLabeledComponent(JBLabel("Completion token budget:"), completionTokenBudgetField, 1, false)
+        .addLabeledComponent(JBLabel("Chat token budget:"), chatTokenBudgetField, 1, false)
+        .addLabeledComponent(JBLabel("Action token budget:"), actionTokenBudgetField, 1, false)
+        .addLabeledComponent(JBLabel("CLI extra args:"), cliExtraArgsField, 1, false)
+        .addLabeledComponent(JBLabel("CLI env script:"), cliEnvScriptField, 1, false)
+        .addComponent(enablePsiCollectorCheckbox, 1)
+        .addComponent(enableGitCollectorCheckbox, 1)
+        .addComponent(preloadSkillCatalogCheckbox, 1)
+        .addComponent(enableBaselineDefaultsCheckbox, 1)
+        .addComponent(gatewayBareModeCheckbox, 1)
+        .addComponentFillVertically(JPanel(), 0)
+        .panel
+
+    override fun loadFrom(state: ClawDEASettings.State) {
+        completionTokenBudgetField.text = state.completionTokenBudget.toString()
+        chatTokenBudgetField.text = state.chatTokenBudget.toString()
+        actionTokenBudgetField.text = state.actionTokenBudget.toString()
+        cliExtraArgsField.text = state.cliExtraArgs
+        cliEnvScriptField.text = state.cliEnvScript
+        enablePsiCollectorCheckbox.isSelected = state.enablePsiCollector
+        enableGitCollectorCheckbox.isSelected = state.enableGitCollector
+        preloadSkillCatalogCheckbox.isSelected = state.preloadSkillCatalog
+        enableBaselineDefaultsCheckbox.isSelected = state.enableBaselineDefaults
+        gatewayBareModeCheckbox.isSelected = state.gatewayBareMode
+    }
+
+    override fun applyTo(state: ClawDEASettings.State) {
+        state.completionTokenBudget = completionTokenBudgetField.text.toIntOrNull() ?: 2048
+        state.chatTokenBudget = chatTokenBudgetField.text.toIntOrNull() ?: 16384
+        state.actionTokenBudget = actionTokenBudgetField.text.toIntOrNull() ?: 4096
+        state.cliExtraArgs = cliExtraArgsField.text
+        state.cliEnvScript = cliEnvScriptField.text
+        state.enablePsiCollector = enablePsiCollectorCheckbox.isSelected
+        state.enableGitCollector = enableGitCollectorCheckbox.isSelected
+        state.preloadSkillCatalog = preloadSkillCatalogCheckbox.isSelected
+        state.enableBaselineDefaults = enableBaselineDefaultsCheckbox.isSelected
+        state.gatewayBareMode = gatewayBareModeCheckbox.isSelected
+    }
+
+    override fun isModifiedFrom(state: ClawDEASettings.State): Boolean =
+        completionTokenBudgetField.text != state.completionTokenBudget.toString() ||
+            chatTokenBudgetField.text != state.chatTokenBudget.toString() ||
+            actionTokenBudgetField.text != state.actionTokenBudget.toString() ||
+            cliExtraArgsField.text != state.cliExtraArgs ||
+            cliEnvScriptField.text != state.cliEnvScript ||
+            enablePsiCollectorCheckbox.isSelected != state.enablePsiCollector ||
+            enableGitCollectorCheckbox.isSelected != state.enableGitCollector ||
+            preloadSkillCatalogCheckbox.isSelected != state.preloadSkillCatalog ||
+            enableBaselineDefaultsCheckbox.isSelected != state.enableBaselineDefaults ||
+            gatewayBareModeCheckbox.isSelected != state.gatewayBareMode
+}
