@@ -328,4 +328,5 @@ class OpenAiCompatibleClient(
             null
         }
     }
+
 }

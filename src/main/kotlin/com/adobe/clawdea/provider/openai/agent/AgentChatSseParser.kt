@@ -53,9 +53,7 @@ class AgentChatSseParser {
 
             // Check for top-level error
             if (root.has("error")) {
-                val error = root.getAsJsonObject("error")
-                val message = error.get("message")?.asString ?: "Unknown error"
-                return AgentStreamEvent.Failure(null, message, null)
+                return AgentStreamEvent.Failure(null, extractErrorMessage(root), null)
             }
 
             // Check for usage
@@ -136,14 +134,16 @@ class AgentChatSseParser {
 
             // Top-level error takes precedence — surface it as a Failure and stop.
             if (root.has("error")) {
-                val error = root.getAsJsonObject("error")
-                val message = error.get("message")?.asString ?: "Unknown error"
-                return listOf(AgentStreamEvent.Failure(null, message, null))
+                return listOf(AgentStreamEvent.Failure(null, extractErrorMessage(root), null))
             }
 
             val choices = root.getAsJsonArray("choices")
             if (choices == null || choices.isEmpty) {
-                return emptyList()
+                // No choices and no `error` key: surface a `detail`/`details` message if present
+                // (some gateways return 200 with a bare error/detail body), else a generic failure —
+                // never silently yield nothing (that surfaced to the user as an empty answer).
+                val detail = detailMessage(root)
+                return listOf(AgentStreamEvent.Failure(null, detail ?: "Provider returned no choices", null))
             }
 
             val choice = choices[0].asJsonObject
@@ -192,6 +192,35 @@ class AgentChatSseParser {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Extract a human-readable message from a top-level `error`, which gateways shape inconsistently:
+     * a plain string (`"error": "..."`), or an object (`"error": {"message": "..."}` / `{"detail": ...}`).
+     * Also appends a bounded `detail`/`details` sibling when present (LiteLLM/FastAPI put the real
+     * cause there — often a stack trace; truncated so a huge body doesn't flood the UI/log).
+     */
+    private fun extractErrorMessage(root: JsonObject): String {
+        val error = root.get("error")
+        val base = when {
+            error == null || error.isJsonNull -> "Unknown error"
+            error.isJsonPrimitive -> error.asString
+            error.isJsonObject -> error.asJsonObject.get("message")?.takeIf { !it.isJsonNull }?.asString
+                ?: error.asJsonObject.get("detail")?.takeIf { !it.isJsonNull }?.asString
+                ?: error.toString().take(200)
+            else -> "Unknown error"
+        }
+        val detail = detailMessage(root)
+        return if (detail != null && detail != base) "$base — $detail" else base
+    }
+
+    /** A top-level `detail`/`details` string, trimmed and bounded (never the full multi-KB body). */
+    private fun detailMessage(root: JsonObject): String? {
+        val el = root.get("detail") ?: root.get("details") ?: return null
+        if (el.isJsonNull || !el.isJsonPrimitive || !el.asJsonPrimitive.isString) return null
+        val s = el.asString.trim()
+        if (s.isEmpty()) return null
+        return if (s.length > 300) s.take(300) + "…" else s
     }
 
     /** Map a `usage` JSON object to [AgentStreamEvent.Usage]. Shared by both response shapes. */

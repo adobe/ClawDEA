@@ -13,6 +13,7 @@ package com.adobe.clawdea.provider.openai.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentChatSseParserTest {
@@ -210,9 +211,40 @@ class AgentChatSseParserTest {
     }
 
     @Test
-    fun `non-streamed malformed or empty body yields no events`() {
+    fun `non-streamed malformed body yields no events`() {
         val parser = AgentChatSseParser()
         assertEquals(emptyList<AgentStreamEvent>(), parser.parseNonStreamedCompletion("not json"))
-        assertEquals(emptyList<AgentStreamEvent>(), parser.parseNonStreamedCompletion("""{"choices":[]}"""))
+    }
+
+    @Test
+    fun `non-streamed empty choices surfaces a failure instead of silence`() {
+        val parser = AgentChatSseParser()
+        // A 200 body with no choices and no error must not yield nothing (that showed the user an
+        // empty answer). Surface a failure so the turn ends with a visible error.
+        val events = parser.parseNonStreamedCompletion("""{"choices":[]}""")
+        assertEquals(1, events.size)
+        assertTrue(events[0] is AgentStreamEvent.Failure)
+    }
+
+    @Test
+    fun `non-streamed string error is surfaced (not dropped)`() {
+        val parser = AgentChatSseParser()
+        // The EHL/APC gateway returns HTTP 200 with a STRING error plus a large details blob:
+        // {"error":"<msg>","details":"<stack trace>"}. `error` is a string here, not an object.
+        val events = parser.parseNonStreamedCompletion(
+            """{"error":"Internal server error","details":"Traceback (most recent call last): ...very long..."}"""
+        )
+        assertEquals(1, events.size)
+        val failure = events[0] as AgentStreamEvent.Failure
+        assertTrue("must carry the error string", failure.message.contains("Internal server error"))
+        assertTrue("must include the detail cause", failure.message.contains("Traceback"))
+        assertTrue("detail must be bounded", failure.message.length < 400)
+    }
+
+    @Test
+    fun `sse string error is surfaced`() {
+        val parser = AgentChatSseParser()
+        val event = parser.parse("""data: {"error":"boom"}""")
+        assertEquals(AgentStreamEvent.Failure(null, "boom", null), event)
     }
 }
