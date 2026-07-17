@@ -15,6 +15,7 @@ import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.cli.CliEnvironment
 import com.adobe.clawdea.cli.CliEventParser
 import com.adobe.clawdea.cli.CliEvent
+import com.adobe.clawdea.cli.resolveClaudeCliPath
 import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
@@ -154,8 +155,9 @@ class BackgroundAgentRunner(
             prompt: String,
             systemPrompt: String?,
         ): Result<String> {
-            val cliPath = resolveCliPath()
-                ?: return Result.failure(RuntimeException("Claude CLI not found"))
+            // Reuse the canonical CLI-path resolver (handles Finder/Dock PATH problem and honors the
+            // configured path + CLAUDE_CLI_PATH). Mirror CliProcess's read of ClawDEASettings.cliPath.
+            val cliPath = resolveClaudeCliPath(ClawDEASettings.getInstance().state.cliPath)
 
             val command = mutableListOf(
                 cliPath,
@@ -176,8 +178,11 @@ class BackgroundAgentRunner(
             command.add(prompt)
 
             return try {
+                // Merge stderr into stdout so a chatty stderr can't fill its pipe buffer and
+                // deadlock waitFor — we only drain the stdout stream below. The CliEventParser
+                // ignores non-JSON stderr lines, so merged text does not pollute the result.
                 val pb = ProcessBuilder(command)
-                    .redirectErrorStream(false)
+                    .redirectErrorStream(true)
 
                 val merged = mutableMapOf<String, String>()
                 CliEnvironment.applyTo(merged)
@@ -222,20 +227,6 @@ class BackgroundAgentRunner(
             } catch (e: Exception) {
                 Result.failure(e)
             }
-        }
-
-        private fun resolveCliPath(): String? {
-            val paths = listOf("/usr/local/bin/claude", "/opt/homebrew/bin/claude", "claude")
-            for (path in paths) {
-                try {
-                    val proc = ProcessBuilder(path, "--version").start()
-                    proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
-                    if (proc.exitValue() == 0) return path
-                } catch (_: Exception) {
-                    // Try next
-                }
-            }
-            return System.getenv("CLAUDE_CLI_PATH")
         }
     }
 }
