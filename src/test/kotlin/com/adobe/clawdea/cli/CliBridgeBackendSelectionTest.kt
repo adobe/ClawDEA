@@ -14,6 +14,7 @@ package com.adobe.clawdea.cli
 import com.adobe.clawdea.cli.backend.AgentBackendFactory
 import com.adobe.clawdea.cli.backend.OpenAiCompatibleAgentBackend
 import com.adobe.clawdea.cli.backend.ProcessAgentBackend
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
@@ -152,5 +153,44 @@ class CliBridgeBackendSelectionTest {
         val result = event as com.adobe.clawdea.cli.CliEvent.Result
         assertTrue(result.isError)
         assertTrue(result.text.contains("No OpenAI-compatible profile selected"))
+    }
+
+    @Test
+    fun `create(selection) honors the explicit profile and ignores activeOpenAiCompatibleProfileId`() {
+        // No-fallthrough proof: the selection carries profileId="p2" while settings' global
+        // activeOpenAiCompatibleProfileId is a DIFFERENT, fully-valid "p1". The selection-driven
+        // factory must resolve against p2 (not p1). Since p2 is not configured, the backend degrades
+        // to the "Profile 'p2' not configured" readiness error — proving it read the selection, not
+        // the global setting (which would have found the valid p1 and proceeded further).
+        val settings = ClawDEASettings()
+        settings.state.activeOpenAiCompatibleProfileId = "p1" // global points at a DIFFERENT, valid profile
+        settings.state.importedOpenAiProfiles["p1"] =
+            """{"id":"p1","name":"P1","baseUrl":"https://example.com","modelRules":[{"pattern":"*","capability":"agentic"}]}"""
+        val p1CatalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1")
+        settings.state.modelCatalogs[p1CatalogKey] =
+            mutableListOf(com.adobe.clawdea.gateway.ModelEntry(id = "m1"))
+        settings.state.selectedModels["$p1CatalogKey|"] = "m1"
+        // p2 is intentionally NOT imported.
+
+        val selection = AgentSelection(
+            providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profileId = "p2",
+            modelId = "m2",
+        )
+        val backend = AgentBackendFactory.create(selection, settings = settings)
+
+        assertEquals(BackendKind.OPENAI_COMPATIBLE_HTTP, backend.backendKind)
+        assertTrue(backend is OpenAiCompatibleAgentBackend)
+
+        backend.start(resumeSessionId = null, skills = emptyList())
+        val event = backend.readEvent()
+        assertTrue(event is com.adobe.clawdea.cli.CliEvent.Result)
+        val result = event as com.adobe.clawdea.cli.CliEvent.Result
+        assertTrue(result.isError)
+        // Resolved against p2 (the explicit selection), NOT the valid p1 from settings.
+        assertTrue(
+            "expected error to reference p2, got: ${result.text}",
+            result.text.contains("Profile 'p2' not configured"),
+        )
     }
 }

@@ -190,15 +190,18 @@ object AgentBackendFactory {
         settings: ClawDEASettings = ClawDEASettings.getInstance(),
         credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
     ): AgentBackend {
-        // Build an AgentSelection from current settings (global provider + active profile + selected model)
-        val profileId = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
-            settings.state.activeOpenAiCompatibleProfileId
+        // Build an AgentSelection from current settings. Only the openai-compatible provider
+        // reads profile + selected model here; Claude ignores selection.modelId (CLAUDE_CLI branch)
+        // and Codex resolves its own model via getCliModelId in the CODEX_APP_SERVER branch, so
+        // computing a model for them would be a dead, misleading lookup.
+        val selection = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            val profileId = settings.state.activeOpenAiCompatibleProfileId
+            val catalogKey = ProviderRegistry.catalogKey(providerId, profileId)
+            val modelId = settings.getSelectedModelId(workingDirectory, catalogKey) ?: ""
+            AgentSelection(providerId, profileId.ifBlank { null }, modelId)
         } else {
-            null
+            AgentSelection(providerId) // profileId=null, modelId="" — Claude/Codex resolve model in their own branch
         }
-        val catalogKey = ProviderRegistry.catalogKey(providerId, profileId ?: "")
-        val modelId = settings.getSelectedModelId(workingDirectory, catalogKey) ?: ""
-        val selection = AgentSelection(providerId, profileId, modelId)
         return create(selection, workingDirectory, mcpPort, project, settings, credentialStore)
     }
 }
