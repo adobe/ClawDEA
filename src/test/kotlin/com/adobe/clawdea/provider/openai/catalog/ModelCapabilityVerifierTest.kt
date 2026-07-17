@@ -92,6 +92,19 @@ class ModelCapabilityVerifierTest {
         assertEquals(emptyList<Any>(), capturing.captured?.messages?.flatMap { it.toolCalls } ?: emptyList<Any>())
     }
 
+    @Test
+    fun `probe honors the profile streaming flag`() {
+        // A non-streaming gateway (streaming=false) must be probed with stream:false, exactly like a
+        // real turn — otherwise the probe fails and the model is wrongly reported UNKNOWN.
+        val streaming = ProbeCapturingClient()
+        ModelCapabilityVerifier.verify(streaming, "model-x", stream = true)
+        assertEquals(true, streaming.captured?.stream)
+
+        val nonStreaming = ProbeCapturingClient()
+        ModelCapabilityVerifier.verify(nonStreaming, "model-x", stream = false)
+        assertEquals(false, nonStreaming.captured?.stream)
+    }
+
     private class ProbeCapturingClient : AgentClient {
         var captured: AgentCompletionRequest? = null
         override suspend fun stream(request: AgentCompletionRequest): Flow<AgentStreamEvent> {

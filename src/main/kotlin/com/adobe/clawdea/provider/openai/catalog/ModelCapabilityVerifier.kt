@@ -47,8 +47,12 @@ object ModelCapabilityVerifier {
     private const val PROBE_INSTRUCTION =
         "Call the $PROBE_FUNCTION_NAME function with {\"ok\": true} to confirm you support tool calls."
 
-    /** Build the single-tool probe request for [modelId]. Exposed for the production HTTP path. */
-    private fun probeRequest(modelId: String): AgentCompletionRequest {
+    /**
+     * Build the single-tool probe request for [modelId]. [stream] must match the profile's streaming
+     * setting: a gateway that only accepts non-streamed requests (e.g. one whose upstream ignores
+     * `stream:true`) would otherwise fail the probe and report UNKNOWN even for an agentic model.
+     */
+    private fun probeRequest(modelId: String, stream: Boolean): AgentCompletionRequest {
         val params = JsonObject().apply {
             addProperty("type", "object")
             add(
@@ -79,18 +83,20 @@ object ModelCapabilityVerifier {
                 ),
             ),
             maxTokens = 256,
+            stream = stream,
         )
     }
 
     /**
-     * Verify capability by streaming one probe request through [client].
+     * Verify capability by sending one probe request through [client]. [stream] mirrors the profile's
+     * streaming setting so the probe uses the same request shape a real turn would.
      * Pure of IntelliJ concerns so it's unit-testable with a fake [AgentClient].
      */
-    fun verify(client: AgentClient, modelId: String): ModelCapability = runBlocking {
+    fun verify(client: AgentClient, modelId: String, stream: Boolean = true): ModelCapability = runBlocking {
         val assembler = ToolCallAssembler()
         var failed = false
         try {
-            client.stream(probeRequest(modelId)).collect { event ->
+            client.stream(probeRequest(modelId, stream)).collect { event ->
                 when (event) {
                     is AgentStreamEvent.ToolFragment -> assembler.accept(event)
                     is AgentStreamEvent.Failure -> failed = true
@@ -129,6 +135,6 @@ object ModelCapabilityVerifier {
             override suspend fun stream(request: AgentCompletionRequest) =
                 httpClient.streamAgentCompletion(profile, credential, request)
         }
-        return verify(client, modelId)
+        return verify(client, modelId, stream = profile.profile.streaming)
     }
 }
