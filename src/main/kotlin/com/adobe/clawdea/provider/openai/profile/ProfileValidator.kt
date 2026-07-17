@@ -113,6 +113,8 @@ object ProfileValidator {
             requireString(rule, "pattern", "$path.pattern", diagnostics)
             requireString(rule, "capability", "$path.capability", diagnostics)
         }
+        // Optional: present => must be a JSON boolean; absent => defaults to true. Never required.
+        validateOptionalBoolean(root, "streaming", "$.streaming", diagnostics)
         requireObject(root, "pricing", "$.pricing", diagnostics)?.entrySet()?.forEach { (model, value) ->
             val path = "$.pricing.$model"
             val rates = requireElementObject(value, path, diagnostics) ?: return@forEach
@@ -165,6 +167,18 @@ object ProfileValidator {
             if (element.isJsonNull || !element.isJsonPrimitive || !element.asJsonPrimitive.isString) {
                 diagnostics += ValidationDiagnostic("$path.$key", "Map value must be a non-null string")
             }
+        }
+    }
+
+    private fun validateOptionalBoolean(
+        parent: JsonObject,
+        field: String,
+        path: String,
+        diagnostics: MutableList<ValidationDiagnostic>,
+    ) {
+        val value = parent.get(field) ?: return
+        if (value.isJsonNull || !value.isJsonPrimitive || !value.asJsonPrimitive.isBoolean) {
+            diagnostics += ValidationDiagnostic(path, "Field must be a JSON boolean")
         }
     }
 

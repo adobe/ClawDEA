@@ -43,6 +43,9 @@ data class AgentCompletionRequest(
     val messages: List<AgentMessage>,
     val tools: List<OpenAiToolDefinition>,
     val maxTokens: Int,
+    // When false, the request body sets `stream:false` and omits the streaming-only `stream_options`.
+    // Defaulted true so process backends and existing constructions are unaffected.
+    val stream: Boolean = true,
 )
 
 /**

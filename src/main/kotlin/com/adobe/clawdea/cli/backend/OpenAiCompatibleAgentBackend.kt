@@ -422,6 +422,7 @@ class OpenAiCompatibleAgentBackend(
                 maxContextChars = 1_000_000,
                 modelId = currentModelId,
                 tools = agentToolDefinitions(mcpDefs),
+                stream = profile.profile.streaming,
             )
 
             val result = runOneRound(loop, text, append)

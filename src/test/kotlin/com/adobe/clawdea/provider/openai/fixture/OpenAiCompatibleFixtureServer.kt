@@ -67,12 +67,13 @@ class OpenAiCompatibleFixtureServer {
     }
 
     /** Build a [ResolvedProviderProfile] pointing at this fixture. */
-    fun profile(id: String = "fixture-profile"): ResolvedProviderProfile =
+    fun profile(id: String = "fixture-profile", streaming: Boolean = true): ResolvedProviderProfile =
         ResolvedProviderProfile(
             profile = OpenAiCompatibleProfile(
                 id = id,
                 name = "Fixture Provider",
                 baseUrl = baseUri.toString(),
+                streaming = streaming,
             ),
             baseUrl = baseUri,
             configuredValues = emptyMap(),

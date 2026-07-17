@@ -147,6 +147,39 @@ class OpenAiCompatibleIntegrationTest {
     }
 
     @Test
+    fun `streaming true request body carries stream true and stream_options include_usage`() {
+        fixture.script(finalText("streamed"))
+        val harness = harness(fixture.profile(streaming = true), model = "model-agentic")
+        harness.start()
+        harness.sendAndDrain("go")
+
+        val body = com.google.gson.JsonParser.parseString(fixture.requestBodies.first()).asJsonObject
+        assertTrue(body.get("stream").asBoolean)
+        assertTrue(body.has("stream_options"))
+        assertTrue(body.getAsJsonObject("stream_options").get("include_usage").asBoolean)
+        harness.stop()
+    }
+
+    @Test
+    fun `streaming false sends stream false without stream_options and still yields text`() {
+        // A streaming=false profile must request stream:false; the client parses the fixture's single
+        // JSON completion via parseNonStreamedCompletion (no client change needed — auto-detected).
+        fixture.script(nonStreamedText("no-stream answer"))
+        val harness = harness(fixture.profile(streaming = false), model = "model-agentic")
+        harness.start()
+        harness.sendAndDrain("go")
+
+        val body = com.google.gson.JsonParser.parseString(fixture.requestBodies.first()).asJsonObject
+        assertTrue(!body.get("stream").asBoolean)
+        assertTrue("stream_options must be omitted when not streaming", !body.has("stream_options"))
+
+        assertEquals("no-stream answer", harness.textDeltas().joinToString(""))
+        assertEquals(1, harness.results().size)
+        assertTrue(!harness.results().single().isError)
+        harness.stop()
+    }
+
+    @Test
     fun `non-streamed tool call drives exactly one tool round then completes`() {
         fixture.script(nonStreamedToolCall("find_files"), nonStreamedText("done"))
         val harness = harness(

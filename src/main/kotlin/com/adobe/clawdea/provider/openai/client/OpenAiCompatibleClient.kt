@@ -234,11 +234,15 @@ class OpenAiCompatibleClient(
         val body = JsonObject()
         body.addProperty("model", request.model)
         body.addProperty("max_tokens", request.maxTokens)
-        body.addProperty("stream", true)
+        body.addProperty("stream", request.stream)
 
-        val streamOptions = JsonObject()
-        streamOptions.addProperty("include_usage", true)
-        body.add("stream_options", streamOptions)
+        // stream_options.include_usage is a STREAMING-only field: some gateways reject it on a
+        // non-streamed request. Emit it only when actually streaming.
+        if (request.stream) {
+            val streamOptions = JsonObject()
+            streamOptions.addProperty("include_usage", true)
+            body.add("stream_options", streamOptions)
+        }
 
         // Build messages array
         val messagesArray = JsonArray()

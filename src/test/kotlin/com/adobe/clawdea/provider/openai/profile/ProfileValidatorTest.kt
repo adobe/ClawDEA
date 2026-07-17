@@ -287,6 +287,34 @@ class ProfileValidatorTest {
     }
 
     @Test
+    fun `streaming defaults to true when the field is absent`() {
+        val result = ProfileValidator.parseAndValidate(validProfileJson(), allowLocalHttp = false)
+        assertTrue(result is ValidationResult.Valid)
+        assertTrue((result as ValidationResult.Valid).profile.streaming)
+    }
+
+    @Test
+    fun `streaming false parses and validates`() {
+        val json = validProfileJson().replace(
+            "\"schemaVersion\": 1,",
+            "\"schemaVersion\": 1,\n  \"streaming\": false,",
+        )
+        val result = ProfileValidator.parseAndValidate(json, allowLocalHttp = false)
+        assertTrue(result is ValidationResult.Valid)
+        assertEquals(false, (result as ValidationResult.Valid).profile.streaming)
+    }
+
+    @Test
+    fun `streaming must be a boolean when present`() {
+        val json = validProfileJson().replace(
+            "\"schemaVersion\": 1,",
+            "\"schemaVersion\": 1,\n  \"streaming\": \"false\",",
+        )
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
+        assertTrue(invalid.diagnostics.any { it.path == "$.streaming" })
+    }
+
+    @Test
     fun `minimal profile resource validates`() {
         val json = this::class.java.classLoader
             .getResourceAsStream("openai-compatible/minimal-profile.json")!!

@@ -82,6 +82,10 @@ class AgentLoopController(
     // Tool definitions advertised to the model on every request. Must match what [executor] can
     // dispatch (MCP tools + host Bash/apply_patch). Empty means the model is told of no tools.
     private val tools: List<OpenAiToolDefinition> = emptyList(),
+    // Whether to request streamed (SSE) completions. When false, the request sets `stream:false`;
+    // the client auto-detects the single-JSON response and parses it via parseNonStreamedCompletion.
+    // Defaulted true so existing tests/constructions are unaffected.
+    private val stream: Boolean = true,
 ) {
 
     private val log = Logger.getInstance(AgentLoopController::class.java)
@@ -152,6 +156,7 @@ class AgentLoopController(
                 messages = state.messages.toList(),
                 tools = tools,
                 maxTokens = 4096,
+                stream = stream,
             )
 
             // Stream completion

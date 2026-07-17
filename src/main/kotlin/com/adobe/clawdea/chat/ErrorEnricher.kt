@@ -59,11 +59,25 @@ object ErrorEnricher {
             BackendKind.OPENAI_COMPATIBLE_HTTP -> openAiCompatiblePatterns
             else -> claudePatterns
         }
+        // For the OpenAI-compatible path, match only the PRIMARY error message, not the bounded
+        // `detail`/`details` tail that AgentChatSseParser appends after " — " (cd77b98). That tail
+        // is often a stack trace / raw SSE dump that can incidentally contain "429", "rate limit",
+        // "5xx", etc., which fuzzy `containsMatchIn` over the whole blob would mis-classify (e.g. a
+        // bogus "Rate limited by the provider" for an "Upstream returned non-JSON response — data:
+        // {...429...}" error). The Claude/Codex path is unchanged.
+        val matchTarget = if (backendKind == BackendKind.OPENAI_COMPATIBLE_HTTP) {
+            errorText.substringBefore(DETAIL_SEPARATOR)
+        } else {
+            errorText
+        }
         for ((pattern, guidance) in patterns) {
-            if (pattern.containsMatchIn(errorText)) {
+            if (pattern.containsMatchIn(matchTarget)) {
                 return guidance
             }
         }
         return null
     }
+
+    /** Separator AgentChatSseParser inserts between the primary error message and its detail tail. */
+    private const val DETAIL_SEPARATOR = " — "
 }

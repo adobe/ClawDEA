@@ -141,4 +141,28 @@ class RuntimeErrorEnrichmentTest {
         assertTrue(result!!.contains("server error"))
         assertFalse(result.contains("Claude"))
     }
+
+    @Test
+    fun `http does not false-match rate limit on an incidental 429 in the detail tail`() {
+        // The EHL/APC gateway wraps raw upstream SSE into a non-JSON error; the detail tail can
+        // incidentally contain "429" (a token count / echoed header). It must NOT enrich to the
+        // rate-limit guidance — only the primary message (before " — ") is matched.
+        val result = http("""Upstream returned non-JSON response — data: {"x":429}""")
+        assertNull(result)
+    }
+
+    @Test
+    fun `http still enriches a genuine rate-limit primary message`() {
+        val result = http("Rate limit exceeded — retry after 30s")
+        assertNotNull(result)
+        assertTrue(result!!.contains("Rate limited"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http still enriches a genuine HTTP 429 primary message`() {
+        val result = http("HTTP 429")
+        assertNotNull(result)
+        assertTrue(result!!.contains("Rate limited"))
+    }
 }
