@@ -225,11 +225,11 @@ class AgentLoopController(
                 streamError = e.message ?: "unknown error"
             }
 
-            // Diagnostic (INFO, counts/lengths only — never prompt or generated content): reveals
+            // Diagnostic (DEBUG, counts/lengths only — never prompt or generated content): reveals
             // why a turn came back empty (e.g. text-deltas=0 reasoning>0 => reasoning-only model;
-            // events=0 => wrong endpoint/model; failure!=null => remote error). Grep idea.log for
-            // "openai-compatible turn:".
-            log.info(
+            // events=0 => wrong endpoint/model; failure!=null => remote error). Enable debug logging
+            // for this category and grep idea.log for "openai-compatible turn:".
+            log.debug(
                 "openai-compatible turn: events=$parsedEvents text-deltas=$textDeltas " +
                     "reasoning=$reasoningEvents tool-frags=$toolFragments usage=$usageEvents " +
                     "failures=$failureEvents finish=${finishReason ?: "none"} " +

@@ -86,7 +86,7 @@ class OpenAiCompatibleClient(
 
         // Diagnostic (no content): confirms what we actually send — endpoint, requested stream flag,
         // and model — so a persistent gateway error can be attributed to request vs. server.
-        log.info("openai-compatible agent request: url=$chatEndpoint stream=${request.stream} model=${request.model}")
+        log.debug("openai-compatible agent request: url=$chatEndpoint stream=${request.stream} model=${request.model}")
 
         val httpRequest = buildHttpRequest(chatEndpoint, credential, profile, body)
 
@@ -96,7 +96,7 @@ class OpenAiCompatibleClient(
             val status = response.statusCode()
             if (status != 200) {
                 // Diagnostic (status only, no body): a non-200 here is the top empty-answer suspect.
-                log.info("openai-compatible agent stream: http=$status (non-200, aborting)")
+                log.debug("openai-compatible agent stream: http=$status (non-200, aborting)")
                 emit(handleAgentHttpError(response))
                 return@flow
             }
@@ -139,7 +139,7 @@ class OpenAiCompatibleClient(
                 parsedCount = events.size
                 events.forEach { emit(it) }
             }
-            log.info("openai-compatible agent stream: http=$status mode=${mode ?: "empty"} lines=$lineCount parsed=$parsedCount")
+            log.debug("openai-compatible agent stream: http=$status mode=${mode ?: "empty"} lines=$lineCount parsed=$parsedCount")
         } catch (e: Exception) {
             log.info("openai-compatible agent stream error: ${e.javaClass.simpleName}")
             emit(AgentStreamEvent.Failure(null, e.message ?: "Connection error", null))
