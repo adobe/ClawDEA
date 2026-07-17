@@ -67,8 +67,14 @@ class CredentialFlowExecutor(
 
                 val response = transport.execute(request)
                 if (response.status !in step.expectedStatuses) {
+                    // Include a bounded snippet of the server's response body — it carries the real
+                    // reason (e.g. FastAPI/LiteLLM `{"detail": ...}`) and is the only way the user
+                    // can diagnose a rejected step. This is the server's RESPONSE, never the request,
+                    // so no submitted secret is exposed here.
+                    val detail = response.body.trim().take(500)
+                    val suffix = if (detail.isEmpty()) "" else ": $detail"
                     throw CredentialFlowException(
-                        "Step ${step.id} failed: expected ${step.expectedStatuses}, got ${response.status}",
+                        "Step ${step.id} failed: expected ${step.expectedStatuses}, got ${response.status}$suffix",
                     )
                 }
 
