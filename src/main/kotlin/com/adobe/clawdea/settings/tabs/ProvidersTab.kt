@@ -246,12 +246,14 @@ class ProvidersTab : SettingsTab {
                 modelTableModel.replaceAll(transientCatalogs[newProvider] ?: mutableListOf())
                 modelsSectionLabel.text = "Models (${newProvider})"
             }
+            updateGenericModelsTableVisibility()
             updateApiKeyLabel()
             connectionResultLabel.text = ""
         }
         checkConnectionButton.addActionListener { doCheckConnection() }
         showProviderCard()
         updateApiKeyLabel()
+        updateGenericModelsTableVisibility()
     }
 
     fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
@@ -474,7 +476,13 @@ class ProvidersTab : SettingsTab {
     fun loadModels(catalogs: Map<String, List<ModelEntry>>) {
         transientCatalogs.clear()
         for ((k, v) in catalogs) {
-            transientCatalogs[k] = v.map { it.copy() }.toMutableList()
+            // Exclude openai-compatible profile-scoped keys and the base key from transientCatalogs.
+            // The openai-compatible card owns those catalogs.
+            if (k != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
+                !k.startsWith("${com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
+            ) {
+                transientCatalogs[k] = v.map { it.copy() }.toMutableList()
+            }
         }
         currentCatalogProvider = providerKey()
         modelTableModel.replaceAll(transientCatalogs[currentCatalogProvider] ?: mutableListOf())
@@ -484,22 +492,31 @@ class ProvidersTab : SettingsTab {
     fun isModelsModified(catalogs: Map<String, List<ModelEntry>>): Boolean {
         flushCurrentTableToTransient()
 
-        // For openai-compatible, check the active profile's catalog
-        if (selectedProviderKey() == "openai-compatible") {
-            val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
-            if (activeId.isNotBlank()) {
-                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
-                    com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
-                    activeId
-                )
-                val savedCatalog = catalogs[catalogKey] ?: emptyList()
-                if (openAiCompatibleCard.isModelsModified(savedCatalog)) return true
-            }
+        // For openai-compatible, check the active profile's catalog (card-owned).
+        val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        if (activeId.isNotBlank()) {
+            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                activeId
+            )
+            val savedCatalog = catalogs[catalogKey] ?: emptyList()
+            if (openAiCompatibleCard.isModelsModified(savedCatalog)) return true
         }
 
-        if (transientCatalogs.size != catalogs.size) return true
-        for ((k, persisted) in catalogs) {
-            val transient = transientCatalogs[k] ?: return true
+        // Compare transientCatalogs against persisted catalogs, excluding openai-compatible base key
+        // (owned by the card with profile-scoped keys).
+        val genericTransient = transientCatalogs.filterKeys {
+            it != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID
+        }
+        val genericPersisted = catalogs.filterKeys {
+            // Exclude profile-scoped openai-compatible keys (they start with "openai-compatible:").
+            it != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
+                !it.startsWith("${com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
+        }
+
+        if (genericTransient.size != genericPersisted.size) return true
+        for ((k, persisted) in genericPersisted) {
+            val transient = genericTransient[k] ?: return true
             if (persisted.size != transient.size) return true
             val mismatch = persisted.zip(transient).any { (a, b) ->
                 a.id != b.id || a.displayName != b.displayName || a.userAdded != b.userAdded
@@ -513,19 +530,21 @@ class ProvidersTab : SettingsTab {
         flushCurrentTableToTransient()
         val out: MutableMap<String, MutableList<ModelEntry>> = mutableMapOf()
         for ((k, v) in transientCatalogs) {
-            out[k] = v.map { it.copy() }.toMutableList()
+            // Exclude openai-compatible from generic transient catalogs — that provider's catalog
+            // is owned by the card and persisted via the profile-scoped key below.
+            if (k != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                out[k] = v.map { it.copy() }.toMutableList()
+            }
         }
 
-        // For openai-compatible, save the active profile's catalog
-        if (selectedProviderKey() == "openai-compatible") {
-            val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
-            if (activeId.isNotBlank()) {
-                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
-                    com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
-                    activeId
-                )
-                out[catalogKey] = openAiCompatibleCard.saveModels()
-            }
+        // For openai-compatible, save the active profile's catalog (card-owned).
+        val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        if (activeId.isNotBlank()) {
+            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                activeId
+            )
+            out[catalogKey] = openAiCompatibleCard.saveModels()
         }
 
         return out
@@ -543,6 +562,17 @@ class ProvidersTab : SettingsTab {
 
     private fun flushCurrentTableToTransient() {
         transientCatalogs[currentCatalogProvider] = modelTableModel.rows.map { it.copy() }.toMutableList()
+    }
+
+    /**
+     * Toggle the generic Models section visibility based on the selected provider.
+     * The openai-compatible provider shows its own table in the card; all others use
+     * the generic table.
+     */
+    private fun updateGenericModelsTableVisibility() {
+        val show = showsGenericModelsTable(providerKey())
+        modelsSectionLabel.isVisible = show
+        modelsSection.isVisible = show
     }
 
     private class ModelCatalogTableModel(
@@ -587,5 +617,15 @@ class ProvidersTab : SettingsTab {
             rows.addAll(newRows.map { it.copy() })
             fireTableDataChanged()
         }
+    }
+
+    companion object {
+        /**
+         * Returns true if the generic ProvidersTab model table should be shown for the given provider.
+         * The openai-compatible provider owns its table via the profile card; all others use the
+         * generic table.
+         */
+        fun showsGenericModelsTable(providerKey: String): Boolean =
+            providerKey != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID
     }
 }
