@@ -271,6 +271,13 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
                     lastSyncedCommit = beforeState.lastSyncedCommit,
                     now = now,
                 )
+                out += OrphanCodeDetector.detect(
+                    wikiDir = wikiDir,
+                    sourceRoots = listOf(
+                        projectRoot.resolve("src/main/kotlin"),
+                        projectRoot.resolve("src/main/java"),
+                    ),
+                )
             }
             out += beforeState.suggestions
             return out
@@ -299,6 +306,7 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             // Step 2: route remainder through wiki-author.
             val needsAuthor = afterDeterministic.filter {
                 it is DriftEvent.CommitDrift || it is DriftEvent.WikiSuggestion ||
+                    it is DriftEvent.OrphanSubsystem ||
                     (it is DriftEvent.CodeRename && it.suggestedReplacement == null) ||
                     (it is DriftEvent.ManifestStale)  // edge case: deterministic apply failed
             }

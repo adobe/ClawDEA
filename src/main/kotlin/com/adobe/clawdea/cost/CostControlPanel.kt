@@ -197,10 +197,10 @@ class CostControlPanel(private val project: Project, private val chatId: String)
     }
 
     private fun providerTitle(providerId: String): String = when (providerId) {
-        "subscription" -> "Subscription"
+        "subscription" -> "Claude Subscription"
         "openai-subscription" -> "OpenAI (ChatGPT subscription)"
         "openai" -> "OpenAI API"
-        "bedrock" -> "Bedrock"
+        "bedrock" -> "Anthropic Bedrock"
         "anthropic" -> "Anthropic API"
         "vertex" -> "Vertex AI"
         else -> providerId.replaceFirstChar { it.uppercase() }

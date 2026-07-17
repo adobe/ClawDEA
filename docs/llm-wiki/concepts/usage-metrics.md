@@ -25,6 +25,7 @@ This is the single fan-out point. Any coroutine collecting from `bridge.events` 
 | `CliEvent.AssistantMessage` | `toolUses` (id/name/input for each), `model`, `parentToolUseId` | Rendering, sub-agent grouping |
 | `CliEvent.ToolResult` | `toolUseId`, `content`, `isError`, elapsed (computed in handler) | Rendering, edit review |
 | `CliEvent.Result` | Full token breakdown, `costUsd`, `contextTokens`, `contextWindow`, `sessionId`, `isError` | Cost accounting, context indicator |
+| `CliEvent.BackgroundTask` | `toolUseId`, `phase` (STARTED/PROGRESS/NOTIFICATION), `status`, `summary`, `lastToolName`, `toolUses` count | Background sub-agent card lifecycle (no accumulator) |
 | `CliEvent.Unknown` (rawType=`rate_limit_event`) | Raw JSON — structure undocumented by CC | Dropped |
 | `CliEvent.TaskEvent.*` | Task id/subject/status changes | Task widget |
 | `CliEvent.GoalFeedback` | `condition`, `reason` | Goal banner |

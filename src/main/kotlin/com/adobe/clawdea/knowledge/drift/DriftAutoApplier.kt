@@ -35,6 +35,7 @@ object DriftAutoApplier {
                 is DriftEvent.CodeRename -> applyCodeRename(event)
                 is DriftEvent.ManifestStale -> applyManifestStale(event, today)
                 is DriftEvent.CommitDrift -> false       // wiki-author handles
+                is DriftEvent.OrphanSubsystem -> false   // wiki-author handles
                 is DriftEvent.WikiSuggestion -> false    // wiki-author handles
             }
             if (ok) applied += event

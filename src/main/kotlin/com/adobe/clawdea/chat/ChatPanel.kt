@@ -1918,6 +1918,7 @@ class ChatPanel(
             is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> "CodeRename"
             is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> "ManifestStale"
             is com.adobe.clawdea.knowledge.drift.DriftEvent.CommitDrift -> "CommitDrift"
+            is com.adobe.clawdea.knowledge.drift.DriftEvent.OrphanSubsystem -> "OrphanSubsystem"
             is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> "WikiSuggestion(${event.kind.name})"
         }
 
@@ -1926,6 +1927,7 @@ class ChatPanel(
             is com.adobe.clawdea.knowledge.drift.DriftEvent.CodeRename -> event.wikiPage.fileName.toString()
             is com.adobe.clawdea.knowledge.drift.DriftEvent.ManifestStale -> event.repoKey
             is com.adobe.clawdea.knowledge.drift.DriftEvent.CommitDrift -> event.wikiPage.fileName.toString()
+            is com.adobe.clawdea.knowledge.drift.DriftEvent.OrphanSubsystem -> "${event.prefix}*"
             is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> event.title
         }
 
@@ -1957,6 +1959,14 @@ class ChatPanel(
                     sb.appendLine("- $icon **CommitDrift** in `${event.wikiPage.fileName}`")
                     sb.appendLine("  - commits: ${event.commitShas.joinToString(", ")}")
                     sb.appendLine("  - touched paths: ${event.touchedPaths.joinToString(", ")}")
+                }
+                is com.adobe.clawdea.knowledge.drift.DriftEvent.OrphanSubsystem -> {
+                    // Should not appear when enableWikiLibrarian=false (the detector is gated),
+                    // but render minimally for safety.
+                    sb.appendLine("- $icon **OrphanSubsystem**: the `${event.prefix}*` classes have no wiki page")
+                    sb.appendLine("  - classes: ${event.classNames.joinToString(", ")}")
+                    sb.appendLine("  - representative files: ${event.representativePaths.joinToString(", ")}")
+                    sb.appendLine("  - action: if these form a coherent subsystem, author a new concept page via `propose_write` and link it from `index.md`; otherwise dismiss.")
                 }
                 is com.adobe.clawdea.knowledge.drift.DriftEvent.WikiSuggestion -> {
                     sb.appendLine("- $icon **WikiSuggestion (${event.kind.name})**: ${event.title}")

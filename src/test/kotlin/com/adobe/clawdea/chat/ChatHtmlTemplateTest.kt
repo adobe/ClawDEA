@@ -117,6 +117,49 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
+    fun `live reasoning stays in the pinned slot until finalized into message history`() {
+        val template = ChatHtmlTemplate()
+        val html = template.buildPage()
+
+        assertContains(
+            html,
+            """
+            #thinking-slot > #reasoning-live .reasoning-content {
+                max-height: 30vh;
+                overflow-y: auto;
+            }
+            """.trimIndent(),
+        )
+        assertContains(
+            html,
+            """
+            function appendReasoning(text) {
+            """.trimIndent(),
+        )
+        assertContains(html, "slot.insertBefore(block, slot.firstChild);")
+        assertContains(html, "content.scrollTop = content.scrollHeight;")
+        assertContains(
+            html,
+            """
+            function finalizeReasoning() {
+                var block = document.getElementById('reasoning-live');
+                if (!block) return;
+                block.removeAttribute('open');
+                block.removeAttribute('id');
+            """.trimIndent(),
+        )
+        assertContains(
+            html,
+            """
+                var messages = document.getElementById('messages');
+                if (messages) messages.appendChild(block);
+            }
+            function toggleSubAgentStep(row) {
+            """.trimIndent(),
+        )
+    }
+
+    @Test
     fun `thinking indicator label is dynamic and settable per backend`() {
         val template = ChatHtmlTemplate()
         val html = template.buildPage()

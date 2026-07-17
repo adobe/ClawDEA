@@ -4,10 +4,11 @@
     <name>ClawDEA</name>
     <vendor url="https://github.com/adobe/ClawDEA" email="spopescu@adobe.com">ClawDEA</vendor>
     <description><![CDATA[
-<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> a
-self-maintaining understanding of your project.</b> Its standout capability is a project wiki that
-stays in sync with your code, ships an orientation primer with every turn, and is ready to share across
-a team via git &mdash; so Claude starts every conversation already knowing how your codebase works.</p>
+<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> and
+<a href="https://developers.openai.com/codex/">OpenAI Codex</a> a self-maintaining understanding of your
+project.</b> Its standout capability is a project wiki that stays in sync with your code, ships an
+orientation primer with every turn, and is ready to share across a team via git &mdash; so your AI
+assistant starts every conversation already knowing how your codebase works.</p>
 
 <p>Most Claude plugins wrap the CLI in a chat window. ClawDEA goes further: a living knowledge layer plus
 JVM profiling as a diagnostic loop, on top of IDE-grade code navigation, edit review, and debugging.

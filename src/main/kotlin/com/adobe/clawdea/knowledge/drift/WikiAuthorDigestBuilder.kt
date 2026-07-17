@@ -70,6 +70,12 @@ object WikiAuthorDigestBuilder {
                 sb.append("- $icon ManifestStale in ${event.manifestPath}\n")
                 sb.append("  repo key: ${event.repoKey} (group ${event.groupName}, line ${event.lineHint})\n")
             }
+            is DriftEvent.OrphanSubsystem -> {
+                sb.append("- $icon OrphanSubsystem: the `${event.prefix}*` classes have no wiki page\n")
+                sb.append("  classes: ${event.classNames.joinToString(", ")}\n")
+                sb.append("  representative files: ${event.representativePaths.joinToString(", ")}\n")
+                sb.append("  action: if these form a coherent subsystem, author a new concept page and link it from index.md; otherwise skip with a reason\n")
+            }
             is DriftEvent.WikiSuggestion -> {
                 sb.append("- $icon WikiSuggestion (${event.kind.name}): ${event.title}\n")
                 sb.append("  rationale: ${event.rationale}\n")

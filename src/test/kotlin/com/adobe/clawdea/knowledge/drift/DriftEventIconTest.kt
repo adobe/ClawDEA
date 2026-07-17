@@ -37,6 +37,12 @@ class DriftEventIconTest {
         firstObservedAt = "2026-05-17T16:30:00Z",
     )
 
+    private fun orphanSubsystem() = DriftEvent.OrphanSubsystem(
+        prefix = "Codex",
+        classNames = listOf("CodexProcess", "CodexModelProbe", "CodexAppServerProcess"),
+        representativePaths = listOf("src/main/kotlin/com/adobe/clawdea/cli/CodexProcess.kt"),
+    )
+
     private fun wikiSuggestion() = DriftEvent.WikiSuggestion(
         kind = SuggestionKind.missingConcept,
         title = "Add concept for X",
@@ -58,6 +64,10 @@ class DriftEventIconTest {
         assertEquals("↻", DriftEventIcon.iconFor(commitDrift()))
     }
 
+    @Test fun `iconFor returns seedling icon for OrphanSubsystem`() {
+        assertEquals("🌱", DriftEventIcon.iconFor(orphanSubsystem()))
+    }
+
     @Test fun `iconFor returns pen icon for WikiSuggestion`() {
         assertEquals("✍", DriftEventIcon.iconFor(wikiSuggestion()))
     }
@@ -72,6 +82,10 @@ class DriftEventIconTest {
 
     @Test fun `labelFor returns code changed for CommitDrift`() {
         assertEquals("code changed", DriftEventIcon.labelFor(commitDrift()))
+    }
+
+    @Test fun `labelFor returns undocumented subsystem for OrphanSubsystem`() {
+        assertEquals("undocumented subsystem", DriftEventIcon.labelFor(orphanSubsystem()))
     }
 
     @Test fun `labelFor returns suggested update for WikiSuggestion`() {

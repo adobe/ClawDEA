@@ -21,8 +21,10 @@ class CodexSessionScannerTest {
         return f
     }
 
-    private fun userItem(text: String) =
-        """{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":${quote(text)}}]}}"""
+    private fun userItem(vararg texts: String): String {
+        val content = texts.joinToString(",") { """{"type":"input_text","text":${quote(it)}}""" }
+        return """{"type":"response_item","payload":{"type":"message","role":"user","content":[$content]}}"""
+    }
 
     private fun assistantItem(text: String) =
         """{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":${quote(text)}}]}}"""
@@ -72,6 +74,25 @@ class CodexSessionScannerTest {
         assertTrue(history[0] is HistoryEntry.UserMessage)
         assertEquals("what model are you?", (history[0] as HistoryEntry.UserMessage).text)
         assertEquals("I'm Codex.", (history[1] as HistoryEntry.AssistantText).text)
+    }
+
+    @Test
+    fun `loadHistory strips codex plugin recommendations and environment from a combined user item`() {
+        val root = tmp.newFolder("sessions")
+        val day = File(root, "2026/07/14")
+        val f = rollout(
+            day, "rollout-g-uuid-g.jsonl", cwd = "/proj", sessionId = "uuid-g",
+            userItem(
+                "<recommended_plugins>\n- SharePoint\n</recommended_plugins>",
+                "<environment_context>\n  <cwd>/proj</cwd>\n</environment_context>",
+                "the real user prompt",
+            ),
+        )
+
+        val history = CodexSessionScanner.loadHistoryFromFile(f)
+
+        assertEquals(1, history.size)
+        assertEquals("the real user prompt", (history.single() as HistoryEntry.UserMessage).text)
     }
 
     @Test

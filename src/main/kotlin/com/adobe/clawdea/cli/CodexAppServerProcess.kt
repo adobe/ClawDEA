@@ -321,7 +321,7 @@ class CodexAppServerProcess(
         })
     }
 
-    /** `config` overrides applied to the thread — currently just ClawDEA's local MCP server. */
+    /** `config` overrides applied to the thread — ClawDEA's local MCP server + reasoning summary. */
     private fun buildThreadConfig(): JsonObject {
         val config = JsonObject()
         if (mcpPort > 0) {
@@ -332,6 +332,12 @@ class CodexAppServerProcess(
             }
             config.add("mcp_servers", servers)
         }
+        // Stream the model's reasoning so the chat renders it in the "Thinking" block. The app-server
+        // emits `item/reasoning/summaryTextDelta` (→ CliEvent.ReasoningDelta) ONLY when a concrete
+        // summary level is requested — the default ("auto") yields an empty reasoning item with no
+        // deltas for the ChatGPT-subscription flow, and "none"/unset streams nothing at all. "detailed"
+        // reliably streams the summary. (Verified against codex-cli 0.144.4 app-server.)
+        config.addProperty("model_reasoning_summary", REASONING_SUMMARY_LEVEL)
         return config
     }
 
@@ -566,6 +572,12 @@ class CodexAppServerProcess(
         private val STOP = "\u0000__CODEX_APP_SERVER_STOP__"
         private const val MAX_STDERR_LINES = 200
         private const val CLIENT_VERSION = "2.0.0"
+
+        /**
+         * Reasoning-summary level requested per thread (`model_reasoning_summary`). Must be a concrete
+         * level — "auto" produces no summary deltas over the app-server for the subscription flow.
+         */
+        private const val REASONING_SUMMARY_LEVEL = "detailed"
 
         /**
          * Maps ClawDEA's effort dropdown to codex's `effort` value (`minimal|low|medium|high`).

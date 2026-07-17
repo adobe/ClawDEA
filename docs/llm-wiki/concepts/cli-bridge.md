@@ -53,7 +53,7 @@ A refactor that extracts the three inline constants to resources must follow thi
 
 - [CliProcess.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt) — process spawn, command assembly, temp-file handling, CLI binary resolution
 - [CliBridge.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliBridge.kt) — coroutine reader, generation tracking, `SharedFlow<CliEvent>` fan-out
-- [CliEvent.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEvent.kt) — sealed event hierarchy (SystemInit, TextDelta, AssistantMessage, ToolUse/Result, Result, AuthFailure, TaskEvent)
+- [CliEvent.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEvent.kt) — sealed event hierarchy (SystemInit, TextDelta, ReasoningDelta, AssistantMessage, ToolUse/Result, Result, BackgroundTask, AuthFailure, GoalFeedback, TaskEvent)
 - [CliEventParser.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEventParser.kt) — manual NDJSON parser
 - [CliEnvironment.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliEnvironment.kt) — env-var injection (auth, locale, telemetry opt-out)
 - [TaskEventExtractor.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/TaskEventExtractor.kt) — TaskWidget event extraction from partial-message stream

@@ -65,6 +65,11 @@ class DriftBanner(
                     // This branch exists only for `when` exhaustivity.
                     "✓ commit drift: ${event.wikiPage.fileName}"
                 }
+                is DriftEvent.OrphanSubsystem -> {
+                    // OrphanSubsystem is never auto-applied — wiki-author handles it.
+                    // This branch exists only for `when` exhaustivity.
+                    "✓ documented subsystem: ${event.prefix}"
+                }
                 is DriftEvent.WikiSuggestion -> {
                     // WikiSuggestion is never auto-applied in v1 — this branch
                     // exists only for `when` exhaustivity and should not be

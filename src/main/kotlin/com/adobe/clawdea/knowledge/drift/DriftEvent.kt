@@ -53,6 +53,23 @@ sealed class DriftEvent {
             "commit-drift:${wikiPage.fileName}:${commitShas.joinToString(",").take(80)}"
     }
 
+    /**
+     * Emitted by [OrphanCodeDetector] when a cluster of source classes sharing
+     * a common name prefix (e.g. all the `Codex*` types) exists in the codebase
+     * but no wiki page mentions any of them — a greenfield subsystem that landed
+     * without a concept page. Unlike [CommitDrift], which can only fire when a
+     * commit touches code an *existing* page already references, this detector
+     * finds areas the wiki has never covered. The wiki-author subagent decides
+     * whether to author a new page.
+     */
+    data class OrphanSubsystem(
+        val prefix: String,
+        val classNames: List<String>,
+        val representativePaths: List<String>,
+    ) : DriftEvent() {
+        override val signature: String = "orphan-subsystem:$prefix"
+    }
+
     data class WikiSuggestion(
         val kind: SuggestionKind,
         val title: String,

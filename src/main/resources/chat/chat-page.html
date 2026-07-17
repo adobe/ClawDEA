@@ -469,8 +469,8 @@ em { color: var(--subtext0); }
     margin-left: 8px;
 }
 
-/* Bottom dock: pins live sub-agent panels and the thinking indicator to the
-   bottom of the viewport so ongoing activity is always visible. Active
+/* Bottom dock: pins live sub-agent panels, streamed reasoning, and the thinking
+   indicator to the bottom of the viewport so ongoing activity is always visible. Active
    sub-agent cards live in #active-agents (stacked when several run in
    parallel); a card is released back into the normal message flow only once it
    finishes and collapses (finalizeSubAgent). */
@@ -500,6 +500,13 @@ em { color: var(--subtext0); }
    #active-agents the real scroll container its overflow-y:auto already promises. */
 #active-agents > .subagent-block { margin: 4px 0; flex-shrink: 0; }
 #active-agents > .subagent-block:first-child { margin-top: 0; }
+
+/* Keep long live reasoning visible without letting it consume the viewport.
+   Once finalized, the block moves to #messages and this cap no longer applies. */
+#thinking-slot > #reasoning-live .reasoning-content {
+    max-height: 30vh;
+    overflow-y: auto;
+}
 
 /* Thinking indicator — pinned by its #dock parent, no own sticky needed. */
 #thinking-indicator {
@@ -1142,24 +1149,27 @@ function toggleSubAgent(header) {
     var block = header.closest('.subagent-block');
     if (block) block.classList.toggle('expanded');
 }
-// Streamed model reasoning ("Thinking"). Codex emits reasoning tokens the Claude
-// stream drops; they arrive before the answer, so the live block renders above it.
-// Text is appended as a text node (no HTML injection). finalizeReasoning collapses
-// the block and drops the #reasoning-live id so the next turn starts a fresh one.
+// Streamed model reasoning ("Thinking"). While live, the block stays in the pinned
+// bottom dock above the activity indicator. finalizeReasoning collapses and moves it
+// into message history before the answer is appended. Text is always a text node.
 function appendReasoning(text) {
     var block = document.getElementById('reasoning-live');
     if (!block) {
-        var container = document.getElementById('messages');
+        var slot = document.getElementById('thinking-slot');
+        if (!slot) return;
         block = document.createElement('details');
         block.id = 'reasoning-live';
         block.className = 'reasoning-block';
         block.open = true;
         block.innerHTML = '<summary class="reasoning-summary">Thinking…</summary>' +
             '<div class="reasoning-content"></div>';
-        container.appendChild(block);
+        slot.insertBefore(block, slot.firstChild);
     }
     var content = block.querySelector('.reasoning-content');
-    if (content) content.appendChild(document.createTextNode(text));
+    if (content) {
+        content.appendChild(document.createTextNode(text));
+        content.scrollTop = content.scrollHeight;
+    }
     // Instant (not smooth) scroll: reasoning deltas are already coalesced/throttled on the
     // Kotlin side, and a queued smooth animation per flush thrashes layout during long
     // reasoning bursts. A plain scroll keeps the block pinned to the bottom cheaply.
@@ -1172,6 +1182,8 @@ function finalizeReasoning() {
     block.removeAttribute('id');
     var s = block.querySelector('.reasoning-summary');
     if (s) s.textContent = 'Thinking';
+    var messages = document.getElementById('messages');
+    if (messages) messages.appendChild(block);
 }
 function toggleSubAgentStep(row) {
     var step = row.closest('.subagent-step');

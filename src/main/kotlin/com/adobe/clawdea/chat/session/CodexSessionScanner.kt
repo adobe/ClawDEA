@@ -156,18 +156,26 @@ object CodexSessionScanner {
 
     /**
      * Strips codex/ClawDEA-injected context that isn't a real user prompt:
-     *  - `<environment_context>…</environment_context>` and the JetBrains harness note codex records
-     *    as its first synthetic user turns.
+     *  - `<recommended_plugins>…</recommended_plugins>`, `<environment_context>…</environment_context>`,
+     *    and the JetBrains harness note codex records as synthetic user content. Codex may put both
+     *    XML blocks and the real prompt in separate content entries of the same `role:"user"` item;
+     *    [contentText] joins those entries before this cleanup runs.
      *  - ClawDEA's own first-turn preamble ([com.adobe.clawdea.cli.CodexInstructions]), which wraps
      *    the real prompt after a `User request:` marker — keep only the part after the last marker.
      */
     private fun cleanUserText(raw: String): String {
-        if (raw.startsWith("<environment_context>")) return ""
-        if (raw.startsWith("You are running inside JetBrains")) return ""
+        var body = raw.trim()
+        while (true) {
+            val tag = SYNTHETIC_USER_BLOCKS.firstOrNull { body.startsWith("<$it>") } ?: break
+            val closingTag = "</$tag>"
+            val end = body.indexOf(closingTag)
+            if (end < 0) break
+            body = body.substring(end + closingTag.length).trimStart()
+        }
+        if (body.startsWith("You are running inside JetBrains")) return ""
         val marker = "User request:\n"
-        val idx = raw.lastIndexOf(marker)
-        val body = if (idx >= 0) raw.substring(idx + marker.length) else raw
-        return body.trim()
+        val idx = body.lastIndexOf(marker)
+        return (if (idx >= 0) body.substring(idx + marker.length) else body).trim()
     }
 
     private fun contentText(payload: JsonObject): String {
@@ -192,4 +200,6 @@ object CodexSessionScanner {
         get(key)?.takeIf(JsonElement::isJsonObject)?.asJsonObject
 
     private fun parseInstant(ts: String): Instant? = runCatching { Instant.parse(ts) }.getOrNull()
+
+    private val SYNTHETIC_USER_BLOCKS = listOf("recommended_plugins", "environment_context")
 }

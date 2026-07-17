@@ -26,6 +26,7 @@ object DriftEventIcon {
         is DriftEvent.CodeRename -> "🔗"
         is DriftEvent.ManifestStale -> "📋"
         is DriftEvent.CommitDrift -> "↻"
+        is DriftEvent.OrphanSubsystem -> "🌱"
         is DriftEvent.WikiSuggestion -> "✍"
     }
 
@@ -33,6 +34,7 @@ object DriftEventIcon {
         is DriftEvent.CodeRename -> "stale link"
         is DriftEvent.ManifestStale -> "stale manifest"
         is DriftEvent.CommitDrift -> "code changed"
+        is DriftEvent.OrphanSubsystem -> "undocumented subsystem"
         is DriftEvent.WikiSuggestion -> "suggested update"
     }
 }

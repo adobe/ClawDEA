@@ -8,8 +8,10 @@ Use these pages to ground reasoning before touching code. Invariants and resolut
 
 ### Process and protocol
 - [CLI bridge](concepts/cli-bridge.md) — subprocess lifecycle, stream-json wiring, system-prompt assembly
+- [Codex backend](concepts/codex-backend.md) — OpenAI `codex app-server` as an alternate agent behind `AgentProcess` (streaming, steer, approvals, cost, resume)
 - [MCP server](concepts/mcp-server.md) — local HTTP JSON-RPC server, tool registration, dispatch threading
 - [Authentication](concepts/authentication.md) — provider fallthrough and effective-provider semantics
+- [Provider selection and settings UI](concepts/provider-selection.md) — global `apiProvider`, settings panel structure, backend-flip rebuild vs in-place restart
 - [Tool approval modes](concepts/tool-approval-modes.md) — `confirm-all` / `allow-safe` / `allow-all` policies, CLI argv mapping
 
 ### Chat UI

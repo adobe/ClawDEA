@@ -132,6 +132,39 @@ class CodexAppServerProcessTest {
     }
 
     @Test(timeout = 10_000)
+    fun `thread start requests a detailed reasoning summary so the Thinking block streams`() {
+        val h = Harness()
+        h.process.start(resumeSessionId = null, skills = emptyList())
+
+        val init = h.readOutbound()
+        h.feed("""{"jsonrpc":"2.0","id":${init.get("id").asLong},"result":{}}""")
+        h.readOutbound() // initialized
+
+        val threadStart = h.readOutbound()
+        assertEquals("thread/start", threadStart.get("method").asString)
+        val config = threadStart.getAsJsonObject("params").getAsJsonObject("config")
+        // "auto"/"none" yield no summary deltas over the app-server — the level must be concrete.
+        assertEquals("detailed", config.get("model_reasoning_summary").asString)
+        h.process.stop()
+    }
+
+    @Test(timeout = 10_000)
+    fun `thread resume also requests the reasoning summary`() {
+        val h = Harness()
+        h.process.start(resumeSessionId = "OLD-THREAD", skills = emptyList())
+
+        val init = h.readOutbound()
+        h.feed("""{"jsonrpc":"2.0","id":${init.get("id").asLong},"result":{}}""")
+        h.readOutbound() // initialized
+
+        val resume = h.readOutbound()
+        assertEquals("thread/resume", resume.get("method").asString)
+        val config = resume.getAsJsonObject("params").getAsJsonObject("config")
+        assertEquals("detailed", config.get("model_reasoning_summary").asString)
+        h.process.stop()
+    }
+
+    @Test(timeout = 10_000)
     fun `writeLine after thread ready issues a turn start with the user prompt`() {
         val h = Harness()
         h.process.start(resumeSessionId = null, skills = emptyList())
