@@ -44,27 +44,7 @@ class OpenAiToolCatalog(
     private fun buildJsonSchema(
         properties: List<Triple<String, String, String>>,
         required: List<String>,
-    ): JsonObject {
-        val schema = JsonObject()
-        schema.addProperty("type", "object")
-
-        val propsObj = JsonObject()
-        for ((name, type, desc) in properties) {
-            val propSchema = JsonObject()
-            propSchema.addProperty("type", type)
-            propSchema.addProperty("description", desc)
-            propsObj.add(name, propSchema)
-        }
-        schema.add("properties", propsObj)
-
-        if (required.isNotEmpty()) {
-            val reqArray = JsonArray()
-            required.forEach { reqArray.add(it) }
-            schema.add("required", reqArray)
-        }
-
-        return schema
-    }
+    ): JsonObject = objectSchema(properties, required)
 
     /**
      * Dispatch a tool call from the model. Validates arguments and routes to
@@ -111,17 +91,86 @@ class OpenAiToolCatalog(
         val obj = JsonParser.parseString(json).asJsonObject
         val result = mutableMapOf<String, String>()
         for ((key, value) in obj.entrySet()) {
-            if (!value.isJsonPrimitive || !value.asJsonPrimitive.isString) {
-                val typeDesc = when {
-                    value.isJsonArray -> "array"
-                    value.isJsonObject -> "object"
-                    else -> "non-string"
-                }
-                throw IllegalArgumentException("Argument '$key' must be a string, number, or boolean (got $typeDesc).")
+            result[key] = when {
+                // Scalars (string/number/boolean) coerce to their JSON string form. Numbers and
+                // booleans arrive frequently once tools are advertised; asString handles all three.
+                value.isJsonPrimitive -> value.asString
+                // Objects/arrays pass through as their JSON text so structured tool handlers can
+                // re-parse them; MCP handlers expecting a scalar will surface their own error.
+                value.isJsonObject || value.isJsonArray -> value.toString()
+                // JSON null carries no value.
+                else -> ""
             }
-            result[key] = value.asString
         }
         return result
+    }
+
+    companion object {
+        /**
+         * OpenAI function-tool schemas for the host tools the [ProductionToolExecutor] dispatches
+         * directly (never through MCP): `Bash` (→ [HostShellTool]) and `apply_patch`
+         * (→ [HostPatchTool]). Advertised alongside [definitions] so agentic models are told these
+         * tools exist and emit `tool_calls` the executor can actually route. Schemas mirror the
+         * arguments the executor parses.
+         */
+        fun hostToolDefinitions(): List<OpenAiToolDefinition> = listOf(
+            OpenAiToolDefinition(
+                type = "function",
+                function = OpenAiFunctionDefinition(
+                    name = "Bash",
+                    description = "Run a shell command in the project working directory and return " +
+                        "its combined stdout/stderr and exit code. Bounded by a timeout and output cap.",
+                    parameters = objectSchema(
+                        properties = listOf(
+                            Triple("command", "string", "The shell command line to execute."),
+                        ),
+                        required = listOf("command"),
+                    ),
+                ),
+            ),
+            OpenAiToolDefinition(
+                type = "function",
+                function = OpenAiFunctionDefinition(
+                    name = "apply_patch",
+                    description = "Apply an edit to a file within the project. Provide the target " +
+                        "file path, the full current (original) content, and the full proposed " +
+                        "content. The edit is validated and routed through diff-gated review.",
+                    parameters = objectSchema(
+                        properties = listOf(
+                            Triple("file_path", "string", "Absolute path of the file to edit (must be inside the project)."),
+                            Triple("original_content", "string", "The full current content of the file (empty string for a new file)."),
+                            Triple("proposed_content", "string", "The full new content the file should have after the edit."),
+                        ),
+                        required = listOf("file_path", "original_content", "proposed_content"),
+                    ),
+                ),
+            ),
+        )
+
+        private fun objectSchema(
+            properties: List<Triple<String, String, String>>,
+            required: List<String>,
+        ): JsonObject {
+            val schema = JsonObject()
+            schema.addProperty("type", "object")
+
+            val propsObj = JsonObject()
+            for ((name, type, desc) in properties) {
+                val propSchema = JsonObject()
+                propSchema.addProperty("type", type)
+                propSchema.addProperty("description", desc)
+                propsObj.add(name, propSchema)
+            }
+            schema.add("properties", propsObj)
+
+            if (required.isNotEmpty()) {
+                val reqArray = JsonArray()
+                required.forEach { reqArray.add(it) }
+                schema.add("required", reqArray)
+            }
+
+            return schema
+        }
     }
 }
 

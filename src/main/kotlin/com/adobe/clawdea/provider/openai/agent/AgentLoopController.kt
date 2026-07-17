@@ -78,6 +78,9 @@ class AgentLoopController(
     private val maxElapsedMs: Long,
     private val maxContextChars: Int,
     private val modelId: String = "",
+    // Tool definitions advertised to the model on every request. Must match what [executor] can
+    // dispatch (MCP tools + host Bash/apply_patch). Empty means the model is told of no tools.
+    private val tools: List<OpenAiToolDefinition> = emptyList(),
 ) {
 
     /**
@@ -144,7 +147,7 @@ class AgentLoopController(
             val request = AgentCompletionRequest(
                 model = modelId,
                 messages = state.messages.toList(),
-                tools = emptyList(), // Tools provided by the backend wrapper
+                tools = tools,
                 maxTokens = 4096,
             )
 

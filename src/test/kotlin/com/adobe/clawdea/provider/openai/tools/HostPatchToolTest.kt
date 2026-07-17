@@ -49,6 +49,53 @@ class HostPatchToolTest {
     }
 
     @Test
+    fun `sibling directory with shared name prefix is rejected but real subpath is allowed`() {
+        val gate = SharedToolApprovalGate(
+            toolApprovalMode = { "allow-all" },
+            policy = { null },
+            route = { _, _, _ -> null },
+            promptTimeoutMs = 1000,
+        )
+
+        // Sibling dir "/work/project-secrets" shares the "/work/project" prefix but must NOT be
+        // treated as inside the project.
+        val rejectingReviewer = FakeReviewer(EditOutcome.ACCEPTED, null)
+        val rejectingTool = HostPatchTool(
+            projectBasePath = "/work/project",
+            autoAcceptEdits = { false },
+            approvalGate = gate,
+            reviewer = rejectingReviewer,
+            coordinator = FakeCoordinator(),
+            fileReader = { "old" },
+        )
+        val rejected = rejectingTool.execute(
+            HostPatchInput("/work/project-secrets/leak.txt", "old", "new"),
+            "tool-1",
+        )
+        assertTrue(rejected.isError)
+        assertTrue(rejected.content.contains("outside project"))
+        assertEquals(0, rejectingReviewer.reviewedPaths.size)
+
+        // A genuine descendant of the base is allowed.
+        val acceptingReviewer = FakeReviewer(EditOutcome.ACCEPTED, null)
+        val acceptingTool = HostPatchTool(
+            projectBasePath = "/work/project",
+            autoAcceptEdits = { false },
+            approvalGate = gate,
+            reviewer = acceptingReviewer,
+            coordinator = FakeCoordinator(),
+            fileReader = { "old" },
+        )
+        val allowed = acceptingTool.execute(
+            HostPatchInput("/work/project/sub/file.txt", "old", "new"),
+            "tool-2",
+        )
+        assertEquals(false, allowed.isError)
+        assertTrue(allowed.content.contains("applied"))
+        assertEquals(1, acceptingReviewer.appliedPaths.size)
+    }
+
+    @Test
     fun `stale original content is rejected`() {
         val gate = SharedToolApprovalGate(
             toolApprovalMode = { "allow-all" },

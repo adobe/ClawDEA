@@ -22,6 +22,7 @@ import com.adobe.clawdea.provider.openai.agent.AgentRetryPolicy
 import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
 import com.adobe.clawdea.provider.openai.agent.ConversationState
 import com.adobe.clawdea.provider.openai.agent.OpenAiInstructions
+import com.adobe.clawdea.provider.openai.agent.OpenAiToolDefinition
 import com.adobe.clawdea.provider.openai.agent.RetryContext
 import com.adobe.clawdea.provider.openai.agent.RetryDecision
 import com.adobe.clawdea.provider.openai.agent.SteeringController
@@ -30,6 +31,7 @@ import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
 import com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient
 import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
 import com.adobe.clawdea.provider.openai.session.OpenAiSessionLedger
+import com.adobe.clawdea.provider.openai.tools.HostPatchInput
 import com.adobe.clawdea.provider.openai.tools.HostPatchTool
 import com.adobe.clawdea.provider.openai.tools.HostShellTool
 import com.adobe.clawdea.provider.openai.tools.MissingRouteBehavior
@@ -356,6 +358,7 @@ class OpenAiCompatibleAgentBackend(
                 maxElapsedMs = 600_000,
                 maxContextChars = 1_000_000,
                 modelId = modelId,
+                tools = agentToolDefinitions(mcpDefs),
             )
 
             val result = runOneRound(loop, text, append)
@@ -664,6 +667,15 @@ class OpenAiCompatibleAgentBackend(
 }
 
 /**
+ * Tool definitions advertised to agentic models: the MCP catalog PLUS the host tools
+ * ([HostShellTool] as `Bash`, [HostPatchTool] as `apply_patch`) that [ProductionToolExecutor]
+ * dispatches directly. Must stay in lockstep with what the executor can route, or the model will
+ * emit tool calls the backend cannot fulfil.
+ */
+internal fun agentToolDefinitions(mcpDefs: List<McpToolRouter.ToolDef>): List<OpenAiToolDefinition> =
+    OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+
+/**
  * Build the production tool executor: dispatches to MCP tools + host shell/patch tools.
  * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
  */
@@ -699,17 +711,48 @@ private class ProductionToolExecutor(
     private val shellTool: HostShellTool?,
     private val patchTool: HostPatchTool?,
 ) : AgentToolExecutor {
+    private val gson = com.google.gson.Gson()
+
     override fun execute(toolCall: com.adobe.clawdea.provider.openai.agent.AgentToolCall): ToolExecutionResult {
         // Route to host tools or catalog
         return when (toolCall.name) {
-            "Bash" -> shellTool?.execute(toolCall.argumentsJson, toolCall.id)
-                ?: ToolExecutionResult(toolCall.id, "Shell tool not available", true)
-            "apply_patch" -> {
-                // Parse HostPatchInput from argumentsJson
-                // For now, return error (host patch integration is complex)
-                ToolExecutionResult(toolCall.id, "Patch tool not yet integrated", true)
-            }
+            "Bash" -> shellTool?.let { tool ->
+                val command = try {
+                    com.google.gson.JsonParser.parseString(toolCall.argumentsJson)
+                        .asJsonObject.get("command")?.asString
+                } catch (e: Exception) {
+                    return ToolExecutionResult(toolCall.id, "Malformed Bash arguments: ${e.message}", true)
+                }
+                if (command == null) {
+                    ToolExecutionResult(toolCall.id, "missing required parameter: command", true)
+                } else {
+                    tool.execute(command, toolCall.id)
+                }
+            } ?: ToolExecutionResult(toolCall.id, "Shell tool not available", true)
+            "apply_patch" -> patchTool?.let { tool ->
+                val input = try {
+                    parsePatchInput(toolCall.argumentsJson)
+                } catch (e: Exception) {
+                    return ToolExecutionResult(toolCall.id, "Malformed apply_patch arguments: ${e.message}", true)
+                }
+                tool.execute(input, toolCall.id)
+            } ?: ToolExecutionResult(toolCall.id, "Patch tool not available", true)
             else -> catalog.dispatch(toolCall.id, toolCall.name, toolCall.argumentsJson)
         }
+    }
+
+    private fun parsePatchInput(argumentsJson: String): HostPatchInput {
+        val obj = com.google.gson.JsonParser.parseString(argumentsJson).asJsonObject
+        val filePath = obj.get("file_path")?.asString
+            ?: throw IllegalArgumentException("missing required parameter: file_path")
+        // original_content defaults to empty (new file); proposed_content is required.
+        val originalContent = obj.get("original_content")?.asString ?: ""
+        val proposedContent = obj.get("proposed_content")?.asString
+            ?: throw IllegalArgumentException("missing required parameter: proposed_content")
+        return HostPatchInput(
+            filePath = filePath,
+            originalContent = originalContent,
+            proposedContent = proposedContent,
+        )
     }
 }

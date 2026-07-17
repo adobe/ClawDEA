@@ -13,6 +13,7 @@ package com.adobe.clawdea.provider.openai
 
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.cli.backend.OpenAiCompatibleAgentBackend
+import com.adobe.clawdea.mcp.McpToolRouter
 import com.adobe.clawdea.provider.openai.agent.AgentToolCall
 import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
 import com.adobe.clawdea.provider.openai.fixture.OpenAiCompatibleFixtureServer
@@ -71,12 +72,24 @@ class OpenAiCompatibleIntegrationTest {
     @Test
     fun `agentic profile completes a tool round and persists resumable history`() {
         fixture.script(toolCall("find_files"), finalText("done"))
-        val harness = harness(fixture.profile(), model = "model-agentic")
+        val harness = harness(
+            fixture.profile(),
+            model = "model-agentic",
+            mcpDefs = listOf(mcpDef("find_files")),
+        )
         harness.start()
         harness.sendAndDrain("find files")
 
         assertTrue(harness.events.any { it is CliEvent.ToolResult })
         assertEquals("done", harness.textDeltas().joinToString(""))
+
+        // Regression guard for the "tools never advertised" defect: the outgoing request MUST carry
+        // a tools array naming the MCP tool PLUS the host Bash/apply_patch tools the executor can
+        // dispatch. Before tools were wired into the request this assertion would have failed even
+        // though the (unconditional) fixture still emitted tool_calls.
+        val advertised = advertisedToolNames(fixture.requestBodies.first())
+        assertEquals(setOf("find_files", "Bash", "apply_patch"), advertised)
+
         val sessions = OpenAiSessionScanner.scan(projectPath)
         assertEquals(1, sessions.size)
         assertEquals("fixture-profile", sessions.single().profileId)
@@ -153,44 +166,73 @@ class OpenAiCompatibleIntegrationTest {
         harness.stop()
     }
 
+    // --- helpers ---
+
+    private fun mcpDef(name: String): McpToolRouter.ToolDef = McpToolRouter.ToolDef(
+        name = name,
+        description = "Test tool $name",
+        properties = listOf(Triple("q", "string", "query")),
+        required = emptyList(),
+        handler = { McpToolRouter.ToolResult("ok($name)") },
+    )
+
+    /** Parse the `tools[].function.name` set advertised in an outgoing `/chat/completions` body. */
+    private fun advertisedToolNames(requestBody: String): Set<String> {
+        val root = com.google.gson.JsonParser.parseString(requestBody).asJsonObject
+        val tools = root.getAsJsonArray("tools") ?: return emptySet()
+        return tools.map { it.asJsonObject.getAsJsonObject("function").get("name").asString }.toSet()
+    }
+
     // --- harness ---
 
     private fun harness(
         profile: ResolvedProviderProfile,
         model: String,
         renewer: () -> Boolean = { false },
-    ) = Harness(profile, model, renewer)
+        mcpDefs: List<McpToolRouter.ToolDef> = emptyList(),
+        useRealExecutor: Boolean = mcpDefs.isNotEmpty(),
+    ) = Harness(profile, model, renewer, mcpDefs, useRealExecutor)
 
     private inner class Harness(
         profile: ResolvedProviderProfile,
         model: String,
         renewer: () -> Boolean,
+        mcpDefs: List<McpToolRouter.ToolDef>,
+        useRealExecutor: Boolean,
     ) {
         val events = mutableListOf<CliEvent>()
 
-        private val executor = object : AgentToolExecutor {
+        private val approvalGate = SharedToolApprovalGate(
+            toolApprovalMode = { "allow-all" },
+            policy = { null },
+            route = { _, _, _ -> null },
+            promptTimeoutMs = 30_000,
+        )
+
+        private val fakeExecutor = object : AgentToolExecutor {
             override fun execute(toolCall: AgentToolCall): ToolExecutionResult =
                 ToolExecutionResult(toolCall.id, "ok(${toolCall.name})", false)
         }
 
         // Real client via the production default clientFactory (no override) — real HTTP + SSE.
+        // When [useRealExecutor] is set we drive the production dispatch path (project=null, so host
+        // tools are unavailable and MCP tools route through the real catalog) instead of a fake.
         private val backend = OpenAiCompatibleAgentBackend(
             profile = profile,
             credential = "fixture-key",
             modelId = model,
             project = null,
             projectPath = projectPath,
-            mcpDefs = emptyList(),
-            approvalGate = SharedToolApprovalGate(
-                toolApprovalMode = { "allow-all" },
-                policy = { null },
-                route = { _, _, _ -> null },
-                promptTimeoutMs = 30_000,
-            ),
+            mcpDefs = mcpDefs,
+            approvalGate = approvalGate,
             autoAcceptEdits = { false },
             agentLabel = "Fixture Provider",
             ledger = OpenAiSessionLedger(projectPath),
-            executorFactory = { executor },
+            executorFactory = if (useRealExecutor) {
+                { com.adobe.clawdea.cli.backend.defaultExecutor(null, mcpDefs, approvalGate) { false } }
+            } else {
+                { fakeExecutor }
+            },
             credentialRenewer = renewer,
         )
 

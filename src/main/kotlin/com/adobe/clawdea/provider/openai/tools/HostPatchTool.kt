@@ -93,7 +93,10 @@ class HostPatchTool(
         }
 
         val canonicalBase = File(projectBasePath).canonicalPath
-        if (!canonicalPath.startsWith(canonicalBase)) {
+        // Real path-boundary check: the base itself is allowed, and descendants must sit under
+        // "<base>/". A bare startsWith would let a sibling with a shared name prefix escape
+        // (e.g. base "/work/project" wrongly matching "/work/project-secrets/x").
+        if (canonicalPath != canonicalBase && !canonicalPath.startsWith(canonicalBase + File.separator)) {
             return ToolExecutionResult(
                 toolCallId = toolUseId,
                 content = "File path outside project: $canonicalPath",
