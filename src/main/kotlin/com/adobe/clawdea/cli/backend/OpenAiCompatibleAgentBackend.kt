@@ -46,7 +46,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -88,13 +91,23 @@ class OpenAiCompatibleAgentBackend(
 ) : AgentBackend {
 
     private val log = Logger.getInstance(OpenAiCompatibleAgentBackend::class.java)
-    private val scope = CoroutineScope(Dispatchers.IO)
+    // Re-creatable: [stop] cancels the scope's Job (which is permanent), so [start] installs a fresh
+    // scope when the current one is no longer active. SupervisorJob so a failed turn child does not
+    // cancel the scope.
+    private var scope = newScope()
     // LinkedBlockingQueue forbids null elements, so EOF is signalled with a sentinel event
-    // ([EOF_SENTINEL]) that [readEvent] translates back to null for the caller.
-    private val queue = LinkedBlockingQueue<CliEvent>()
-    private val state = ConversationState()
+    // ([EOF_SENTINEL]) that [readEvent] translates back to null for the caller. Re-created on each
+    // [start] so a stale EOF sentinel left by a prior [stop] cannot immediately terminate the new
+    // reader loop.
+    @Volatile
+    private var queue = LinkedBlockingQueue<CliEvent>()
+    private var state = ConversationState()
     private val ledger = ledger ?: OpenAiSessionLedger(projectPath)
-    private val alive = AtomicBoolean(true)
+    // Not alive until [start] is called — mirrors process backends (whose process is not alive until
+    // spawned). This makes [CliBridge.isRunning] honest so the first message reliably starts the
+    // backend (emitting SystemInit + seeding the session), and it composes with restartability:
+    // [stop] sets false, [start] sets true again.
+    private val alive = AtomicBoolean(false)
     private var activeJob: Job? = null
     private val steeringController = SteeringController()
     // Current credential (mutable: a successful renewal replaces it for subsequent requests).
@@ -116,7 +129,8 @@ class OpenAiCompatibleAgentBackend(
         if (readinessError != null) {
             // Not ready: log the concrete reason (otherwise the chat only shows CliBridge's generic
             // "CLI process exited unexpectedly" and the actual cause — no profile / no model /
-            // not agentic / no credential — is invisible), then emit it and stop.
+            // not agentic / no credential — is invisible), then emit it and stop. This backend is
+            // intentionally one-shot dead: it stays not-alive so callers never send to it.
             log.warn("OpenAI-compatible backend not ready: $readinessError")
             queue.put(CliEvent.Result(
                 text = readinessError,
@@ -128,6 +142,18 @@ class OpenAiCompatibleAgentBackend(
             alive.set(false)
             return
         }
+
+        // Return to a fully live, usable state — even after a prior [stop] (CliBridge reuses this
+        // backend instance across stop→start). A cancelled scope cannot be reused, and a stale EOF
+        // sentinel from the previous stop would immediately terminate the new reader; refresh both.
+        alive.set(true)
+        if (!scope.isActive) {
+            scope = newScope()
+        }
+        queue = LinkedBlockingQueue()
+        // A fresh (non-resume) start must not carry the previous session's messages/usage/tool state.
+        // A resume rebuilds state from the ledger below, so clearing here is safe in both paths.
+        state = ConversationState()
 
         // Build standing instructions. Degrade to empty when the platform Application is
         // unavailable (headless/unit-test contexts) — instructions are non-essential to the
@@ -666,12 +692,17 @@ class OpenAiCompatibleAgentBackend(
     override fun stop() {
         alive.set(false)
         activeJob?.cancel()
-        queue.put(EOF_SENTINEL) // EOF sentinel
+        queue.put(EOF_SENTINEL) // EOF sentinel: unblocks readEvent() → null
+        // Tear down the scope so no orphaned turn coroutine survives the stop. [start] installs a
+        // fresh scope on restart (a cancelled Job is permanent and cannot be reused).
+        scope.cancel()
     }
 
     override fun recentErrors(): List<String> {
         return errors.takeLast(5)
     }
+
+    private fun newScope() = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private companion object {
         /** Non-null placeholder used to signal EOF through the null-hostile [LinkedBlockingQueue]. */
