@@ -11,12 +11,17 @@
  */
 package com.adobe.clawdea.provider.openai.agent
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * Parser for SSE lines from agentic Chat Completions streams.
- * Returns null for keepalives, blank lines, and unrecognized content.
- * Never logs raw SSE content (contains prompts and generated text).
+ * Parser for agentic Chat Completions responses in BOTH shapes returned by OpenAI-compatible
+ * gateways:
+ *  - **SSE** ([parse]): `data: {...}` framed chunks whose payload lives in `choices[0].delta.*`.
+ *  - **Non-streamed** ([parseNonStreamedCompletion]): a single `chat.completion` JSON object whose
+ *    payload lives in `choices[0].message.*`. Some gateways ignore `stream:true` and return this.
+ * Returns null / empty for keepalives, blank lines, and unrecognized content.
+ * Never logs raw content (contains prompts and generated text).
  */
 class AgentChatSseParser {
     /**
@@ -55,14 +60,7 @@ class AgentChatSseParser {
 
             // Check for usage
             if (root.has("usage")) {
-                val usage = root.getAsJsonObject("usage")
-                val inputTokens = usage.get("prompt_tokens")?.asInt ?: 0
-                val outputTokens = usage.get("completion_tokens")?.asInt ?: 0
-                val cachedInputTokens = usage.getAsJsonObject("prompt_tokens_details")
-                    ?.get("cached_tokens")?.asInt ?: 0
-                val reasoningTokens = usage.getAsJsonObject("completion_tokens_details")
-                    ?.get("reasoning_tokens")?.asInt ?: 0
-                return AgentStreamEvent.Usage(inputTokens, outputTokens, cachedInputTokens, reasoningTokens)
+                return parseUsage(root.getAsJsonObject("usage"))
             }
 
             // Parse choices[0]
@@ -117,5 +115,93 @@ class AgentChatSseParser {
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Parse a single, NON-streamed `chat.completion` JSON object into the same ordered
+     * [AgentStreamEvent]s the SSE path emits, so [AgentLoopController] consumes either shape
+     * unchanged. Unlike the streaming shape, payload lives in `choices[0].message.*` (not `.delta`),
+     * and a `tool_call` arrives complete (full id+name+arguments) — [ToolCallAssembler] stitches a
+     * single complete fragment per index correctly.
+     *
+     * Emission order mirrors the stream closely enough for the loop: tool fragments (if any) OR
+     * text/reasoning, then Usage, then Finished. Returns an empty list for a malformed body or a
+     * body with no usable `choices[0].message`.
+     *
+     * On a top-level `error` object, returns a single [AgentStreamEvent.Failure].
+     */
+    fun parseNonStreamedCompletion(json: String): List<AgentStreamEvent> {
+        return try {
+            val root = JsonParser.parseString(json).asJsonObject
+
+            // Top-level error takes precedence — surface it as a Failure and stop.
+            if (root.has("error")) {
+                val error = root.getAsJsonObject("error")
+                val message = error.get("message")?.asString ?: "Unknown error"
+                return listOf(AgentStreamEvent.Failure(null, message, null))
+            }
+
+            val choices = root.getAsJsonArray("choices")
+            if (choices == null || choices.isEmpty) {
+                return emptyList()
+            }
+
+            val choice = choices[0].asJsonObject
+            val message = choice.getAsJsonObject("message") ?: return emptyList()
+
+            val events = mutableListOf<AgentStreamEvent>()
+
+            // reasoning_content (if present) before text — the loop buffers reasoning separately.
+            val reasoning = message.get("reasoning_content")
+            if (reasoning != null && !reasoning.isJsonNull && reasoning.asString.isNotBlank()) {
+                events.add(AgentStreamEvent.Reasoning(reasoning.asString))
+            }
+
+            // content: emit as Text if non-blank.
+            val content = message.get("content")
+            if (content != null && !content.isJsonNull && content.asString.isNotBlank()) {
+                events.add(AgentStreamEvent.Text(content.asString))
+            }
+
+            // tool_calls: each carries a complete id+name+arguments in one shot. Emit one
+            // ToolFragment per call with its real index (positional) so the assembler stitches
+            // exactly one complete tool call per index.
+            val toolCalls = message.getAsJsonArray("tool_calls")
+            if (toolCalls != null) {
+                toolCalls.forEachIndexed { index, element ->
+                    val toolCall = element.asJsonObject
+                    val id = toolCall.get("id")?.asString
+                    val callIndex = toolCall.get("index")?.asInt ?: index
+                    val function = toolCall.getAsJsonObject("function")
+                    val name = function?.get("name")?.asString
+                    val arguments = function?.get("arguments")?.asString ?: ""
+                    events.add(AgentStreamEvent.ToolFragment(callIndex, id, name, arguments))
+                }
+            }
+
+            // Usage (top-level, same mapping as the SSE path).
+            if (root.has("usage") && !root.get("usage").isJsonNull) {
+                events.add(parseUsage(root.getAsJsonObject("usage")))
+            }
+
+            // Finished with the reported finish_reason (default "stop").
+            val finishReason = choice.get("finish_reason")?.takeIf { !it.isJsonNull }?.asString
+            events.add(AgentStreamEvent.Finished(finishReason ?: "stop"))
+
+            events
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Map a `usage` JSON object to [AgentStreamEvent.Usage]. Shared by both response shapes. */
+    private fun parseUsage(usage: JsonObject): AgentStreamEvent.Usage {
+        val inputTokens = usage.get("prompt_tokens")?.asInt ?: 0
+        val outputTokens = usage.get("completion_tokens")?.asInt ?: 0
+        val cachedInputTokens = usage.getAsJsonObject("prompt_tokens_details")
+            ?.get("cached_tokens")?.asInt ?: 0
+        val reasoningTokens = usage.getAsJsonObject("completion_tokens_details")
+            ?.get("reasoning_tokens")?.asInt ?: 0
+        return AgentStreamEvent.Usage(inputTokens, outputTokens, cachedInputTokens, reasoningTokens)
     }
 }

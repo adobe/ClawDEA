@@ -138,4 +138,81 @@ class AgentChatSseParserTest {
             result
         )
     }
+
+    // --- Non-streamed (single JSON chat.completion) parsing ---
+
+    @Test
+    fun `non-streamed content-only completion yields Text Usage Finished`() {
+        val parser = AgentChatSseParser()
+        val events = parser.parseNonStreamedCompletion(
+            """{"object":"chat.completion","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"hello world"}}],"usage":{"prompt_tokens":10,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}}"""
+        )
+        assertEquals(
+            listOf(
+                AgentStreamEvent.Text("hello world"),
+                AgentStreamEvent.Usage(10, 5, 2, 1),
+                AgentStreamEvent.Finished("stop"),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun `non-streamed reasoning plus content yields Reasoning then Text`() {
+        val parser = AgentChatSseParser()
+        val events = parser.parseNonStreamedCompletion(
+            """{"choices":[{"finish_reason":"stop","message":{"role":"assistant","reasoning_content":"thinking","content":"answer"}}]}"""
+        )
+        assertEquals(
+            listOf(
+                AgentStreamEvent.Reasoning("thinking"),
+                AgentStreamEvent.Text("answer"),
+                AgentStreamEvent.Finished("stop"),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun `non-streamed tool_calls yield one complete ToolFragment per call then Finished`() {
+        val parser = AgentChatSseParser()
+        val events = parser.parseNonStreamedCompletion(
+            """{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"find_files","arguments":"{\"q\":\"a\"}"}}]}}]}"""
+        )
+        assertEquals(
+            listOf(
+                AgentStreamEvent.ToolFragment(0, "call_1", "find_files", """{"q":"a"}"""),
+                AgentStreamEvent.Finished("tool_calls"),
+            ),
+            events,
+        )
+    }
+
+    @Test
+    fun `non-streamed missing finish_reason defaults to stop`() {
+        val parser = AgentChatSseParser()
+        val events = parser.parseNonStreamedCompletion(
+            """{"choices":[{"message":{"role":"assistant","content":"hi"}}]}"""
+        )
+        assertEquals(
+            listOf(AgentStreamEvent.Text("hi"), AgentStreamEvent.Finished("stop")),
+            events,
+        )
+    }
+
+    @Test
+    fun `non-streamed top-level error yields a single Failure`() {
+        val parser = AgentChatSseParser()
+        val events = parser.parseNonStreamedCompletion(
+            """{"error":{"message":"Bad request"}}"""
+        )
+        assertEquals(listOf(AgentStreamEvent.Failure(null, "Bad request", null)), events)
+    }
+
+    @Test
+    fun `non-streamed malformed or empty body yields no events`() {
+        val parser = AgentChatSseParser()
+        assertEquals(emptyList<AgentStreamEvent>(), parser.parseNonStreamedCompletion("not json"))
+        assertEquals(emptyList<AgentStreamEvent>(), parser.parseNonStreamedCompletion("""{"choices":[]}"""))
+    }
 }

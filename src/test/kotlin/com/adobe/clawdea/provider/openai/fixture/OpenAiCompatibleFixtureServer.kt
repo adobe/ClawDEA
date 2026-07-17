@@ -112,6 +112,20 @@ sealed interface ScriptedResponse {
     }
 
     /**
+     * A 200 `application/json` response carrying a single non-streamed `chat.completion` object (no
+     * SSE framing). Models gateways that ignore `stream:true` and return the whole completion at
+     * once — payload lives in `choices[0].message.*`.
+     */
+    data class Json(val body: String) : ScriptedResponse {
+        override fun writeTo(exchange: HttpExchange) {
+            val bytes = body.toByteArray(Charsets.UTF_8)
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+    }
+
+    /**
      * A 200 that promises (via Content-Length) more bytes than it delivers, then closes — the JDK
      * HTTP client observes a premature EOF and surfaces a transport failure to the agent loop.
      * Models the "disconnect after partial output" scenario.
@@ -187,6 +201,26 @@ fun interleavedToolCalls(
         usageLine(),
         doneLine(),
     ),
+)
+
+// --- Non-streamed completion builders (single application/json chat.completion object) ---
+
+private fun usageJson(): String =
+    """"usage":{"prompt_tokens":12,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":3}}"""
+
+/** Non-streamed response: a single JSON completion carrying assistant [text] (payload in message). */
+fun nonStreamedText(text: String): ScriptedResponse = ScriptedResponse.Json(
+    """{"id":"cmpl-1","object":"chat.completion","model":"model-agentic","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":${jsonString(text)}}}],${usageJson()}}"""
+)
+
+/** Non-streamed response: a single JSON completion carrying [reasoning] + assistant [text]. */
+fun nonStreamedReasoningThenText(reasoning: String, text: String): ScriptedResponse = ScriptedResponse.Json(
+    """{"id":"cmpl-1","object":"chat.completion","model":"model-agentic","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","reasoning_content":${jsonString(reasoning)},"content":${jsonString(text)}}}],${usageJson()}}"""
+)
+
+/** Non-streamed response: a single JSON completion carrying one complete tool call. */
+fun nonStreamedToolCall(name: String, args: String = "{}", id: String = "call_1"): ScriptedResponse = ScriptedResponse.Json(
+    """{"id":"cmpl-1","object":"chat.completion","model":"model-agentic","choices":[{"index":0,"finish_reason":"tool_calls","message":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":${jsonString(id)},"type":"function","function":{"name":${jsonString(name)},"arguments":${jsonString(args)}}}]}}],${usageJson()}}"""
 )
 
 /** A 429 rate-limit response carrying a `Retry-After` header. */

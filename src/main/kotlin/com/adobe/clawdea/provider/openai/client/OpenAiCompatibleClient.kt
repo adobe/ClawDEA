@@ -97,21 +97,45 @@ class OpenAiCompatibleClient(
                 return@flow
             }
 
-            // Diagnostic counters (counts only, never SSE content which carries prompts/output):
+            // Diagnostic counters (counts only, never response content which carries prompts/output):
             // pairs with AgentLoopController's per-turn summary to localise an empty answer to the
             // wire (0 lines => wrong endpoint/model) vs. parsing/model behaviour.
+            //
+            // Auto-detect the response shape without profile config: some OpenAI-compatible gateways
+            // ignore `stream:true` and return a single non-streamed `chat.completion` JSON object
+            // (payload in choices[0].message.*) instead of `data:`-framed SSE (payload in .delta.*).
+            // Decide on the first non-blank line: `data:`/`:` framing => SSE (streamed incrementally);
+            // otherwise buffer the whole body and parse it as one JSON completion.
             var lineCount = 0
             var parsedCount = 0
-            val lines = response.body()
-            for (line in lines) {
+            var mode: String? = null
+            val jsonBody = StringBuilder()
+            for (line in response.body()) {
                 lineCount++
-                val event = agentParser.parse(line)
-                if (event != null) {
-                    parsedCount++
-                    emit(event)
+                if (mode == null) {
+                    val trimmed = line.trim()
+                    if (trimmed.isEmpty()) {
+                        lineCount-- // ignore leading blanks for the diagnostic count
+                        continue
+                    }
+                    mode = if (trimmed.startsWith("data:") || trimmed.startsWith(":")) "sse" else "json"
+                }
+                if (mode == "sse") {
+                    val event = agentParser.parse(line)
+                    if (event != null) {
+                        parsedCount++
+                        emit(event)
+                    }
+                } else {
+                    jsonBody.append(line).append('\n')
                 }
             }
-            log.info("openai-compatible agent stream: http=$status lines=$lineCount parsed=$parsedCount")
+            if (mode == "json") {
+                val events = agentParser.parseNonStreamedCompletion(jsonBody.toString())
+                parsedCount = events.size
+                events.forEach { emit(it) }
+            }
+            log.info("openai-compatible agent stream: http=$status mode=${mode ?: "empty"} lines=$lineCount parsed=$parsedCount")
         } catch (e: Exception) {
             log.info("openai-compatible agent stream error: ${e.javaClass.simpleName}")
             emit(AgentStreamEvent.Failure(null, e.message ?: "Connection error", null))

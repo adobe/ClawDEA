@@ -20,6 +20,8 @@ import com.adobe.clawdea.provider.openai.fixture.OpenAiCompatibleFixtureServer
 import com.adobe.clawdea.provider.openai.fixture.disconnectAfterPartial
 import com.adobe.clawdea.provider.openai.fixture.finalText
 import com.adobe.clawdea.provider.openai.fixture.interleavedToolCalls
+import com.adobe.clawdea.provider.openai.fixture.nonStreamedText
+import com.adobe.clawdea.provider.openai.fixture.nonStreamedToolCall
 import com.adobe.clawdea.provider.openai.fixture.reasoningThenText
 import com.adobe.clawdea.provider.openai.fixture.serverError
 import com.adobe.clawdea.provider.openai.fixture.toolCall
@@ -125,6 +127,40 @@ class OpenAiCompatibleIntegrationTest {
         val toolResults = harness.events.filterIsInstance<CliEvent.ToolResult>()
         assertEquals(setOf("call_a", "call_b"), toolResults.map { it.toolUseId }.toSet())
         assertEquals("both done", harness.textDeltas().joinToString(""))
+        harness.stop()
+    }
+
+    @Test
+    fun `non-streamed JSON completion yields non-empty text over real HTTP`() {
+        // Gateway ignores stream:true and returns a single application/json chat.completion object
+        // (payload in choices[0].message.*, no SSE framing). The client must auto-detect and parse it.
+        fixture.script(nonStreamedText("hello from json"))
+        val harness = harness(fixture.profile(), model = "model-agentic")
+        harness.start()
+        harness.sendAndDrain("hi")
+
+        assertEquals("hello from json", harness.textDeltas().joinToString(""))
+        assertEquals(1, harness.results().size)
+        assertTrue(!harness.results().single().isError)
+        assertEquals("hello from json", harness.results().single().text)
+        harness.stop()
+    }
+
+    @Test
+    fun `non-streamed tool call drives exactly one tool round then completes`() {
+        fixture.script(nonStreamedToolCall("find_files"), nonStreamedText("done"))
+        val harness = harness(
+            fixture.profile(),
+            model = "model-agentic",
+            mcpDefs = listOf(mcpDef("find_files")),
+        )
+        harness.start()
+        harness.sendAndDrain("find files")
+
+        val toolResults = harness.events.filterIsInstance<CliEvent.ToolResult>()
+        assertEquals(1, toolResults.size)
+        assertEquals("call_1", toolResults.single().toolUseId)
+        assertEquals("done", harness.textDeltas().joinToString(""))
         harness.stop()
     }
 
