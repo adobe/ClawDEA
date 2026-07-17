@@ -81,7 +81,9 @@ class OpenAiCompatibleAgentBackend(
     private val mcpDefs: List<McpToolRouter.ToolDef>,
     private val approvalGate: SharedToolApprovalGate,
     private val autoAcceptEdits: () -> Boolean,
-    override val agentLabel: String,
+    // Fallback label used until a model is resolved (before first [start], or when the provider
+    // returns blank). Normally the provider's displayLabel ("OpenAI-compatible").
+    private val fallbackAgentLabel: String,
     private val readinessError: String? = null,
     ledger: OpenAiSessionLedger? = null, // Test seam: inject ledger with custom base dir
     // Test seam: construct the streaming client. Production default wraps [OpenAiCompatibleClient].
@@ -127,6 +129,16 @@ class OpenAiCompatibleAgentBackend(
     private var currentModelId: String = ""
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
+
+    // Dynamic: the chat chrome ("… is thinking", composer placeholder, assistant name) shows the
+    // selected model's trimmed name. Computed from [currentModelId] (resolved fresh on every [start]
+    // via modelIdProvider), so a dropdown switch — which restarts the reused backend instance — is
+    // reflected without rebuilding the backend. Falls back to [fallbackAgentLabel] ("OpenAI-compatible")
+    // before the first start / when no model is set. Readers read bridge.agentLabel per use.
+    override val agentLabel: String
+        get() = currentModelId.takeIf { it.isNotBlank() }
+            ?.let { com.adobe.clawdea.provider.openai.client.trimModelDisplayName(it) }
+            ?: fallbackAgentLabel
 
     override val isAlive: Boolean
         get() = alive.get()

@@ -67,4 +67,15 @@ object ModelCapabilityResolver {
             else -> ModelCapability.UNKNOWN
         }
     }
+
+    /**
+     * Serialize a [ModelCapability] to the string stored in [com.adobe.clawdea.gateway.ModelEntry.capability]
+     * (the inverse of [parseCapability]): AGENTIC -> "agentic", COMPLETION_ONLY -> "completion_only",
+     * UNKNOWN -> "unknown".
+     */
+    fun capabilityToString(capability: ModelCapability): String = when (capability) {
+        ModelCapability.AGENTIC -> "agentic"
+        ModelCapability.COMPLETION_ONLY -> "completion_only"
+        ModelCapability.UNKNOWN -> "unknown"
+    }
 }

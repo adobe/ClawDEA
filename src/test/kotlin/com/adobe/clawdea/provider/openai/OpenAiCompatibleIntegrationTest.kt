@@ -295,7 +295,7 @@ class OpenAiCompatibleIntegrationTest {
             mcpDefs = mcpDefs,
             approvalGate = approvalGate,
             autoAcceptEdits = { false },
-            agentLabel = "Fixture Provider",
+            fallbackAgentLabel = "Fixture Provider",
             ledger = OpenAiSessionLedger(projectPath),
             executorFactory = if (useRealExecutor) {
                 { com.adobe.clawdea.cli.backend.defaultExecutor(null, mcpDefs, approvalGate) { false } }

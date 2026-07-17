@@ -132,7 +132,7 @@ class OpenAiCompatibleAgentBackendSteeringTest {
                 promptTimeoutMs = 30_000,
             ),
             autoAcceptEdits = { false },
-            agentLabel = "Test Agent",
+            fallbackAgentLabel = "Test Agent",
             ledger = OpenAiSessionLedger(tempFolder.root.canonicalPath),
             clientFactory = { _, _ -> fakeClient },
             executorFactory = { fakeExecutor },

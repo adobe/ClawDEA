@@ -237,6 +237,38 @@ class ModelCatalogMergeTest {
     }
 
     @Test
+    fun `refresh relearns capability for provider (non-user-added) rows`() {
+        // A refresh re-verifies each provider model, so the freshly-verified capability must win over
+        // the stale value even when the user has customized pricing.
+        val existing = listOf(
+            ModelEntry(id = "provider-model", displayName = "Provider", userAdded = false, capability = "unknown", inputPerM = 10.0),
+        )
+        val fresh = listOf(
+            ModelEntry(id = "provider-model", displayName = "Provider", userAdded = false, capability = "agentic", inputPerM = 1.0),
+        )
+        val merged = ModelCatalogMerge.merge(existing, fresh)
+        assertEquals(1, merged.size)
+        // Fresh capability wins; user pricing preserved.
+        assertEquals("agentic", merged[0].capability)
+        assertEquals(10.0, merged[0].inputPerM, 0.0001)
+    }
+
+    @Test
+    fun `refresh keeps user-added rows capability untouched`() {
+        val existing = listOf(
+            ModelEntry(id = "user-model", displayName = "User", userAdded = true, capability = "agentic"),
+        )
+        // A same-id fresh row from the provider must not override the user-added row's capability.
+        val fresh = listOf(
+            ModelEntry(id = "user-model", displayName = "Provider", userAdded = false, capability = "completion_only"),
+        )
+        val merged = ModelCatalogMerge.merge(existing, fresh)
+        assertEquals(1, merged.size)
+        assertTrue(merged[0].userAdded)
+        assertEquals("agentic", merged[0].capability)
+    }
+
+    @Test
     fun `duplicate ids within fresh collapse to a single appended row`() {
         val fresh = listOf(
             ModelEntry(id = "dup", displayName = "First", inputPerM = 1.0),

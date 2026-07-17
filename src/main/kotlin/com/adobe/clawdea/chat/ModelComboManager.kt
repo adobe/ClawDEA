@@ -161,7 +161,12 @@ class ModelComboManager(
         val state = settings.state
         val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
         val selectedId = settings.getSelectedModelId(project.basePath.orEmpty(), catalogKey)
-        val catalog = (state.modelCatalogs[catalogKey] ?: emptyList())
+        val rawCatalog = (state.modelCatalogs[catalogKey] ?: emptyList())
+        // For the openai-compatible provider, only tool-capable (AGENTIC) + enabled models can start
+        // agentic chat, so hide the rest — a completion-only/unknown pick would only error. Other
+        // providers (Claude/Codex) have no per-model capability semantics; show their catalog as-is.
+        val effectiveProviderId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+        val catalog = chatSelectableModels(rawCatalog, effectiveProviderId)
         // Annotate "Default" only with the model a Default-selection turn actually
         // resolved to (never an explicit pick or stale history). Project-wide value.
         val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()
@@ -178,6 +183,23 @@ class ModelComboManager(
 
     companion object {
         val DEFAULT_SENTINEL = ModelEntry(id = "", displayName = "Default")
+
+        /**
+         * The models offered in the chat dropdown for [effectiveProviderId]. For the
+         * openai-compatible provider only tool-capable (capability=="agentic") AND enabled models are
+         * chat-usable (the backend requires AGENTIC to start a chat), so completion-only/unknown or
+         * disabled rows are filtered out. For every other provider (Claude/Codex) the catalog carries
+         * no per-model capability meaning and is returned unfiltered.
+         */
+        fun chatSelectableModels(
+            catalog: List<ModelEntry>,
+            effectiveProviderId: String,
+        ): List<ModelEntry> {
+            if (effectiveProviderId != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                return catalog
+            }
+            return catalog.filter { it.capability == "agentic" && it.enabled }
+        }
 
         /**
          * Label for the "Default" entry, annotated with the model "Default" actually

@@ -103,7 +103,7 @@ object AgentBackendFactory {
                         mcpDefs = emptyList(),
                         approvalGate = stubGate,
                         autoAcceptEdits = { false },
-                        agentLabel = agentLabel,
+                        fallbackAgentLabel = agentLabel,
                         readinessError = message,
                     )
                 }
@@ -170,7 +170,7 @@ object AgentBackendFactory {
                     mcpDefs = mcpDefs,
                     approvalGate = approvalGate,
                     autoAcceptEdits = { settings.state.autoAcceptEdits },
-                    agentLabel = agentLabel,
+                    fallbackAgentLabel = agentLabel,
                 )
             }
         }

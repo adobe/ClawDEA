@@ -65,7 +65,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
     }
 
     private val refreshModelsButton = JButton("Refresh Models")
-    private val verifyToolSupportButton = JButton("Verify Tool Support")
 
     private val modelTableModel = OpenAiModelTableModel()
     private val modelTable = JBTable(modelTableModel)
@@ -103,15 +102,15 @@ class OpenAiCompatibleSettingsCard : Disposable {
         .addVerticalGap(8)
         .addComponent(JBLabel("Models"), 1)
         .addComponent(refreshModelsButton, 1)
-        .addComponent(modelsSection, 1)
-        .addComponent(verifyToolSupportButton, 1)
         .addComponent(
-            JBLabel("Select a model above, then verify it can call tools before using it for agentic chat.").apply {
+            JBLabel("Refresh fetches the provider's models and verifies which can call tools; " +
+                "only tool-capable models can start agentic chat.").apply {
                 foreground = java.awt.Color(166, 173, 200)
                 font = font.deriveFont(11f)
             },
             2,
         )
+        .addComponent(modelsSection, 1)
         .panel
 
     private val dynamicTextFields = mutableMapOf<String, JBTextField>()
@@ -129,7 +128,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
         connectButton.addActionListener { doConnect() }
         setKeyManuallyButton.addActionListener { doSetKeyManually() }
         refreshModelsButton.addActionListener { doRefreshModels() }
-        verifyToolSupportButton.addActionListener { doVerifyToolSupport() }
 
         profileCombo.addActionListener {
             onProfileSelected()
@@ -184,7 +182,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
             removeButton.isEnabled = false
             endpointOverrideField.isEnabled = false
             refreshModelsButton.isEnabled = false
-            verifyToolSupportButton.isEnabled = false
             rebuildDynamicFields(emptyList())
             return
         }
@@ -200,7 +197,6 @@ class OpenAiCompatibleSettingsCard : Disposable {
         removeButton.isEnabled = true
         endpointOverrideField.isEnabled = true
         refreshModelsButton.isEnabled = true
-        verifyToolSupportButton.isEnabled = true
 
         rebuildDynamicFields(profile.settings)
         populateDynamicFields(profile, settings.state)
@@ -474,94 +470,50 @@ class OpenAiCompatibleSettingsCard : Disposable {
             }
             val client = com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient()
             val freshModels = client.listModels(resolvedWithLiveValues, credential)
-            ApplicationManager.getApplication().invokeLater({
-                refreshModelsButton.isEnabled = true
-                if (freshModels == null) {
-                    Messages.showErrorDialog("Failed to fetch models from the provider. Check the endpoint and credential.", "Refresh Models")
-                } else {
-                    val existingCatalog = modelTableModel.rows.toList()
-                    val merged = ModelCatalogMerge.merge(existingCatalog, freshModels)
-                    modelTableModel.replaceAll(merged)
-
-                    val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, profile.id)
-                    settings.state.modelCatalogs[catalogKey] = merged.toMutableList()
-
-                    Messages.showInfoMessage("Fetched ${freshModels.size} models from the provider.", "Refresh Models")
-                }
-            }, ModalityState.any())
-        }
-    }
-
-    /**
-     * Explicit, user-initiated capability verification (never automatic). Sends ONE probe request
-     * with a single harmless no-op function to the selected model and reports whether it can call
-     * tools. Runs on a background thread so the settings dialog stays responsive; the result is
-     * shown on the EDT. Incurs one small request only when the user clicks this button.
-     */
-    private fun doVerifyToolSupport() {
-        val profile = selectedProfile() ?: return
-        val selectedRow = modelTable.selectedRow
-        val modelId = if (selectedRow >= 0) {
-            modelTableModel.rows.getOrNull(modelTable.convertRowIndexToModel(selectedRow))?.id.orEmpty()
-        } else {
-            ""
-        }
-        if (modelId.isBlank()) {
-            Messages.showInfoMessage("Select a model row first, then verify its tool support.", "Verify Tool Support")
-            return
-        }
-
-        val resolved = profileStore.resolve(profile.id, System.getenv())
-        if (resolved == null) {
-            Messages.showErrorDialog("Could not resolve the profile configuration.", "Verify Tool Support")
-            return
-        }
-
-        val liveFieldValues = captureConfiguredValues()
-        val liveConfiguredValues = OpenAiCompatibleSettingsModel.mergeLiveValues(
-            profile = profile,
-            liveFieldValues = liveFieldValues,
-            resolvedValues = resolved.configuredValues,
-        )
-        val resolvedWithLiveValues = resolved.copy(configuredValues = liveConfiguredValues)
-
-        verifyToolSupportButton.isEnabled = false
-        ApplicationManager.getApplication().executeOnPooledThread {
-            // Read the credential OFF the EDT (PasswordSafe I/O is prohibited on the EDT).
-            val credential = credentialStore.get(profile.id)
-            if (credential.isBlank()) {
+            if (freshModels == null) {
                 ApplicationManager.getApplication().invokeLater({
-                    verifyToolSupportButton.isEnabled = true
-                    Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Verify Tool Support")
+                    refreshModelsButton.text = "Refresh Models"
+                    refreshModelsButton.isEnabled = true
+                    Messages.showErrorDialog("Failed to fetch models from the provider. Check the endpoint and credential.", "Refresh Models")
                 }, ModalityState.any())
                 return@executeOnPooledThread
             }
-            val capability = try {
-                com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(resolvedWithLiveValues, credential, modelId)
-            } catch (e: Exception) {
-                com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
-            }
+
+            // Verify each fetched model's tool-calling capability CONCURRENTLY (all probes in parallel,
+            // off the EDT). A probe that throws or reports UNKNOWN leaves capability="unknown". The
+            // freshly-verified capability rides on each fresh row into the merge below, so provider
+            // (non-userAdded) rows relearn their capability on every refresh.
             ApplicationManager.getApplication().invokeLater({
-                verifyToolSupportButton.isEnabled = true
-                when (capability) {
-                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.AGENTIC ->
-                        Messages.showInfoMessage(
-                            "“$modelId” called the probe function with valid arguments. It supports agentic tool use.",
-                            "Verify Tool Support",
+                refreshModelsButton.text = "Verifying…"
+            }, ModalityState.any())
+            val futures = freshModels.map { model ->
+                ApplicationManager.getApplication().executeOnPooledThread<com.adobe.clawdea.gateway.ModelEntry> {
+                    val capability = try {
+                        com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(
+                            resolvedWithLiveValues, credential, model.id,
                         )
-                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.COMPLETION_ONLY ->
-                        Messages.showWarningDialog(
-                            "“$modelId” did not call the probe function. Treat it as completion-only; it cannot start agentic chat.",
-                            "Verify Tool Support",
-                        )
-                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN ->
-                        Messages.showErrorDialog(
-                            "Couldn’t verify “$modelId”: the chat-completions request failed. This usually means " +
-                                "it isn’t a chat model (e.g. an embedding or reranker model), or the endpoint/credential " +
-                                "is unavailable. Capability is left unknown — the model can’t start agentic chat until verified.",
-                            "Verify Tool Support",
-                        )
+                    } catch (e: Exception) {
+                        com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
+                    }
+                    model.copy(
+                        capability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.capabilityToString(capability),
+                    )
                 }
+            }
+            val verifiedModels = futures.map { it.get() }
+
+            ApplicationManager.getApplication().invokeLater({
+                refreshModelsButton.text = "Refresh Models"
+                refreshModelsButton.isEnabled = true
+
+                val existingCatalog = modelTableModel.rows.toList()
+                val merged = ModelCatalogMerge.merge(existingCatalog, verifiedModels)
+                modelTableModel.replaceAll(merged)
+
+                val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, profile.id)
+                settings.state.modelCatalogs[catalogKey] = merged.toMutableList()
+
+                Messages.showInfoMessage("Fetched and verified ${verifiedModels.size} models from the provider.", "Refresh Models")
             }, ModalityState.any())
         }
     }

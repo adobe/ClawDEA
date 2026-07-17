@@ -325,8 +325,12 @@ class OpenAiCompatibleClient(
                 val id = obj.get(idField)?.takeIf { it.isJsonPrimitive }?.asString
                     ?.takeIf { it.isNotBlank() } ?: continue
 
-                val displayName = obj.get(displayNameField)?.takeIf { it.isJsonPrimitive }?.asString
+                val rawDisplayName = obj.get(displayNameField)?.takeIf { it.isJsonPrimitive }?.asString
                     ?.takeIf { it.isNotBlank() } ?: id
+                // Trim a slash-delimited display value to its last segment so a fully-qualified id
+                // like "hosted_vllm/Qwen/Qwen3.6-35B-A3B" reads as "Qwen3.6-35B-A3B". The id itself is
+                // kept intact (that is what is sent to the API).
+                val displayName = trimModelDisplayName(rawDisplayName)
 
                 result.add(ModelEntry(id = id, displayName = displayName, userAdded = false))
             }
@@ -338,3 +342,11 @@ class OpenAiCompatibleClient(
     }
 
 }
+
+/**
+ * Trim a slash-delimited model identifier to its last path segment for display, e.g.
+ * `hosted_vllm/Qwen/Qwen3.6-35B-A3B` -> `Qwen3.6-35B-A3B`. A value with no slash is returned
+ * unchanged (`text-embedding-ada-002` -> `text-embedding-ada-002`). Pure; shared with the chat
+ * assistant label so a provider model shows the same short name everywhere.
+ */
+fun trimModelDisplayName(value: String): String = value.substringAfterLast('/')

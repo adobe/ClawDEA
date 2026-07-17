@@ -134,6 +134,35 @@ class OpenAiCompatibleAgentBackendRestartTest {
         backend.stop()
     }
 
+    @Test
+    fun `agentLabel reflects the current model trimmed after start`() {
+        var selectedModel = "hosted_vllm/x/Foo-7B"
+        val backend = newBackend(modelIdProvider = { selectedModel })
+
+        // Before start: no model resolved yet -> fall back to the provider label.
+        assertEquals("Test Agent", backend.agentLabel)
+
+        backend.start(null, emptyList())
+        assertEquals("Foo-7B", backend.agentLabel)
+        backend.stop()
+
+        // A dropdown switch restarts the reused backend; the label must follow.
+        selectedModel = "another/Bar-13B"
+        backend.start(null, emptyList())
+        assertEquals("Bar-13B", backend.agentLabel)
+        backend.stop()
+    }
+
+    @Test
+    fun `agentLabel falls back to provider label when model is blank`() {
+        val backend = newBackend(modelIdProvider = { "" })
+        assertEquals("Test Agent", backend.agentLabel)
+        backend.start(null, emptyList())
+        // Blank provider keeps last known (still blank) -> fallback label.
+        assertEquals("Test Agent", backend.agentLabel)
+        backend.stop()
+    }
+
     private fun newBackend(
         modelIdProvider: () -> String = { "test-model" },
     ): OpenAiCompatibleAgentBackend {
@@ -165,7 +194,7 @@ class OpenAiCompatibleAgentBackendRestartTest {
                 promptTimeoutMs = 30_000,
             ),
             autoAcceptEdits = { false },
-            agentLabel = "Test Agent",
+            fallbackAgentLabel = "Test Agent",
             ledger = OpenAiSessionLedger(tempFolder.root.canonicalPath),
             clientFactory = { _, _ -> fakeClient },
             executorFactory = { fakeExecutor },
