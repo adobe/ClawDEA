@@ -104,18 +104,28 @@ object AgentBackendFactory {
                     )
                 }
 
+                // Get active profile id
+                val activeProfileId = settings.state.activeOpenAiCompatibleProfileId
+                if (activeProfileId.isBlank()) {
+                    return errorBackend("No OpenAI-compatible profile selected")
+                }
+
                 // Resolve profile
-                val profileEntry = profileStore.resolve(providerId, System.getenv())
-                    ?: return errorBackend("Profile not configured for $providerId")
+                val profileEntry = profileStore.resolve(activeProfileId, System.getenv())
+                    ?: return errorBackend("Profile '$activeProfileId' not configured")
 
                 // Get credential
-                val credential = credentialStore.get(providerId)
-                    ?: return errorBackend("Credential not configured for $providerId")
+                val credential = credentialStore.get(activeProfileId)
+                if (credential.isBlank()) {
+                    return errorBackend("Credential not configured for profile '$activeProfileId'")
+                }
 
                 // Get selected model
-                val catalogKey = ProviderRegistry.catalogKey(providerId, providerId)
+                val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, activeProfileId)
                 val selectedModelId = settings.getSelectedModelId(workingDirectory, catalogKey)
-                    ?: return errorBackend("No model selected for $providerId")
+                if (selectedModelId.isNullOrBlank()) {
+                    return errorBackend("No model selected for profile '$activeProfileId'")
+                }
 
                 // Check capability
                 val capability = ModelCapabilityResolver.resolve(

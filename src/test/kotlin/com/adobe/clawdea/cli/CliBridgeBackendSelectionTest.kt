@@ -95,4 +95,25 @@ class CliBridgeBackendSelectionTest {
             CliBridge.requiresBackendRebuild(BackendKind.OPENAI_COMPATIBLE_HTTP, "openai-compatible"),
         )
     }
+
+    @Test
+    fun `HTTP backend reads activeProfileId not providerId for profile and credential lookup`() {
+        // BUG 2 fix: the factory resolves by activeOpenAiCompatibleProfileId, not "openai-compatible".
+        // With no active profile set, the backend degrades to error (not crash).
+        val settings = ClawDEASettings()
+        settings.state.activeOpenAiCompatibleProfileId = "" // blank
+
+        val backend = AgentBackendFactory.create("openai-compatible", settings = settings)
+
+        assertEquals(BackendKind.OPENAI_COMPATIBLE_HTTP, backend.backendKind)
+        assertTrue(backend is OpenAiCompatibleAgentBackend)
+
+        // The readiness error is exposed via start() → readEvent()
+        backend.start(resumeSessionId = null, skills = emptyList())
+        val event = backend.readEvent()
+        assertTrue(event is com.adobe.clawdea.cli.CliEvent.Result)
+        val result = event as com.adobe.clawdea.cli.CliEvent.Result
+        assertTrue(result.isError)
+        assertTrue(result.text.contains("No OpenAI-compatible profile selected"))
+    }
 }

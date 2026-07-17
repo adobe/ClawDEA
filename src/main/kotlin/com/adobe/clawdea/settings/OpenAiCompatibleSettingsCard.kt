@@ -322,7 +322,12 @@ class OpenAiCompatibleSettingsCard : Disposable {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 val resolved = profileStore.resolve(profile.id, System.getenv())
-                val configuredValues = resolved?.configuredValues ?: emptyMap()
+                val liveFieldValues = captureConfiguredValues()
+                val configuredValues = OpenAiCompatibleSettingsModel.mergeLiveValues(
+                    profile = profile,
+                    liveFieldValues = liveFieldValues,
+                    resolvedValues = resolved?.configuredValues ?: emptyMap(),
+                )
                 val executor = com.adobe.clawdea.provider.openai.auth.CredentialFlowExecutor(
                     transport = com.adobe.clawdea.provider.openai.auth.JdkProfileHttpTransport(),
                     credentialStore = credentialStore,
@@ -380,10 +385,18 @@ class OpenAiCompatibleSettingsCard : Disposable {
             return
         }
 
+        val liveFieldValues = captureConfiguredValues()
+        val liveConfiguredValues = OpenAiCompatibleSettingsModel.mergeLiveValues(
+            profile = profile,
+            liveFieldValues = liveFieldValues,
+            resolvedValues = resolved.configuredValues,
+        )
+        val resolvedWithLiveValues = resolved.copy(configuredValues = liveConfiguredValues)
+
         refreshModelsButton.isEnabled = false
         ApplicationManager.getApplication().executeOnPooledThread {
             val client = com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient()
-            val freshModels = client.listModels(resolved, credential)
+            val freshModels = client.listModels(resolvedWithLiveValues, credential)
             ApplicationManager.getApplication().invokeLater({
                 refreshModelsButton.isEnabled = true
                 if (freshModels == null) {
@@ -432,10 +445,18 @@ class OpenAiCompatibleSettingsCard : Disposable {
             return
         }
 
+        val liveFieldValues = captureConfiguredValues()
+        val liveConfiguredValues = OpenAiCompatibleSettingsModel.mergeLiveValues(
+            profile = profile,
+            liveFieldValues = liveFieldValues,
+            resolvedValues = resolved.configuredValues,
+        )
+        val resolvedWithLiveValues = resolved.copy(configuredValues = liveConfiguredValues)
+
         verifyToolSupportButton.isEnabled = false
         ApplicationManager.getApplication().executeOnPooledThread {
             val capability = try {
-                com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(resolved, credential, modelId)
+                com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(resolvedWithLiveValues, credential, modelId)
             } catch (e: Exception) {
                 com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
             }

@@ -61,4 +61,25 @@ class OpenAiCompatibleSettingsModel(
             endpointOverride = newOverride,
         )
     }
+
+    companion object {
+        /**
+         * Merges live UI field values over persisted/env/default resolution.
+         * Precedence: live field (if present) > resolved value from ProfileStore.
+         * The card already populates fields from env→persisted→default, so the field
+         * reflects the effective value; this function makes the field value authoritative
+         * for actions (Connect, Refresh Models, Verify Tool Support).
+         */
+        fun mergeLiveValues(
+            profile: OpenAiCompatibleProfile,
+            liveFieldValues: Map<String, String>,
+            resolvedValues: Map<String, String>,
+        ): Map<String, String> {
+            val merged = mutableMapOf<String, String>()
+            profile.settings.forEach { setting ->
+                merged[setting.id] = liveFieldValues[setting.id] ?: resolvedValues[setting.id] ?: setting.defaultValue
+            }
+            return merged
+        }
+    }
 }
