@@ -355,6 +355,7 @@ class ClawDEASettingsPanel {
             "openai-subscription" -> OpenAiSubscriptionAuthProvider(
                 CodexSubscriptionAuth.getInstance().getStatus().isSignedIn(),
             )
+            "openai-compatible" -> com.adobe.clawdea.provider.openai.auth.OpenAiCompatibleAuthProvider()
             else -> AnthropicAuthProvider(
                 String(apiKeyField.password),
                 System.getenv("ANTHROPIC_API_KEY"),

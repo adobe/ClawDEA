@@ -75,6 +75,24 @@ class AuthManager(
         return envProvider?.key ?: configured
     }
 
+    /**
+     * The key under which the model catalog and the user's selected model are stored
+     * for the [effectiveProviderId]. For `openai-compatible` this is the composite
+     * `openai-compatible:<activeProfileId>` so each imported profile keeps its own
+     * catalog and selection; for every other provider it is the bare provider id
+     * (see [ProviderRegistry.catalogKey]). Use this everywhere the model dropdown, the
+     * catalog, and the backend factory agree on "which model did the user pick".
+     */
+    fun effectiveCatalogKey(): String {
+        val providerId = effectiveProviderId()
+        val profileId = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        } else {
+            ""
+        }
+        return ProviderRegistry.catalogKey(providerId, profileId)
+    }
+
     fun activeProvider(): AuthProvider {
         val id = effectiveProviderId()
         return providers[id] ?: providers["anthropic"]!!

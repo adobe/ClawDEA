@@ -92,15 +92,7 @@ object ActionExecutor {
     private fun resolveActionModel(workingDirectory: String): String {
         val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
         val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance()
-        val providerId = authManager.effectiveProviderId()
-
-        val profileId = if (providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
-            settings.state.activeOpenAiCompatibleProfileId
-        } else {
-            ""
-        }
-
-        val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(providerId, profileId)
+        val catalogKey = authManager.effectiveCatalogKey()
         return settings.getSelectedModelId(workingDirectory, catalogKey)
     }
 

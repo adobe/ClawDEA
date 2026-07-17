@@ -71,7 +71,7 @@ class ModelComboManager(
             ClawDEASettings.getInstance().setSelectedModelId(
                 project.basePath.orEmpty(),
                 entry.id,
-                providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey(),
             )
             if (isBridgeAvailable()) {
                 scope.launch {
@@ -159,9 +159,9 @@ class ModelComboManager(
     fun refresh() {
         val settings = ClawDEASettings.getInstance()
         val state = settings.state
-        val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        val selectedId = settings.getSelectedModelId(project.basePath.orEmpty(), providerId)
-        val catalog = (state.modelCatalogs[providerId] ?: emptyList())
+        val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
+        val selectedId = settings.getSelectedModelId(project.basePath.orEmpty(), catalogKey)
+        val catalog = (state.modelCatalogs[catalogKey] ?: emptyList())
         // Annotate "Default" only with the model a Default-selection turn actually
         // resolved to (never an explicit pick or stale history). Project-wide value.
         val resolved = com.adobe.clawdea.cost.CostTracker.getInstance(project).defaultResolvedModel()

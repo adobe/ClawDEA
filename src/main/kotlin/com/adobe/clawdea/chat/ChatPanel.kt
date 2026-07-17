@@ -451,16 +451,16 @@ class ChatPanel(
             resolveIsDefaultModel = {
                 // Default ⇔ no explicit model id stored for this provider/dir
                 // (same condition under which buildModelArg omits --model).
-                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
                 ClawDEASettings.getInstance()
-                    .getSelectedModelId(project.basePath ?: "", providerId).isBlank()
+                    .getSelectedModelId(project.basePath ?: "", catalogKey).isBlank()
             },
             resolveModelLabel = {
                 // Only consulted when the stream reports no model (codex). Fall back to the
                 // user's selection for this provider, or "Default" when none is pinned.
-                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                val catalogKey = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveCatalogKey()
                 ClawDEASettings.getInstance()
-                    .getSelectedModelId(project.basePath ?: "", providerId)
+                    .getSelectedModelId(project.basePath ?: "", catalogKey)
                     .ifBlank { "Default" }
             },
         )

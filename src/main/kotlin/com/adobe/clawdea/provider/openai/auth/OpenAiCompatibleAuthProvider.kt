@@ -14,13 +14,19 @@ package com.adobe.clawdea.provider.openai.auth
 import com.adobe.clawdea.auth.AuthProvider
 import com.adobe.clawdea.auth.AuthValidation
 import com.adobe.clawdea.auth.ConnectionTestResult
+import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient
 import com.adobe.clawdea.provider.openai.profile.ProfileStore
+import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
 import com.adobe.clawdea.settings.ClawDEASettings
 
 class OpenAiCompatibleAuthProvider(
     private val profileStore: () -> ProfileStore,
     private val credentialStore: () -> ProfileCredentialStore,
+    // Test seam: probes the profile's /models endpoint. Defaults to the real HTTP client.
+    private val listModels: (ResolvedProviderProfile, String) -> List<ModelEntry>? =
+        { profile, credential -> OpenAiCompatibleClient().listModels(profile, credential) },
 ) : AuthProvider {
 
     override val id = ProviderRegistry.OPENAI_COMPATIBLE_ID
@@ -59,9 +65,26 @@ class OpenAiCompatibleAuthProvider(
     }
 
     override fun testConnection(): ConnectionTestResult {
-        return ConnectionTestResult(
-            success = false,
-            message = "Connection test not implemented for generic profiles (Task 4 will add model-list validation).",
-        )
+        val store = profileStore()
+        val profile = store.activeProfile()
+            ?: return ConnectionTestResult(false, "No OpenAI-compatible profile selected.")
+        val credential = credentialStore().get(profile.id)
+        if (credential.isBlank()) {
+            return ConnectionTestResult(
+                false,
+                "Profile '${profile.name}' has no credential. Run Connect or Set API Key Manually.",
+            )
+        }
+        val resolved = store.resolve(profile.id, System.getenv())
+            ?: return ConnectionTestResult(false, "Profile '${profile.name}' could not be resolved.")
+
+        val start = System.currentTimeMillis()
+        val models = listModels(resolved, credential)
+        val latency = System.currentTimeMillis() - start
+        return if (!models.isNullOrEmpty()) {
+            ConnectionTestResult(true, "Connected — ${models.size} models available", latency)
+        } else {
+            ConnectionTestResult(false, "Connection failed — check the endpoint and API key", latency)
+        }
     }
 }
