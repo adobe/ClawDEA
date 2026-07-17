@@ -56,6 +56,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
         font = font.deriveFont(11f)
     }
     private val connectButton = JButton("Connect")
+    private val setKeyManuallyButton = JButton("Set API Key Manually…")
 
     private val endpointOverrideField = JBTextField("", 30)
     private val endpointOverrideHint = JBLabel("Advanced: override the base URL for this profile.").apply {
@@ -86,7 +87,15 @@ class OpenAiCompatibleSettingsCard : Disposable {
         .addVerticalGap(8)
         .addComponent(JBLabel("Credentials"), 1)
         .addComponent(credentialStatusLabel, 2)
-        .addComponent(connectButton, 2)
+        .addComponent(credentialButtonsRow(), 2)
+        .addComponent(
+            JBLabel("Connect runs the profile's sign-in flow. If that fails (e.g. a server 500), " +
+                "paste an API key directly with “Set API Key Manually”.").apply {
+                foreground = java.awt.Color(166, 173, 200)
+                font = font.deriveFont(11f)
+            },
+            2,
+        )
         .addVerticalGap(8)
         .addComponent(JBLabel("Advanced"), 1)
         .addLabeledComponent(JBLabel("Base URL override:"), endpointOverrideField, 1, false)
@@ -118,6 +127,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
         exportConfiguredButton.addActionListener { doExportConfigured() }
         removeButton.addActionListener { doRemove() }
         connectButton.addActionListener { doConnect() }
+        setKeyManuallyButton.addActionListener { doSetKeyManually() }
         refreshModelsButton.addActionListener { doRefreshModels() }
         verifyToolSupportButton.addActionListener { doVerifyToolSupport() }
 
@@ -134,6 +144,11 @@ class OpenAiCompatibleSettingsCard : Disposable {
         add(exportTemplateButton)
         add(exportConfiguredButton)
         add(removeButton)
+    }
+
+    private fun credentialButtonsRow(): JPanel = JPanel(FlowLayout(FlowLayout.LEFT, 0, 0)).apply {
+        add(connectButton)
+        add(setKeyManuallyButton)
     }
 
     private fun rebuildProfileList() {
@@ -163,6 +178,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
             credentialCheckGeneration++
             credentialStatusLabel.text = "No profile selected"
             connectButton.isEnabled = false
+            setKeyManuallyButton.isEnabled = false
             exportTemplateButton.isEnabled = false
             exportConfiguredButton.isEnabled = false
             removeButton.isEnabled = false
@@ -178,6 +194,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
         // Synchronous, PasswordSafe-free UI runs immediately on the EDT so the model catalog/dropdown
         // is always populated regardless of the async credential read below.
         connectButton.isEnabled = true
+        setKeyManuallyButton.isEnabled = true
         exportTemplateButton.isEnabled = true
         exportConfiguredButton.isEnabled = true
         removeButton.isEnabled = true
@@ -390,6 +407,35 @@ class OpenAiCompatibleSettingsCard : Disposable {
                     connectButton.isEnabled = true
                 }, ModalityState.any())
             }
+        }
+    }
+
+    /**
+     * Manual credential override: paste an API key directly into PasswordSafe, bypassing the
+     * profile's sign-in flow. For when Connect fails server-side (e.g. a 500) and the user already
+     * has a valid key. Prompts on the EDT (modal, parents over Settings); the key is read as a
+     * CharArray, written to the same PasswordSafe slot the flow uses, and zeroed after. The write
+     * runs off the EDT (PasswordSafe I/O is prohibited on the EDT).
+     */
+    private fun doSetKeyManually() {
+        val profile = selectedProfile() ?: return
+        val dialog = ManualApiKeyDialog(profile.name)
+        val key = dialog.promptForKey() ?: return // null = cancelled or blank
+        val profileId = profile.id
+        setKeyManuallyButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                credentialStore.set(profileId, String(key))
+            } finally {
+                key.fill(' ')
+            }
+            ApplicationManager.getApplication().invokeLater({
+                setKeyManuallyButton.isEnabled = true
+                if (profileId == selectedProfile()?.id) {
+                    credentialStatusLabel.text = "Credentials stored"
+                }
+                Messages.showInfoMessage("API key saved for '${profile.name}'.", "Set API Key Manually")
+            }, ModalityState.any())
         }
     }
 
