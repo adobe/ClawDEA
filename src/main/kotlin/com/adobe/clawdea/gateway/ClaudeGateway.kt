@@ -68,9 +68,16 @@ class ClaudeGateway {
         val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
         val settings = ClawDEASettings.getInstance()
 
-        // Route completions through the COMPLETIONS role selection, not the global provider
-        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings).get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
-        val providerId = completionsSelection.providerId
+        // Only inline completions are a "role"; other callers (quick-fix actions) route through the
+        // global provider with their own model. Routing the COMPLETIONS role onto them would let a
+        // Completions-role change silently hijack the actions' provider and re-model their request.
+        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
+        val providerId = resolveGatewayProviderId(
+            request.applyCompletionsRole,
+            completionsSelection.providerId,
+            authManager.effectiveProviderId(),
+        )
 
         val anthropic = authManager.providerById("anthropic") as? com.adobe.clawdea.auth.AnthropicAuthProvider
         val anthropicKeyPresent = anthropic?.getApiKey()?.isNotBlank() == true
@@ -80,9 +87,14 @@ class ClaudeGateway {
             bedrock?.resolvedRegion()?.isNotBlank() == true &&
             bedrock.resolvedBearerToken()?.isNotBlank() == true
 
-        // Selection is authoritative — no fallback to the global active profile. A blank profileId
-        // means the selection is incompletely specified → openAiProfileReady fails → degrades to CLI.
-        val activeProfileId = resolveCompletionsProfileId(completionsSelection)
+        // For completions the selection is authoritative (no fallback to the global active profile — a
+        // blank profileId means it's incompletely specified → degrades to CLI). For non-completion
+        // callers, use the globally active profile (the pre-role behavior).
+        val activeProfileId = if (request.applyCompletionsRole) {
+            resolveCompletionsProfileId(completionsSelection)
+        } else {
+            settings.state.activeOpenAiCompatibleProfileId
+        }
         val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
         val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
         val openAiProfileReady = providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
@@ -91,8 +103,9 @@ class ClaudeGateway {
 
         val path = selectPath(providerId, anthropicKeyPresent, bedrockDirectReady, openAiProfileReady)
 
-        // Use model from COMPLETIONS selection if present, otherwise fall back to request.model
-        val effectiveModel = resolveCompletionsModel(completionsSelection, request.model)
+        // The COMPLETIONS-role model override applies only to completion requests; other callers keep
+        // their own request.model.
+        val effectiveModel = resolveGatewayModel(request.applyCompletionsRole, completionsSelection, request.model)
         val effectiveRequest = if (effectiveModel != request.model) {
             request.copy(model = effectiveModel)
         } else {
@@ -495,6 +508,28 @@ class ClaudeGateway {
             selection: com.adobe.clawdea.provider.AgentSelection,
             requestModel: String,
         ): String = selection.modelId.ifBlank { requestModel }
+
+        /**
+         * The provider that routes a gateway request. Only genuine completion requests
+         * ([GatewayRequest.applyCompletionsRole]) route through the COMPLETIONS role selection; every
+         * other caller (e.g. quick-fix actions) uses the global effective provider, so a Completions
+         * setting can't hijack their routing.
+         */
+        internal fun resolveGatewayProviderId(
+            applyCompletionsRole: Boolean,
+            completionsProviderId: String,
+            effectiveProviderId: String,
+        ): String = if (applyCompletionsRole) completionsProviderId else effectiveProviderId
+
+        /**
+         * The model for a gateway request. The COMPLETIONS-role model override applies only to
+         * completion requests; other callers keep their own request model.
+         */
+        internal fun resolveGatewayModel(
+            applyCompletionsRole: Boolean,
+            selection: com.adobe.clawdea.provider.AgentSelection,
+            requestModel: String,
+        ): String = if (applyCompletionsRole) resolveCompletionsModel(selection, requestModel) else requestModel
 
         /**
          * Determine the execution path based on the selected provider and available credentials.

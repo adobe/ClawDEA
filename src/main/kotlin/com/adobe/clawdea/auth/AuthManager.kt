@@ -117,7 +117,7 @@ class AuthManager(
     /**
      * Returns whether the provider specified in the [AgentSelection] is authenticated.
      */
-    fun isAuthenticated(sel: AgentSelection): Boolean = providerFor(sel).isConfigured()
+    fun isAuthenticated(sel: AgentSelection): Boolean = providerFor(sel).isConfiguredFor(sel)
 
     /**
      * Applies the credentials of the provider specified in the [AgentSelection] to the environment.

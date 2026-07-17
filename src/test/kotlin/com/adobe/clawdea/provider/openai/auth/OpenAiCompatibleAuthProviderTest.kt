@@ -99,6 +99,31 @@ class OpenAiCompatibleAuthProviderTest {
     }
 
     @Test
+    fun `isConfiguredFor checks the selection's profile, not the active one`() {
+        // Active profile is "p1" (uncredentialed); "p2" has a credential.
+        val active = OpenAiCompatibleProfile(id = "p1", name = "Active", baseUrl = "https://a.test")
+        val other = OpenAiCompatibleProfile(id = "p2", name = "Other", baseUrl = "https://b.test")
+        val settings = ClawDEASettings()
+        settings.state.importedOpenAiProfiles[active.id] = gson.toJson(active)
+        settings.state.importedOpenAiProfiles[other.id] = gson.toJson(other)
+        settings.state.activeOpenAiCompatibleProfileId = active.id
+        val provider = OpenAiCompatibleAuthProvider(
+            profileStore = { ProfileStore(settings) },
+            credentialStore = { credStore("p2" to "secret") }, // only p2 credentialed
+            listModels = { _, _ -> error("should not probe") },
+        )
+
+        // Selection for the credentialed (non-active) profile → authenticated.
+        assertTrue(provider.isConfiguredFor(com.adobe.clawdea.provider.AgentSelection("openai-compatible", "p2", "")))
+        // Selection for the active-but-uncredentialed profile → not authenticated.
+        assertFalse(provider.isConfiguredFor(com.adobe.clawdea.provider.AgentSelection("openai-compatible", "p1", "")))
+        // Global isConfigured (no selection) still reflects the ACTIVE profile → not configured.
+        assertFalse(provider.isConfigured())
+        // A selection with no profileId falls back to the active-profile check.
+        assertFalse(provider.isConfiguredFor(com.adobe.clawdea.provider.AgentSelection("openai-compatible", null, "")))
+    }
+
+    @Test
     fun `testConnection fails when probe returns null`() {
         val profile = OpenAiCompatibleProfile(id = "p3", name = "My Profile", baseUrl = "https://example.test")
         val settings = settingsWithProfile(profile)

@@ -63,4 +63,11 @@ data class GatewayRequest(
     val systemPrompt: String?,
     val userMessage: String,
     val timeoutSeconds: Long = 30,
+    /**
+     * When true, [ClaudeGateway.stream] routes this request through the COMPLETIONS role selection
+     * (provider + model). Only the inline-completion path opts in; other gateway callers (e.g. the
+     * "Fix with Claude" quick-fix actions in [com.adobe.clawdea.actions.ActionExecutor]) are NOT a
+     * role and must keep their own model + the global provider routing, so they leave this false.
+     */
+    val applyCompletionsRole: Boolean = false,
 )

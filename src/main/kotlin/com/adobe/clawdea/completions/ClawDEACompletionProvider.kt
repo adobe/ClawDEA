@@ -118,6 +118,7 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
             systemPrompt = prompt.systemPrompt,
             userMessage = prompt.userMessage,
             timeoutSeconds = 8,
+            applyCompletionsRole = true,
         )
 
         val result = StringBuilder()

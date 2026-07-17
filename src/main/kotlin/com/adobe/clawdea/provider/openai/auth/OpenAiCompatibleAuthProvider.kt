@@ -14,6 +14,7 @@ package com.adobe.clawdea.provider.openai.auth
 import com.adobe.clawdea.auth.AuthProvider
 import com.adobe.clawdea.auth.AuthValidation
 import com.adobe.clawdea.auth.ConnectionTestResult
+import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient
@@ -40,6 +41,16 @@ class OpenAiCompatibleAuthProvider(
         val profile = profileStore().activeProfile() ?: return false
         val credential = credentialStore().get(profile.id)
         return credential.isNotBlank()
+    }
+
+    /**
+     * Per-selection auth: check the credential of the *selection's* profile rather than the globally
+     * active one, so per-profile chat/Roles entries reflect their own sign-in state. Falls back to
+     * [isConfigured] (the active profile) when the selection carries no profileId.
+     */
+    override fun isConfiguredFor(selection: AgentSelection): Boolean {
+        val profileId = selection.profileId ?: return isConfigured()
+        return credentialStore().get(profileId).isNotBlank()
     }
 
     override fun applyToEnvironment(env: MutableMap<String, String>) {

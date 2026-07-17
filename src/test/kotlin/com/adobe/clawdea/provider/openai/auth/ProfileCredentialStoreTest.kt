@@ -14,6 +14,7 @@ package com.adobe.clawdea.provider.openai.auth
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
 
 class ProfileCredentialStoreTest {
 
@@ -23,6 +24,7 @@ class ProfileCredentialStoreTest {
         val store = ProfileCredentialStore(
             read = { storage[it.serviceName] },
             write = { attr, value -> storage[attr.serviceName] = value },
+            cache = ConcurrentHashMap(),
         )
         assertEquals("", store.get("profile-a"))
     }
@@ -52,6 +54,7 @@ class ProfileCredentialStoreTest {
         val store = ProfileCredentialStore(
             read = { storage[it.serviceName] },
             write = { attr, value -> storage[attr.serviceName] = value },
+            cache = ConcurrentHashMap(),
         )
         assertEquals("retrieved-token", store.get("profile-c"))
     }
@@ -70,6 +73,53 @@ class ProfileCredentialStoreTest {
         store.clear("profile-d")
 
         assertEquals(null, storage[actualKey])
+    }
+
+    @Test
+    fun `get caches the first read so PasswordSafe is not hit again`() {
+        var reads = 0
+        val actualKey = com.intellij.credentialStore.generateServiceName(
+            "ClawDEA",
+            "openai-compatible/profile/profile-f/credential",
+        )
+        val storage = mutableMapOf<String, String?>(actualKey to "cached-token")
+        val store = ProfileCredentialStore(
+            read = { reads++; storage[it.serviceName] },
+            write = { attr, value -> storage[attr.serviceName] = value },
+            cache = ConcurrentHashMap(),
+        )
+        assertEquals("cached-token", store.get("profile-f"))
+        // Backing value changes, but the cached read wins — proves the second get() didn't touch read.
+        storage[actualKey] = "changed"
+        assertEquals("cached-token", store.get("profile-f"))
+        assertEquals(1, reads)
+    }
+
+    @Test
+    fun `set warms the cache so a later get returns without reading`() {
+        var reads = 0
+        val store = ProfileCredentialStore(
+            read = { reads++; null },
+            write = { _, _ -> },
+            cache = ConcurrentHashMap(),
+        )
+        store.set("profile-g", "fresh-token")
+        // A just-configured profile is immediately known (this is what keeps the EDT auth check correct).
+        assertEquals("fresh-token", store.get("profile-g"))
+        assertEquals(0, reads)
+    }
+
+    @Test
+    fun `clear warms the cache with empty so a later get returns blank without reading`() {
+        var reads = 0
+        val store = ProfileCredentialStore(
+            read = { reads++; "stale-should-not-be-read" },
+            write = { _, _ -> },
+            cache = ConcurrentHashMap(),
+        )
+        store.clear("profile-h")
+        assertEquals("", store.get("profile-h"))
+        assertEquals(0, reads)
     }
 
     @Test

@@ -387,9 +387,8 @@ class LoopBackedWikiSession(
 
 /**
  * Codex (app-server) wiki-author path. Wiring the codex app-server for headless, unattended
- * tool-loop authoring is out of scope for this task (mirrors [BackgroundAgentRunner]'s codex
- * one-shot decision): return a clear "not supported" result so the events are retried rather than
- * silently dismissed, and surface the reason.
+ * tool-loop authoring is out of scope for this task: return a clear "not supported" result so the
+ * events are retried rather than silently dismissed, and surface the reason.
  */
 object CodexUnsupportedWikiAuthorInvoker : WikiAuthorInvoker {
     override suspend fun invoke(events: List<DriftEvent>): WikiAuthorInvoker.Result {

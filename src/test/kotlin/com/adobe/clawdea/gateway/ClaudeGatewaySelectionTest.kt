@@ -119,4 +119,60 @@ class ClaudeGatewaySelectionTest {
             ClaudeGateway.resolveCompletionsModel(sel, requestModel = "claude-haiku-4-5"),
         )
     }
+
+    // --- COMPLETIONS role applies only to completion requests, not to shared callers (quick-fix actions) ---
+
+    @Test
+    fun `non-completion request keeps the global effective provider, ignoring the Completions role`() {
+        assertEquals(
+            "A quick-fix action must route by the global provider, not the Completions role selection",
+            "anthropic",
+            ClaudeGateway.resolveGatewayProviderId(
+                applyCompletionsRole = false,
+                completionsProviderId = "openai-compatible",
+                effectiveProviderId = "anthropic",
+            ),
+        )
+    }
+
+    @Test
+    fun `completion request routes through the Completions role provider`() {
+        assertEquals(
+            "An inline completion opts in and routes by the Completions role selection",
+            "openai-compatible",
+            ClaudeGateway.resolveGatewayProviderId(
+                applyCompletionsRole = true,
+                completionsProviderId = "openai-compatible",
+                effectiveProviderId = "anthropic",
+            ),
+        )
+    }
+
+    @Test
+    fun `non-completion request keeps its own model, not the Completions role model`() {
+        val completionsSel = AgentSelection("anthropic", profileId = null, modelId = "claude-opus-4-8")
+        assertEquals(
+            "A quick-fix action must keep its own pinned model",
+            "action-pinned-model",
+            ClaudeGateway.resolveGatewayModel(
+                applyCompletionsRole = false,
+                selection = completionsSel,
+                requestModel = "action-pinned-model",
+            ),
+        )
+    }
+
+    @Test
+    fun `completion request applies the Completions role model override`() {
+        val completionsSel = AgentSelection("anthropic", profileId = null, modelId = "claude-opus-4-8")
+        assertEquals(
+            "An inline completion uses the Completions role's model",
+            "claude-opus-4-8",
+            ClaudeGateway.resolveGatewayModel(
+                applyCompletionsRole = true,
+                selection = completionsSel,
+                requestModel = "some-request-model",
+            ),
+        )
+    }
 }
