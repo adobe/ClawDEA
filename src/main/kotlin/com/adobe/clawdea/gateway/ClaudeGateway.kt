@@ -68,7 +68,9 @@ class ClaudeGateway {
         val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
         val settings = ClawDEASettings.getInstance()
 
-        val providerId = authManager.effectiveProviderId()
+        // Route completions through the COMPLETIONS role selection, not the global provider
+        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings).get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
+        val providerId = completionsSelection.providerId
 
         val anthropic = authManager.providerById("anthropic") as? com.adobe.clawdea.auth.AnthropicAuthProvider
         val anthropicKeyPresent = anthropic?.getApiKey()?.isNotBlank() == true
@@ -78,7 +80,7 @@ class ClaudeGateway {
             bedrock?.resolvedRegion()?.isNotBlank() == true &&
             bedrock.resolvedBearerToken()?.isNotBlank() == true
 
-        val activeProfileId = settings.state.activeOpenAiCompatibleProfileId
+        val activeProfileId = completionsSelection.profileId ?: settings.state.activeOpenAiCompatibleProfileId
         val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
         val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
         val openAiProfileReady = providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
@@ -87,16 +89,24 @@ class ClaudeGateway {
 
         val path = selectPath(providerId, anthropicKeyPresent, bedrockDirectReady, openAiProfileReady)
 
+        // Use model from COMPLETIONS selection if present, otherwise fall back to request.model
+        val effectiveModel = completionsSelection.modelId.ifBlank { request.model }
+        val effectiveRequest = if (effectiveModel != request.model) {
+            request.copy(model = effectiveModel)
+        } else {
+            request
+        }
+
         return when (path) {
-            GatewayPath.ANTHROPIC_API -> streamViaApi(request, anthropic!!.getApiKey()!!)
+            GatewayPath.ANTHROPIC_API -> streamViaApi(effectiveRequest, anthropic!!.getApiKey()!!)
             GatewayPath.BEDROCK_API -> {
                 val region = bedrock!!.resolvedRegion()!!
                 val token = bedrock.resolvedBearerToken()!!
-                val model = resolveCliModel(request.model)
-                streamViaBedrock(request, region, token, model)
+                val model = resolveCliModel(effectiveRequest.model)
+                streamViaBedrock(effectiveRequest, region, token, model)
             }
-            GatewayPath.OPENAI_COMPATIBLE_API -> streamViaOpenAiCompatible(request)
-            GatewayPath.CLAUDE_CLI -> streamViaCli(request)
+            GatewayPath.OPENAI_COMPATIBLE_API -> streamViaOpenAiCompatible(effectiveRequest, activeProfileId)
+            GatewayPath.CLAUDE_CLI -> streamViaCli(effectiveRequest)
         }
     }
 
@@ -212,24 +222,23 @@ class ClaudeGateway {
     }
 
     /**
-     * OpenAI-compatible provider path — uses the active profile with renewal and retry.
+     * OpenAI-compatible provider path — uses the specified profile with renewal and retry.
      * On 401/403: renew credential and retry once.
      * On 429: honor Retry-After up to 60s and two attempts.
      * Do NOT retry 5xx after any TextDelta has been emitted.
      */
-    private fun streamViaOpenAiCompatible(request: GatewayRequest): Flow<StreamEvent> = flow {
+    private fun streamViaOpenAiCompatible(request: GatewayRequest, profileId: String): Flow<StreamEvent> = flow {
         val settings = ClawDEASettings.getInstance()
-        val activeProfileId = settings.state.activeOpenAiCompatibleProfileId
         val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
         val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
 
-        val resolved = profileStore.resolve(activeProfileId, System.getenv())
+        val resolved = profileStore.resolve(profileId, System.getenv())
         if (resolved == null) {
             emit(StreamEvent.Error("OpenAI-compatible profile not found or not configured. Select a profile in Settings → Tools → ClawDEA."))
             return@flow
         }
 
-        var credential = credentialStore.get(activeProfileId)
+        var credential = credentialStore.get(profileId)
         if (credential.isBlank()) {
             emit(StreamEvent.Error("OpenAI-compatible credential not found. Re-run the credential flow in Settings → Tools → ClawDEA."))
             return@flow
@@ -256,9 +265,9 @@ class ClaudeGateway {
                         if (event.status in listOf(401, 403) && attempt == 1) {
                             // Attempt credential renewal on auth errors (first attempt only)
                             log.info("OpenAI-compatible auth error (${event.status}), attempting renewal")
-                            val renewed = tryRenewCredential(activeProfileId, profileStore, credentialStore)
+                            val renewed = tryRenewCredential(profileId, profileStore, credentialStore)
                             if (renewed) {
-                                credential = credentialStore.get(activeProfileId)
+                                credential = credentialStore.get(profileId)
                                 shouldRetry = true
                             } else {
                                 emit(StreamEvent.Error("Authentication failed (${event.status}). Credential renewal failed or was cancelled."))
