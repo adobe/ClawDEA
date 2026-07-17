@@ -42,6 +42,8 @@ import kotlinx.coroutines.runBlocking
  */
 object ModelCapabilityVerifier {
 
+    private val log = com.intellij.openapi.diagnostic.Logger.getInstance(ModelCapabilityVerifier::class.java)
+
     const val PROBE_FUNCTION_NAME = "clawdea_capability_probe"
 
     private const val PROBE_INSTRUCTION =
@@ -95,12 +97,17 @@ object ModelCapabilityVerifier {
     fun verify(client: AgentClient, modelId: String, stream: Boolean = true): ModelCapability = runBlocking {
         val assembler = ToolCallAssembler()
         var failed = false
+        var toolFragments = 0
+        var textEvents = 0
+        var reasoningEvents = 0
         try {
             client.stream(probeRequest(modelId, stream)).collect { event ->
                 when (event) {
-                    is AgentStreamEvent.ToolFragment -> assembler.accept(event)
+                    is AgentStreamEvent.ToolFragment -> { assembler.accept(event); toolFragments++ }
                     is AgentStreamEvent.Failure -> failed = true
-                    else -> Unit // ignore text/reasoning/usage/finished
+                    is AgentStreamEvent.Text -> textEvents++
+                    is AgentStreamEvent.Reasoning -> reasoningEvents++
+                    else -> Unit // ignore usage/finished
                 }
             }
         } catch (_: Exception) {
@@ -110,6 +117,14 @@ object ModelCapabilityVerifier {
         if (failed) return@runBlocking ModelCapability.UNKNOWN
 
         val calls = assembler.completed()
+        // TEMP diagnostic (tool-call NAMES + event counts only — never argument values or text):
+        // a false COMPLETION_ONLY for a model that calls tools in real chat shows here as
+        // toolFragments=0 (model didn't call the probe) vs. calls with unexpected names. INFO so it
+        // is visible without enabling debug logging; demote/remove once diagnosed.
+        log.info(
+            "openai-compatible probe: toolFragments=$toolFragments text=$textEvents reasoning=$reasoningEvents " +
+                "calls=${calls.map { it.name }}",
+        )
         val probeCall = calls.firstOrNull { it.name == PROBE_FUNCTION_NAME }
             ?: return@runBlocking ModelCapability.COMPLETION_ONLY
 
