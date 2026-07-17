@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.provider.BackendKind
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -63,5 +64,81 @@ class RuntimeErrorEnrichmentTest {
     fun `returns null for unrecognized errors`() {
         val result = ErrorEnricher.enrich("Something completely unexpected happened")
         assertNull(result)
+    }
+
+    // --- OpenAI-compatible provider guidance: must never say "Claude API" ---
+
+    private fun http(text: String) = ErrorEnricher.enrich(text, BackendKind.OPENAI_COMPATIBLE_HTTP)
+
+    @Test
+    fun `http auth error is provider-neutral and mentions the profile credential`() {
+        val result = http("HTTP 401: Unauthorized")
+        assertNotNull(result)
+        assertTrue(result!!.contains("Authentication failed"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http 403 forbidden is treated as an auth error`() {
+        val result = http("HTTP 403: Access forbidden")
+        assertNotNull(result)
+        assertTrue(result!!.contains("Authentication failed"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http rate limit mentions Retry-After`() {
+        val result = http("Rate limit exceeded (429)")
+        assertNotNull(result)
+        assertTrue(result!!.contains("Retry-After"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http timeout guidance is provider-neutral`() {
+        val result = http("connection timeout after 30000ms")
+        assertNotNull(result)
+        assertTrue(result!!.contains("timed out"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http connection error mentions base URL`() {
+        val result = http("ECONNREFUSED 127.0.0.1:443")
+        assertNotNull(result)
+        assertTrue(result!!.contains("base URL"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http partial-stream guidance is provider-neutral`() {
+        val result = http("Request failed after partial output.")
+        assertNotNull(result)
+        assertTrue(result!!.contains("interrupted"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http tool-limit guidance is provider-neutral`() {
+        val result = http("Tool round limit exceeded")
+        assertNotNull(result)
+        assertTrue(result!!.contains("tool-call limit"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http context-limit guidance is provider-neutral`() {
+        val result = http("Context budget exceeded")
+        assertNotNull(result)
+        assertTrue(result!!.contains("context budget"))
+        assertFalse(result.contains("Claude"))
+    }
+
+    @Test
+    fun `http server error guidance is provider-neutral`() {
+        val result = http("Server error")
+        assertNotNull(result)
+        assertTrue(result!!.contains("server error"))
+        assertFalse(result.contains("Claude"))
     }
 }

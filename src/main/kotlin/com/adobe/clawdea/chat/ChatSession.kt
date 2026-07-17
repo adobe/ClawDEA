@@ -57,11 +57,29 @@ class ChatSession(
     init {
         Disposer.register(this, bridge)
         Disposer.register(this, panel)
-        if (autoResumeSessionId != null) {
+        if (autoResumeSessionId != null && shouldAutoResume(autoResumeSessionId)) {
             panel.requestAutoResume(autoResumeSessionId)
         }
         panel.suggestSeedWikiIfMissing()
         ModelSelectorProbeStarter.probeIfApplicable(project)
+    }
+
+    /**
+     * Gate auto-resume when it would carry a transcript ACROSS providers (a provider fallback).
+     * ClawDEA never silently switches providers, so a cross-provider handoff involving the
+     * OpenAI-compatible backend requires explicit user confirmation via [ProviderFallbackPrompt].
+     * Same-provider resume, and pre-existing Claude/Codex switches, proceed unchanged.
+     */
+    private fun shouldAutoResume(sessionId: String): Boolean {
+        val basePath = project.basePath ?: return true
+        val origin = com.adobe.clawdea.chat.session.SessionCatalog.resolveOrigin(basePath, sessionId)
+            ?: return true
+        if (!ProviderFallbackPrompt.requiresConfirmation(origin, bridge.backendKind)) return true
+        return ProviderFallbackPrompt(
+            project = project,
+            fromProvider = origin.displayLabel,
+            toProvider = bridge.agentLabel,
+        ).showAndGet()
     }
 
     override fun dispose() {}

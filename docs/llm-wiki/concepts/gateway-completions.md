@@ -23,6 +23,8 @@
    else                                              → streamViaCli  (claude -p)
    ```
 3. **OpenAI-compatible API**: when an OpenAI-compatible profile + model is selected in Settings, the request is tagged with the profile ID. `streamViaOpenAiCompatible` loads the profile's base URL and credential from PasswordSafe, builds an `HttpRequest` to `<base-url>/v1/chat/completions` with the OpenAI Chat Completions payload shape, streams via `HttpClient.sendAsync`. Bytes flow through `StreamingParser.parseOpenAiSse` which yields `StreamEvent` (delta, usage, error). **No silent fallback** — if the profile's API is unreachable or returns an error, the completion fails immediately rather than falling back to Claude.
+
+> This page covers the **latency-sensitive completions** path (inline completions, intention actions). The separate **agentic chat** path for OpenAI-compatible profiles — multi-round tool calling, streamed reasoning, steering, and session ledgers — is documented in [OpenAI-compatible provider](openai-compatible-provider.md). Both paths share the profile store, PasswordSafe credential, and the no-silent-fallback rule.
 4. **Direct API**: builds an `HttpRequest` to `api.anthropic.com/v1/messages`, sets `accept: text/event-stream`, streams via `HttpClient.sendAsync`. Bytes flow through `StreamingParser.parseSse` which yields `StreamEvent` (delta, usage, error).
 5. **Direct Bedrock**: same shape but to `bedrock-runtime.<region>.amazonaws.com/model/.../invoke-with-response-stream` with bearer-token auth.
 6. **CLI fallback**: spawns `claude -p --output-format text --model <id> --append-system-prompt <prompt>` (with input JSON on stdin), reads stdout to completion, emits one consolidated `StreamEvent`. No streaming token-by-token.

@@ -64,6 +64,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
     }
 
     private val refreshModelsButton = JButton("Refresh Models")
+    private val verifyToolSupportButton = JButton("Verify Tool Support")
 
     private val modelTableModel = OpenAiModelTableModel()
     private val modelTable = JBTable(modelTableModel)
@@ -94,6 +95,14 @@ class OpenAiCompatibleSettingsCard : Disposable {
         .addComponent(JBLabel("Models"), 1)
         .addComponent(refreshModelsButton, 1)
         .addComponent(modelsSection, 1)
+        .addComponent(verifyToolSupportButton, 1)
+        .addComponent(
+            JBLabel("Select a model above, then verify it can call tools before using it for agentic chat.").apply {
+                foreground = java.awt.Color(166, 173, 200)
+                font = font.deriveFont(11f)
+            },
+            2,
+        )
         .panel
 
     private val dynamicTextFields = mutableMapOf<String, JBTextField>()
@@ -105,6 +114,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
         removeButton.addActionListener { doRemove() }
         connectButton.addActionListener { doConnect() }
         refreshModelsButton.addActionListener { doRefreshModels() }
+        verifyToolSupportButton.addActionListener { doVerifyToolSupport() }
 
         profileCombo.addActionListener {
             onProfileSelected()
@@ -151,6 +161,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
             removeButton.isEnabled = false
             endpointOverrideField.isEnabled = false
             refreshModelsButton.isEnabled = false
+            verifyToolSupportButton.isEnabled = false
             rebuildDynamicFields(emptyList())
             return
         }
@@ -165,6 +176,7 @@ class OpenAiCompatibleSettingsCard : Disposable {
         removeButton.isEnabled = true
         endpointOverrideField.isEnabled = true
         refreshModelsButton.isEnabled = true
+        verifyToolSupportButton.isEnabled = true
 
         rebuildDynamicFields(profile.settings)
         populateDynamicFields(profile, settings.state)
@@ -302,6 +314,66 @@ class OpenAiCompatibleSettingsCard : Disposable {
             "Model refresh via HTTP is not yet wired in the settings UI (will be added in Phase 2).",
             "Refresh Models",
         )
+    }
+
+    /**
+     * Explicit, user-initiated capability verification (never automatic). Sends ONE probe request
+     * with a single harmless no-op function to the selected model and reports whether it can call
+     * tools. Runs on a background thread so the settings dialog stays responsive; the result is
+     * shown on the EDT. Incurs one small request only when the user clicks this button.
+     */
+    private fun doVerifyToolSupport() {
+        val profile = selectedProfile() ?: return
+        val selectedRow = modelTable.selectedRow
+        val modelId = if (selectedRow >= 0) {
+            modelTableModel.rows.getOrNull(modelTable.convertRowIndexToModel(selectedRow))?.id.orEmpty()
+        } else {
+            ""
+        }
+        if (modelId.isBlank()) {
+            Messages.showInfoMessage("Select a model row first, then verify its tool support.", "Verify Tool Support")
+            return
+        }
+
+        val resolved = profileStore.resolve(profile.id, System.getenv())
+        if (resolved == null) {
+            Messages.showErrorDialog("Could not resolve the profile configuration.", "Verify Tool Support")
+            return
+        }
+        val credential = credentialStore.get(profile.id)
+        if (credential.isBlank()) {
+            Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Verify Tool Support")
+            return
+        }
+
+        verifyToolSupportButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val capability = try {
+                com.adobe.clawdea.provider.openai.catalog.ModelCapabilityVerifier.verify(resolved, credential, modelId)
+            } catch (e: Exception) {
+                com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
+            }
+            ApplicationManager.getApplication().invokeLater({
+                verifyToolSupportButton.isEnabled = true
+                when (capability) {
+                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.AGENTIC ->
+                        Messages.showInfoMessage(
+                            "“$modelId” called the probe function with valid arguments. It supports agentic tool use.",
+                            "Verify Tool Support",
+                        )
+                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.COMPLETION_ONLY ->
+                        Messages.showWarningDialog(
+                            "“$modelId” did not call the probe function. Treat it as completion-only; it cannot start agentic chat.",
+                            "Verify Tool Support",
+                        )
+                    com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN ->
+                        Messages.showErrorDialog(
+                            "The verification request to “$modelId” failed. Capability is unknown; try again after checking the endpoint and credential.",
+                            "Verify Tool Support",
+                        )
+                }
+            }, ModalityState.any())
+        }
     }
 
     private fun populateDynamicFields(profile: com.adobe.clawdea.provider.openai.profile.OpenAiCompatibleProfile, state: ClawDEASettings.State) {

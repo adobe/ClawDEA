@@ -107,8 +107,33 @@ Click **Export Profile** on the settings card to save the profile JSON. Exports 
 2. Select the profile from the **OpenAI-Compatible Provider** dropdown in Settings.
 3. Select a model from the **Model** dropdown. The dropdown lists models from the profile's catalog with their capabilities (agentic, completion-only, etc.).
 4. **Inline completions and intention actions** now route to the selected profile and model. The gateway sends requests to the profile's API base URL using the credentials from PasswordSafe.
-5. **Model capability gating**: if a model's capabilities are unknown or not declared in the profile, it defaults to completion-only. Agentic chat (when Plan 2 lands) will only be available for models explicitly marked as agentic-capable.
-6. **Pricing**: per-model pricing estimates (cost per million input/output tokens) are defined in the profile. The cost panel shows usage based on these estimates; this is NOT billing data, just a configured rate card.
+5. **Model capability gating**: capability is resolved conservatively — an explicit user override wins, then the endpoint's declared capability, then the profile's model rules; anything unresolved defaults to **completion-only**. Only models resolved as **agentic** can start agentic chat. Unknown and completion-only models cannot.
+6. **Pricing**: per-model pricing estimates (cost per million input/output/cached/reasoning tokens) are defined in the profile. The cost panel shows usage based on these estimates; this is NOT billing data, just a configured rate card.
+
+#### Verifying tool support
+
+For a model whose capability you're unsure of, use **Verify Tool Support** on the settings card. Select the model row, then click the button: ClawDEA sends a single request carrying one harmless no-op probe function (and no project tools) and reports the outcome.
+
+- The model calls the probe function with valid JSON arguments → marked **agentic** (can start agentic chat).
+- The model only replies with text, calls a different function, or sends malformed arguments → treated as **completion-only**.
+- The request fails → **unknown** (never silently promoted to agentic).
+
+Verification is **always explicit** — it runs only when you click the button, so it never incurs hidden token usage.
+
+#### Agentic chat
+
+When the selected model is agentic-capable, the chat panel drives it as a full agent over the OpenAI-compatible Chat Completions API:
+
+- **Streamed text and reasoning** — assistant text streams live; a model's reasoning (when the provider emits it) appears in the collapsible **Thinking** block.
+- **Tools** — the model can call ClawDEA's MCP tools (index, debugger, edit review, primer, skills) plus a permission-gated host shell and reviewed file edits. Every tool call flows through the same approval card and diff review as Claude/Codex, and each completed tool call executes exactly once (resumed sessions never re-run a completed call).
+- **Cancel-and-continue steering** — send a message while the model is working. ClawDEA cancels the in-flight round, preserves the valid assistant text produced so far, discards any incomplete tool-call fragments, and continues the turn with your new guidance.
+- **Errors and retries** — a 401/403 triggers a single credential-renewal prompt; a 429 waits for the `Retry-After` window; a pre-output connection or 5xx failure retries with backoff; a failure *after* partial output asks you before retrying (completed tool calls are reused, not re-run).
+- **Sessions** — each conversation is written to a per-profile session ledger under your ClawDEA data directory (never the repo). It appears in `/resume` labeled by provider; resuming the same profile restores full tool state.
+- **Cost** — the per-turn footer and cost panel estimate spend from the profile's configured per-token pricing.
+
+#### Explicit provider fallback
+
+ClawDEA never silently switches a conversation to a different provider on a remote error. If you resume or continue a conversation under a *different* provider than the one that produced it (a "fallback" involving the OpenAI-compatible backend), a confirmation dialog names the source and target providers and states that plain user/assistant text is carried over as context while tool-protocol state (tool calls, results, reasoning) is dropped. The transcript is replayed under the alternate provider only if you confirm.
 
 #### Profile isolation
 

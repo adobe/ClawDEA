@@ -12,8 +12,10 @@
 package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.cli.backend.AgentBackendFactory
+import com.adobe.clawdea.cli.backend.OpenAiCompatibleAgentBackend
 import com.adobe.clawdea.cli.backend.ProcessAgentBackend
 import com.adobe.clawdea.provider.BackendKind
+import com.adobe.clawdea.settings.ClawDEASettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,9 +50,14 @@ class CliBridgeBackendSelectionTest {
 
     @Test
     fun `HTTP provider never falls through to Claude process`() {
-        val backend = AgentBackendFactory.create("openai-compatible")
+        // Inject a fresh (empty) settings instance so the factory runs fully headless — no platform
+        // Application / PasswordSafe required. With no profile configured the HTTP branch degrades to
+        // an OpenAiCompatibleAgentBackend carrying a readiness error, but it is STILL the HTTP backend
+        // (correct kind) and is NEVER a ProcessAgentBackend driving the `claude`/`codex` CLI.
+        val backend = AgentBackendFactory.create("openai-compatible", settings = ClawDEASettings())
         assertEquals(BackendKind.OPENAI_COMPATIBLE_HTTP, backend.backendKind)
-        assertTrue(backend is ProcessAgentBackend && backend.process is UnavailableAgentProcess)
+        assertTrue(backend is OpenAiCompatibleAgentBackend)
+        assertFalse(backend is ProcessAgentBackend)
         assertFalse(CliBridge.isCodexProvider("openai-compatible"))
         assertFalse(CliBridge.requiresBackendRebuild(BackendKind.OPENAI_COMPATIBLE_HTTP, "openai-compatible"))
     }

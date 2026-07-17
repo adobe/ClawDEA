@@ -46,6 +46,9 @@ object AgentBackendFactory {
         workingDirectory: String = "",
         mcpPort: Int = 0,
         project: Project? = null,
+        // Test seam: inject settings so the HTTP branch can run fully headless (no platform
+        // Application). Production passes the application-service singleton.
+        settings: ClawDEASettings = ClawDEASettings.getInstance(),
     ): AgentBackend {
         val kind = ProviderRegistry.require(providerId).backendKind
         return when (kind) {
@@ -65,7 +68,6 @@ object AgentBackendFactory {
             )
             BackendKind.OPENAI_COMPATIBLE_HTTP -> {
                 // Simplified: create backend with readinessError if any prerequisite missing
-                val settings = ClawDEASettings.getInstance()
                 val profileStore = ProfileStore(settings)
                 val credentialStore = ProfileCredentialStore()
                 val agentLabel = ProviderRegistry.require(providerId).displayLabel

@@ -29,6 +29,8 @@ As of 2.1, ClawDEA supports **OpenAI-compatible provider profiles** for inline c
 
 **Gateway routing**: when an OpenAI-compatible profile + model is selected, `ClaudeGateway.selectPath()` routes to `streamViaOpenAiCompatible()`, which sends requests to the profile's base URL with the credential from PasswordSafe. No silent fallback to Claude — if the profile's API is unreachable, the completion fails.
 
+**Agentic chat credentials**: the agentic HTTP chat backend uses the same PasswordSafe-scoped credential. On a 401/403 the backend renews the credential exactly once via a prompt + the profile's declarative credential flow (`CredentialRenewalCoordinator` → `CredentialFlowExecutor`), then retries with the fresh credential; a second auth failure surfaces a terminal error. See [OpenAI-compatible provider](openai-compatible-provider.md) for the full backend contract.
+
 ## Resolution pipeline
 
 1. **Configured provider** — `ClawDEASettings.state.apiProvider` is the user's choice in Settings → Tools → ClawDEA (`anthropic` | `bedrock` | `vertex` | `subscription` | `openai` | `openai-subscription`). The last two route the chat to the `codex` backend instead of the `claude` CLI.

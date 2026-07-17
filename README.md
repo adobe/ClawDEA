@@ -10,6 +10,8 @@ ClawDEA also coexists with IntelliJ's own [bundled MCP server](https://www.jetbr
 
 **OpenAI-compatible provider profiles:** Organizations can distribute custom provider profiles (templates or pre-configured) that define model catalogs, credential flows, and pricing for OpenAI-compatible APIs. Import a profile via Settings, preview and confirm before it's activated, then select a model and use completions and intention actions through that provider. Secrets persist in the IDE's PasswordSafe; exports never contain credentials. See the [User Guide](docs/user-guide.md#openai-compatible-provider-profiles) for the full workflow.
 
+**New in 2.2 — agentic chat over any OpenAI-compatible provider:** when a profile's model is verified as tool-capable, the chat panel drives it as a full agent over the OpenAI-compatible Chat Completions API — streamed text and reasoning, ClawDEA's MCP tools plus permission-gated shell and reviewed edits, cancel-and-continue steering, profile-native session resume, and per-token cost estimates from the profile's configured pricing. Completion-only or unverified models cannot start agentic chat, and switching a conversation between providers is always explicit — never silent. See [OpenAI-compatible provider](docs/llm-wiki/concepts/openai-compatible-provider.md).
+
 <p align="center">
   <img src="docs/images/debug-demo.gif" alt="ClawDEA driving IntelliJ's debugger — setting breakpoints, stepping through code, inspecting variables, and mutating values at runtime" width="800">
   <br>

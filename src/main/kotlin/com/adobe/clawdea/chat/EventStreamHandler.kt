@@ -658,7 +658,7 @@ class EventStreamHandler(
                     turnHasContent = true
                 }
                 if (event.isError) {
-                    val guidance = ErrorEnricher.enrich(event.text)
+                    val guidance = ErrorEnricher.enrich(event.text, bridge.backendKind)
                     if (guidance != null) {
                         browserRenderer.appendHtml(renderer.renderError(guidance))
                         browserRenderer.appendHtml(renderer.renderInfoMessage(event.text))
@@ -786,7 +786,7 @@ class EventStreamHandler(
                     val errorMatch = Regex(""""error"\s*:\s*"([^"]+)"""").find(raw)
                     if (errorMatch != null) {
                         val errorText = errorMatch.groupValues[1]
-                        val guidance = ErrorEnricher.enrich(errorText)
+                        val guidance = ErrorEnricher.enrich(errorText, bridge.backendKind)
                         if (guidance != null) {
                             browserRenderer.appendHtml(renderer.renderError(guidance))
                             browserRenderer.appendHtml(renderer.renderInfoMessage(errorText))
