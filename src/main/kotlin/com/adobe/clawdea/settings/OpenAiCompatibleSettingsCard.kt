@@ -302,18 +302,104 @@ class OpenAiCompatibleSettingsCard : Disposable {
 
     private fun doConnect() {
         val profile = selectedProfile() ?: return
-        Messages.showInfoMessage(
-            "Credential flow execution is not yet wired in the settings UI (will be added in Phase 2).",
-            "Connect",
-        )
+        if (profile.credentialFlow.inputs.isEmpty()) {
+            Messages.showInfoMessage("This profile declares no credentials to enter.", "Connect")
+            return
+        }
+        val project = com.intellij.openapi.project.ProjectManager.getInstance().openProjects.firstOrNull()
+        if (project == null) {
+            Messages.showErrorDialog("No open project found. Open a project to connect.", "Connect")
+            return
+        }
+
+        // Prompt on the EDT, synchronously, from the action listener so the dialog parents over the
+        // still-open Settings dialog. Only the HTTP flow runs off-EDT (below). Cancel returns
+        // silently — the button is never disabled and no error is shown.
+        val prompt = com.adobe.clawdea.chat.CredentialRenewalDialog(project, profile).promptForCredentials()
+            ?: return
+
+        connectButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            try {
+                val resolved = profileStore.resolve(profile.id, System.getenv())
+                val configuredValues = resolved?.configuredValues ?: emptyMap()
+                val executor = com.adobe.clawdea.provider.openai.auth.CredentialFlowExecutor(
+                    transport = com.adobe.clawdea.provider.openai.auth.JdkProfileHttpTransport(),
+                    credentialStore = credentialStore,
+                )
+                // execute() runs the declarative HTTP steps, persists the durable credential to
+                // PasswordSafe, and clears secret CharArrays in its own finally.
+                val result = executor.execute(
+                    profile = profile,
+                    secretInputs = prompt.secretInputs,
+                    textInputs = prompt.textInputs,
+                    configuredValues = configuredValues,
+                    environment = System.getenv(),
+                )
+                val stored = result.credential.isNotBlank()
+                ApplicationManager.getApplication().invokeLater({
+                    if (stored) {
+                        credentialStatusLabel.text = "Credentials stored"
+                        Messages.showInfoMessage("Credentials renewed successfully.", "Connect")
+                    } else {
+                        Messages.showErrorDialog("Credential flow completed but returned an empty credential.", "Connect")
+                    }
+                }, ModalityState.any())
+            } catch (e: com.adobe.clawdea.provider.openai.auth.CredentialFlowException) {
+                // Surface the real flow error (e.g. "Step login failed: expected [200], got 401" or
+                // "Path $.access_token: missing field access_token") so the user can correct the profile.
+                ApplicationManager.getApplication().invokeLater({
+                    Messages.showErrorDialog("Connection failed: ${e.message}", "Connect")
+                }, ModalityState.any())
+            } catch (e: Exception) {
+                ApplicationManager.getApplication().invokeLater({
+                    Messages.showErrorDialog("Connection failed: ${e.message ?: e.javaClass.simpleName}", "Connect")
+                }, ModalityState.any())
+            } finally {
+                // Defensive: execute() already clears secrets, but ensure they are cleared even if we
+                // failed before reaching execute() (e.g. resolve threw).
+                prompt.secretInputs.values.forEach { it.fill(' ') }
+                ApplicationManager.getApplication().invokeLater({
+                    connectButton.isEnabled = true
+                }, ModalityState.any())
+            }
+        }
     }
 
     private fun doRefreshModels() {
         val profile = selectedProfile() ?: return
-        Messages.showInfoMessage(
-            "Model refresh via HTTP is not yet wired in the settings UI (will be added in Phase 2).",
-            "Refresh Models",
-        )
+        val credential = credentialStore.get(profile.id)
+        if (credential.isBlank()) {
+            Messages.showErrorDialog("No credential stored for this profile. Connect it first.", "Refresh Models")
+            return
+        }
+
+        val resolved = profileStore.resolve(profile.id, System.getenv())
+        if (resolved == null) {
+            Messages.showErrorDialog("Could not resolve the profile configuration.", "Refresh Models")
+            return
+        }
+
+        refreshModelsButton.isEnabled = false
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val client = com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient()
+            val freshModels = client.listModels(resolved, credential)
+            ApplicationManager.getApplication().invokeLater({
+                refreshModelsButton.isEnabled = true
+                if (freshModels == null) {
+                    Messages.showErrorDialog("Failed to fetch models from the provider. Check the endpoint and credential.", "Refresh Models")
+                } else {
+                    val existingCatalog = modelTableModel.rows.toList()
+                    val merged = ModelCatalogMerge.merge(existingCatalog, freshModels)
+                    modelTableModel.replaceAll(merged)
+
+                    val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, profile.id)
+                    settings.state.modelCatalogs[catalogKey] = merged.toMutableList()
+
+                    Messages.showInfoMessage("Fetched ${freshModels.size} models from the provider.", "Refresh Models")
+                }
+            }, ModalityState.any())
+        }
     }
 
     /**

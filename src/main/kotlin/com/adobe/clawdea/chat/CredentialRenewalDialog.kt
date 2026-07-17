@@ -36,7 +36,7 @@ class CredentialRenewalDialog(
 ) : DialogWrapper(project, true) {
 
     private val fields: Map<String, JTextField> = profile.credentialFlow.inputs.associate { input ->
-        input.id to if (input.secret) JBPasswordField() else JBTextField()
+        input.id to if (input.secret) JBPasswordField().apply { columns = 30 } else JBTextField(30)
     }
 
     init {
