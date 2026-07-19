@@ -181,6 +181,64 @@ class AgentLoopControllerTest {
         assertTrue(events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.Result>()
             .any { it.text.contains("Context budget exceeded") })
     }
+
+    @Test
+    fun `dangling assistant tool_calls is stripped at turn entry`() = runBlocking {
+        // Seed a dangling assistant message with tool_calls from a prior ROUNDS-Stop (no following tool results).
+        val state = ConversationState(
+            messages = mutableListOf(
+                AgentMessage(role = "user", content = "q"),
+                AgentMessage(role = "assistant", toolCalls = listOf(AgentToolCall("c1", "read", "{}"))),
+            )
+        )
+        // Client returns a single text response + Finished("stop") (no tool calls).
+        val client = FakeAgentClient(flowOf(
+            AgentStreamEvent.Text("answer"),
+            AgentStreamEvent.Finished("stop"),
+        ))
+        val loop = AgentLoopController(
+            client = client,
+            executor = CountingToolExecutor(),
+            state = state,
+            maxToolRounds = 0,
+            maxElapsedMs = 0,
+            maxContextChars = 1_000_000,
+        )
+        val result = loop.runTurn("continue", appendUserMessage = true) { }
+        // Assert the seeded dangling assistant message with toolCall id "c1" is gone.
+        val hasDanglingC1 = state.messages.any { msg ->
+            msg.role == "assistant" && msg.toolCalls.any { it.id == "c1" }
+        }
+        assertFalse("Dangling assistant tool_calls should be stripped", hasDanglingC1)
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun `context over threshold with failing summarizer emits fatal result`() = runBlocking {
+        val executor = CountingToolExecutor()
+        // Seed a large history so the char budget is exceeded on the first check.
+        val big = "x".repeat(2000)
+        val state = ConversationState(
+            messages = mutableListOf(
+                AgentMessage(role = "system", content = "sys"),
+                AgentMessage(role = "user", content = big),
+                AgentMessage(role = "user", content = big),
+            )
+        )
+        val client = FakeAgentClient(flowOf(AgentStreamEvent.Text("ok"), AgentStreamEvent.Finished("stop")))
+        val events = mutableListOf<com.adobe.clawdea.cli.CliEvent>()
+        val loop = AgentLoopController(
+            client = client, executor = executor, state = state,
+            maxToolRounds = 0, maxElapsedMs = 0,
+            maxContextChars = 3000, // char fallback budget; threshold 0.8 => compact at 2400 chars
+            compactor = ConversationCompactor(summarize = { throw IllegalStateException("boom") }),
+            compactionThreshold = 0.8,
+        )
+        val result = loop.runTurn("continue", appendUserMessage = false) { events.add(it) }
+        assertTrue(result.isError)
+        assertTrue(events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.Result>()
+            .any { it.text.contains("Context budget exceeded") })
+    }
 }
 
 /**

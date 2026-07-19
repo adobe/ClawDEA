@@ -613,7 +613,12 @@ class OpenAiCompatibleAgentBackend(
             )
             val sb = StringBuilder()
             client.stream(request).collect { ev ->
-                if (ev is com.adobe.clawdea.provider.openai.agent.AgentStreamEvent.Text) sb.append(ev.text)
+                when (ev) {
+                    is com.adobe.clawdea.provider.openai.agent.AgentStreamEvent.Text -> sb.append(ev.text)
+                    is com.adobe.clawdea.provider.openai.agent.AgentStreamEvent.Failure ->
+                        throw IllegalStateException("summarization request failed: ${ev.message}")
+                    else -> {} // Reasoning/ToolFragment/Usage/Finished irrelevant to a summary
+                }
             }
             sb.toString().ifBlank { "[summary unavailable]" }
         }

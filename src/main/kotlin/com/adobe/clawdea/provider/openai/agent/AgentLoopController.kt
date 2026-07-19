@@ -114,6 +114,15 @@ class AgentLoopController(
     ): TurnResult {
         var turnStart = System.currentTimeMillis()
 
+        // A prior turn may have Stopped at a round checkpoint right after appending an assistant
+        // tool_calls message but before executing the tools (those tools never ran). Such a message
+        // has no following tool results, which violates the OpenAI structure invariant on the next
+        // request. Drop it so this turn starts from a clean boundary.
+        val last = state.messages.lastOrNull()
+        if (last != null && last.role == "assistant" && last.toolCalls.isNotEmpty()) {
+            state.messages.removeAt(state.messages.size - 1)
+        }
+
         // Add user message. On a bounded retry of a failed request, the user message is already
         // in [state.messages] from the first attempt, so the caller passes appendUserMessage=false
         // to re-issue the exact same request without duplicating the turn's user turn.
@@ -146,6 +155,9 @@ class AgentLoopController(
         // later round's stream fails after earlier rounds already produced output.
         var emittedTextOverall = false
         var executedToolsOverall = false
+        // Guard to prevent re-compaction at an unchanged usage total (when the provider emits no
+        // Usage event post-compaction, the token reading freezes until the next response).
+        var lastCompactionUsageTotal = -1
 
         while (true) {
             // Check time limit (0 = unlimited)
@@ -159,9 +171,11 @@ class AgentLoopController(
 
             // Context budget: compact when over threshold (never fatal if a compactor is present).
             val contextChars = state.messages.sumOf { (it.content?.length ?: 0) }
+            val usageTotal = state.usage.inputTokens + state.usage.outputTokens
             val overThreshold = when (val window = contextWindowTokens) {
                 null -> contextChars >= maxContextChars * compactionThreshold
-                else -> (state.usage.inputTokens + state.usage.outputTokens) >= window * compactionThreshold
+                // Token path: only treat as over-threshold if usage advanced past the last compaction.
+                else -> usageTotal >= window * compactionThreshold && usageTotal != lastCompactionUsageTotal
             }
             if (overThreshold) {
                 val compacted = compactor?.let { c ->
@@ -171,6 +185,7 @@ class AgentLoopController(
                         state.messages.addAll(r.messages)
                         state.completedToolCallIds.removeAll(r.evictedToolCallIds)
                         onCompacted(r.summarizedCount)
+                        lastCompactionUsageTotal = usageTotal
                         true
                     } catch (e: CancellationException) {
                         throw e
