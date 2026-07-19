@@ -63,6 +63,11 @@ OpenAI-compatible provider config:
 | `agentMaxElapsedMinutes` | `0` | 0 = unlimited. Non-zero = checkpoint after M minutes. |
 | `agentContextCompactionThreshold` | `0.8` | Fraction of the context budget at which to compact. |
 
+The char-based fallback budget (used only when the model's context window is unknown) is a code
+constant, not a setting: `CHAR_FALLBACK` retains today's `maxContextChars` value (`1_000_000`).
+The threshold applies to whichever budget is in effect — `budget * threshold` for tokens,
+`CHAR_FALLBACK * threshold` for chars.
+
 `OpenAiCompatibleAgentBackend` passes raw settings through; `AgentLoopController` owns the
 `0 = unlimited` interpretation, in exactly one place:
 
