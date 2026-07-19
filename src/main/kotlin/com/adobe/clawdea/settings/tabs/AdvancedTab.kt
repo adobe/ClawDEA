@@ -28,6 +28,9 @@ class AdvancedTab : SettingsTab {
     val completionTokenBudgetField = JBTextField("2048", 6)
     val chatTokenBudgetField = JBTextField("16384", 6)
     val actionTokenBudgetField = JBTextField("4096", 6)
+    val agentMaxToolRoundsField = JBTextField("0", 6)
+    val agentMaxElapsedMinutesField = JBTextField("0", 6)
+    val agentCompactionThresholdField = JBTextField("0.8", 6)
     val cliExtraArgsField = JBTextField("", 30)
     val cliEnvScriptField = JBTextField("", 30)
     val enablePsiCollectorCheckbox = JBCheckBox("Enable PSI semantic context", true)
@@ -43,6 +46,9 @@ class AdvancedTab : SettingsTab {
         .addLabeledComponent(JBLabel("Completion token budget:"), completionTokenBudgetField, 1, false)
         .addLabeledComponent(JBLabel("Chat token budget:"), chatTokenBudgetField, 1, false)
         .addLabeledComponent(JBLabel("Action token budget:"), actionTokenBudgetField, 1, false)
+        .addLabeledComponent(JBLabel("Agent tool-call rounds before checkpoint (0 = unlimited):"), agentMaxToolRoundsField, 1, false)
+        .addLabeledComponent(JBLabel("Agent minutes before checkpoint (0 = unlimited):"), agentMaxElapsedMinutesField, 1, false)
+        .addLabeledComponent(JBLabel("Compact context at fraction of budget (0.0-1.0):"), agentCompactionThresholdField, 1, false)
         .addLabeledComponent(JBLabel("CLI extra args:"), cliExtraArgsField, 1, false)
         .addLabeledComponent(JBLabel("CLI env script:"), cliEnvScriptField, 1, false)
         .addComponent(enablePsiCollectorCheckbox, 1)
@@ -57,6 +63,9 @@ class AdvancedTab : SettingsTab {
         completionTokenBudgetField.text = state.completionTokenBudget.toString()
         chatTokenBudgetField.text = state.chatTokenBudget.toString()
         actionTokenBudgetField.text = state.actionTokenBudget.toString()
+        agentMaxToolRoundsField.text = state.agentMaxToolRounds.toString()
+        agentMaxElapsedMinutesField.text = state.agentMaxElapsedMinutes.toString()
+        agentCompactionThresholdField.text = state.agentContextCompactionThreshold.toString()
         cliExtraArgsField.text = state.cliExtraArgs
         cliEnvScriptField.text = state.cliEnvScript
         enablePsiCollectorCheckbox.isSelected = state.enablePsiCollector
@@ -70,6 +79,9 @@ class AdvancedTab : SettingsTab {
         state.completionTokenBudget = completionTokenBudgetField.text.toIntOrNull() ?: 2048
         state.chatTokenBudget = chatTokenBudgetField.text.toIntOrNull() ?: 16384
         state.actionTokenBudget = actionTokenBudgetField.text.toIntOrNull() ?: 4096
+        state.agentMaxToolRounds = agentMaxToolRoundsField.text.toIntOrNull() ?: 0
+        state.agentMaxElapsedMinutes = agentMaxElapsedMinutesField.text.toIntOrNull() ?: 0
+        state.agentContextCompactionThreshold = agentCompactionThresholdField.text.toDoubleOrNull() ?: 0.8
         state.cliExtraArgs = cliExtraArgsField.text
         state.cliEnvScript = cliEnvScriptField.text
         state.enablePsiCollector = enablePsiCollectorCheckbox.isSelected
@@ -89,5 +101,8 @@ class AdvancedTab : SettingsTab {
             enableGitCollectorCheckbox.isSelected != state.enableGitCollector ||
             preloadSkillCatalogCheckbox.isSelected != state.preloadSkillCatalog ||
             enableBaselineDefaultsCheckbox.isSelected != state.enableBaselineDefaults ||
+            agentMaxToolRoundsField.text != state.agentMaxToolRounds.toString() ||
+            agentMaxElapsedMinutesField.text != state.agentMaxElapsedMinutes.toString() ||
+            agentCompactionThresholdField.text != state.agentContextCompactionThreshold.toString() ||
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode
 }
