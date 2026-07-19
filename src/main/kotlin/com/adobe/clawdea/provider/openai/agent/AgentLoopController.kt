@@ -18,6 +18,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 
+/** Why a soft limit checkpoint fired. */
+enum class SoftLimitReason { ROUNDS, TIME }
+
 /**
  * Injectable interface for HTTP agent client (returns streaming events).
  */
@@ -86,6 +89,16 @@ class AgentLoopController(
     // the client auto-detects the single-JSON response and parses it via parseNonStreamedCompletion.
     // Defaulted true so existing tests/constructions are unaffected.
     private val stream: Boolean = true,
+    // Soft-limit checkpoint. Called when a NON-ZERO round/time ceiling trips. Returns true to
+    // continue (counter resets), false to stop the turn cleanly. Default always continues.
+    private val onSoftLimit: suspend (SoftLimitReason, Int) -> Boolean = { _, _ -> true },
+    // When non-null, an over-threshold context triggers compaction instead of a fatal error.
+    private val compactor: ConversationCompactor? = null,
+    // The model's context window in tokens, or null to use the char fallback budget.
+    private val contextWindowTokens: Int? = null,
+    private val compactionThreshold: Double = 0.8,
+    // Notice callback after a successful compaction; arg = number of messages summarized.
+    private val onCompacted: (Int) -> Unit = {},
 ) {
 
     private val log = Logger.getInstance(AgentLoopController::class.java)
@@ -99,13 +112,33 @@ class AgentLoopController(
         appendUserMessage: Boolean = true,
         emit: (CliEvent) -> Unit,
     ): TurnResult {
-        val turnStart = System.currentTimeMillis()
+        var turnStart = System.currentTimeMillis()
 
         // Add user message. On a bounded retry of a failed request, the user message is already
         // in [state.messages] from the first attempt, so the caller passes appendUserMessage=false
         // to re-issue the exact same request without duplicating the turn's user turn.
         if (appendUserMessage) {
             state.messages.add(AgentMessage(role = "user", content = userText))
+        }
+
+        // Returns true if the loop should continue (counter reset by caller), false if the turn ended
+        // (this method emitted the terminal Result).
+        suspend fun checkpoint(reason: SoftLimitReason, count: Int): Boolean {
+            val cont = onSoftLimit(reason, count)
+            if (cont) return true
+            emit(CliEvent.Result(
+                text = state.partialAssistantText,
+                isError = false,
+                costUsd = 0.0,
+                sessionId = "",
+                inputTokens = state.usage.inputTokens,
+                outputTokens = state.usage.outputTokens,
+                cacheReadTokens = state.usage.cachedInputTokens,
+                cacheCreationTokens = 0,
+                reasoningTokens = state.usage.reasoningTokens,
+                contextWindow = 0,
+            ))
+            return false
         }
 
         var toolRounds = 0
@@ -115,39 +148,52 @@ class AgentLoopController(
         var executedToolsOverall = false
 
         while (true) {
-            // Check time limit
-            if (System.currentTimeMillis() - turnStart > maxElapsedMs) {
-                emit(CliEvent.Result(
-                    text = "Turn exceeded time limit",
-                    isError = true,
-                    costUsd = 0.0,
-                    sessionId = "",
-                    inputTokens = state.usage.inputTokens,
-                    outputTokens = state.usage.outputTokens,
-                    cacheReadTokens = state.usage.cachedInputTokens,
-                    cacheCreationTokens = 0,
-                    reasoningTokens = state.usage.reasoningTokens,
-                    contextWindow = 0,
-                ))
-                return TurnResult(isError = true, toolRounds = toolRounds)
+            // Check time limit (0 = unlimited)
+            if (maxElapsedMs > 0 && System.currentTimeMillis() - turnStart > maxElapsedMs) {
+                val elapsedMin = ((System.currentTimeMillis() - turnStart) / 60_000).toInt()
+                if (!checkpoint(SoftLimitReason.TIME, elapsedMin)) {
+                    return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
+                }
+                turnStart = System.currentTimeMillis() // reset window and continue
             }
 
-            // Check context budget (approximate: sum all message content lengths)
-            val contextSize = state.messages.sumOf { (it.content?.length ?: 0) }
-            if (contextSize > maxContextChars) {
-                emit(CliEvent.Result(
-                    text = "Context budget exceeded",
-                    isError = true,
-                    costUsd = 0.0,
-                    sessionId = "",
-                    inputTokens = state.usage.inputTokens,
-                    outputTokens = state.usage.outputTokens,
-                    cacheReadTokens = state.usage.cachedInputTokens,
-                    reasoningTokens = state.usage.reasoningTokens,
-                    cacheCreationTokens = 0,
-                    contextWindow = 0,
-                ))
-                return TurnResult(isError = true, toolRounds = toolRounds)
+            // Context budget: compact when over threshold (never fatal if a compactor is present).
+            val contextChars = state.messages.sumOf { (it.content?.length ?: 0) }
+            val overThreshold = when (val window = contextWindowTokens) {
+                null -> contextChars >= maxContextChars * compactionThreshold
+                else -> (state.usage.inputTokens + state.usage.outputTokens) >= window * compactionThreshold
+            }
+            if (overThreshold) {
+                val compacted = compactor?.let { c ->
+                    try {
+                        val r = c.compact(state.messages.toList(), keepTailTarget = COMPACT_KEEP_TAIL)
+                        state.messages.clear()
+                        state.messages.addAll(r.messages)
+                        state.completedToolCallIds.removeAll(r.evictedToolCallIds)
+                        onCompacted(r.summarizedCount)
+                        true
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log.warn("compaction failed, falling back to fatal context result", e)
+                        false
+                    }
+                } ?: false
+                if (!compacted) {
+                    emit(CliEvent.Result(
+                        text = "Context budget exceeded",
+                        isError = true,
+                        costUsd = 0.0,
+                        sessionId = "",
+                        inputTokens = state.usage.inputTokens,
+                        outputTokens = state.usage.outputTokens,
+                        cacheReadTokens = state.usage.cachedInputTokens,
+                        reasoningTokens = state.usage.reasoningTokens,
+                        cacheCreationTokens = 0,
+                        contextWindow = 0,
+                    ))
+                    return TurnResult(isError = true, toolRounds = toolRounds)
+                }
             }
 
             // Build request
@@ -292,21 +338,12 @@ class AgentLoopController(
                 return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
             }
 
-            // Check tool round limit BEFORE incrementing
-            if (toolRounds >= maxToolRounds) {
-                emit(CliEvent.Result(
-                    text = "Tool round limit exceeded",
-                    isError = true,
-                    costUsd = 0.0,
-                    sessionId = "",
-                    inputTokens = state.usage.inputTokens,
-                    outputTokens = state.usage.outputTokens,
-                    cacheReadTokens = state.usage.cachedInputTokens,
-                    reasoningTokens = state.usage.reasoningTokens,
-                    cacheCreationTokens = 0,
-                    contextWindow = 0,
-                ))
-                return TurnResult(isError = true, toolRounds = toolRounds)
+            // Tool round limit (0 = unlimited). Check BEFORE incrementing.
+            if (maxToolRounds > 0 && toolRounds >= maxToolRounds) {
+                if (!checkpoint(SoftLimitReason.ROUNDS, toolRounds)) {
+                    return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
+                }
+                toolRounds = 0 // reset window and continue
             }
             toolRounds++
 
@@ -344,5 +381,9 @@ class AgentLoopController(
 
             // Continue loop for next round
         }
+    }
+
+    companion object {
+        private const val COMPACT_KEEP_TAIL = 6
     }
 }

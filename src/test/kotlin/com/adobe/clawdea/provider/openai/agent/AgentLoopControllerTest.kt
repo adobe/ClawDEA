@@ -15,6 +15,7 @@ import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -63,6 +64,7 @@ class AgentLoopControllerTest {
             )
         }
 
+        var fired = 0
         val loop = AgentLoopController(
             client = client,
             executor = executor,
@@ -70,13 +72,114 @@ class AgentLoopControllerTest {
             maxToolRounds = 3,
             maxElapsedMs = 600_000,
             maxContextChars = 1_000_000,
+            onSoftLimit = { _, count -> fired = count; false }, // stop at the first checkpoint
         )
 
-        val events = mutableListOf<Any>()
-        val result = loop.runTurn("work") { event -> events.add(event) }
+        val result = loop.runTurn("work") { }
 
+        assertEquals(3, fired)          // checkpoint saw toolRounds == 3
+        assertFalse(result.isError)     // clean user-initiated stop
+    }
+
+    @Test
+    fun `zero round limit never checkpoints and runs to natural end`() = runBlocking {
+        val executor = CountingToolExecutor()
+        val state = ConversationState()
+        // Client returns a tool call the first 4 rounds, then no tool calls (natural end).
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            if (round <= 4) flowOf(
+                AgentStreamEvent.ToolFragment(0, "call-$round", "test_tool", "{}"),
+                AgentStreamEvent.Finished("tool_calls"),
+            ) else flowOf(
+                AgentStreamEvent.Text("done"),
+                AgentStreamEvent.Finished("stop"),
+            )
+        }
+        var checkpoints = 0
+        val loop = AgentLoopController(
+            client = client, executor = executor, state = state,
+            maxToolRounds = 0, maxElapsedMs = 0, maxContextChars = 1_000_000,
+            onSoftLimit = { _, _ -> checkpoints++; true },
+        )
+        val result = loop.runTurn("work") {}
+        assertEquals(0, checkpoints)
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun `non-zero round limit checkpoints at N and 2N`() = runBlocking {
+        val executor = CountingToolExecutor()
+        val state = ConversationState()
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            flowOf(
+                AgentStreamEvent.ToolFragment(0, "call-$round", "test_tool", "{}"),
+                AgentStreamEvent.Finished("tool_calls"),
+            )
+        }
+        val counts = mutableListOf<Int>()
+        // Continue at the first checkpoint, stop at the second.
+        val loop = AgentLoopController(
+            client = client, executor = executor, state = state,
+            maxToolRounds = 2, maxElapsedMs = 0, maxContextChars = 1_000_000,
+            onSoftLimit = { _, count -> counts.add(count); counts.size < 2 },
+        )
+        val result = loop.runTurn("work") {}
+        assertEquals(listOf(2, 2), counts) // fired at round 2, reset, fired again at 2
+        assertFalse(result.isError)        // user-initiated stop is not an error
+    }
+
+    @Test
+    fun `context over threshold compacts and continues`() = runBlocking {
+        val executor = CountingToolExecutor()
+        // Seed a large history so the char budget is exceeded on the first check.
+        val big = "x".repeat(2000)
+        val state = ConversationState(
+            messages = mutableListOf(
+                AgentMessage(role = "system", content = "sys"),
+                AgentMessage(role = "user", content = big),
+                AgentMessage(role = "user", content = big),
+            )
+        )
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            if (round == 1) flowOf(AgentStreamEvent.Text("ok"), AgentStreamEvent.Finished("stop"))
+            else flowOf(AgentStreamEvent.Text("ok"), AgentStreamEvent.Finished("stop"))
+        }
+        var compactions = 0
+        val loop = AgentLoopController(
+            client = client, executor = executor, state = state,
+            maxToolRounds = 0, maxElapsedMs = 0,
+            maxContextChars = 3000, // char fallback budget; threshold 0.8 => compact at 2400 chars
+            compactor = ConversationCompactor(summarize = { "SUMMARY" }),
+            compactionThreshold = 0.8,
+            onCompacted = { compactions++ },
+        )
+        val result = loop.runTurn("continue", appendUserMessage = false) {}
+        assertEquals(1, compactions)
+        assertFalse(result.isError)
+    }
+
+    @Test
+    fun `context over threshold with no compactor emits fatal result`() = runBlocking {
+        val state = ConversationState(
+            messages = mutableListOf(AgentMessage(role = "user", content = "x".repeat(5000)))
+        )
+        val client = FakeAgentClient(flowOf(AgentStreamEvent.Finished("stop")))
+        val events = mutableListOf<com.adobe.clawdea.cli.CliEvent>()
+        val loop = AgentLoopController(
+            client = client, executor = CountingToolExecutor(), state = state,
+            maxToolRounds = 0, maxElapsedMs = 0, maxContextChars = 3000,
+            compactor = null,
+        )
+        val result = loop.runTurn("continue", appendUserMessage = false) { events.add(it) }
         assertTrue(result.isError)
-        assertEquals(3, result.toolRounds)
+        assertTrue(events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.Result>()
+            .any { it.text.contains("Context budget exceeded") })
     }
 }
 
