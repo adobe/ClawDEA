@@ -679,11 +679,6 @@ class EventStreamHandler(
                 } else 0L
                 val model = currentModel.ifBlank { resolveModelLabel() }.ifBlank { null }
                 val effort = resolveEffort().ifBlank { null }
-                if (event.costUsd > 0 || totalElapsed > 0 || model != null) {
-                    browserRenderer.appendHtml(
-                        renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
-                    )
-                }
                 // Attribute cost to THIS TAB's provider selection, not the global effectiveProviderId.
                 // The bridge's selection reflects the per-tab override or the effective default.
                 val tabProviderId = bridge.selection.providerId
@@ -695,7 +690,10 @@ class EventStreamHandler(
                 } else {
                     tabProviderId
                 }
-                costTracker.recordTurn(
+                // recordTurn returns THIS turn's marginal cost. event.costUsd is the CLI's
+                // per-process cumulative session total, so the footer must show the returned
+                // delta (not event.costUsd) or every footer would repeat the running total.
+                val turnCostUsd = costTracker.recordTurn(
                     chatId,
                     currentModel,
                     event.costUsd,
@@ -709,6 +707,11 @@ class EventStreamHandler(
                     providerId = providerKey,
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
+                if (turnCostUsd > 0 || totalElapsed > 0 || model != null) {
+                    browserRenderer.appendHtml(
+                        renderer.renderCostInfo(model, effort, turnCostUsd, totalElapsed),
+                    )
+                }
                 pendingKnowledgeBucket = null
                 val priorTurns = savingsTracker.snapshot(chatId).turnCount
                 val savingsObs = com.adobe.clawdea.cost.TurnObservationBuilder.build(
