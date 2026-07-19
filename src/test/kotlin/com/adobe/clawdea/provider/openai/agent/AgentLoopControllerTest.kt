@@ -29,12 +29,19 @@ class AgentLoopControllerTest {
         val executor = CountingToolExecutor()
         val state = ConversationState(completedToolCallIds = mutableSetOf("call-1"))
 
-        val client = FakeAgentClient(
-            flowOf(
+        // Reconnect scenario: the model re-sends the already-completed call-1 once (which must be
+        // skipped, not re-executed), then finishes with no tool calls so the turn terminates.
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            if (round == 1) flowOf(
                 AgentStreamEvent.ToolFragment(0, "call-1", "test_tool", "{}"),
-                AgentStreamEvent.Finished("tool_calls")
+                AgentStreamEvent.Finished("tool_calls"),
+            ) else flowOf(
+                AgentStreamEvent.Text("done"),
+                AgentStreamEvent.Finished("stop"),
             )
-        )
+        }
 
         val loop = AgentLoopController(
             client = client,
