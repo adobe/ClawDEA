@@ -190,4 +190,14 @@ class OpenAiCompatibleAgentBackendTest {
         val projectSubdir = OpenAiSessionLedger.projectDirName(canonicalPath)
         return baseDir.resolve(projectSubdir).resolve("$sessionId.jsonl")
     }
+
+    @Test
+    fun `settings wiring compiles with default agentMaxToolRounds zero`() {
+        // Smoke test: verify that ClawDEASettings.State declares agentMaxToolRounds with default 0.
+        // Full turn-driving harness not available in this test suite, so we assert the data class
+        // default directly. The backend construction compiling (checked by other tests) confirms
+        // the wiring is valid.
+        val defaultState = com.adobe.clawdea.settings.ClawDEASettings.State()
+        assertEquals(0, defaultState.agentMaxToolRounds)
+    }
 }

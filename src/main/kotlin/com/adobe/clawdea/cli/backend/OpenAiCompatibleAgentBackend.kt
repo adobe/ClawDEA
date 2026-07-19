@@ -425,16 +425,28 @@ class OpenAiCompatibleAgentBackend(
         }
 
         while (true) {
+            val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state
             val loop = AgentLoopController(
                 client = clientFactory(profile, currentCredential!!),
                 executor = executorFactory(),
                 state = state,
-                maxToolRounds = 10,
-                maxElapsedMs = 600_000,
+                maxToolRounds = settings.agentMaxToolRounds,
+                maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
                 maxContextChars = 1_000_000,
                 modelId = currentModelId,
                 tools = agentToolDefinitions(mcpDefs),
                 stream = profile.profile.streaming,
+                onSoftLimit = { reason, count -> promptSoftLimit(reason, count) },
+                compactor = com.adobe.clawdea.provider.openai.agent.ConversationCompactor(
+                    summarize = buildSummarizer(),
+                ),
+                contextWindowTokens = com.adobe.clawdea.provider.openai.agent.ContextWindows.forModel(
+                    profile.profile, currentModelId,
+                ),
+                compactionThreshold = settings.agentContextCompactionThreshold,
+                onCompacted = { n ->
+                    queue.put(CliEvent.TextDelta("\n_Compacted context — summarized $n earlier messages._\n"))
+                },
             )
 
             val result = runOneRound(loop, text, append)
@@ -576,6 +588,57 @@ class OpenAiCompatibleAgentBackend(
                     toolsCompleted = result.executedTools,
                 ).showAndGet(),
             )
+        }
+        return decision.get()
+    }
+
+    /**
+     * Build the summarize closure the [ConversationCompactor] uses. Issues one non-streamed
+     * completion asking the model to summarize the given span, and collects its text.
+     */
+    private fun buildSummarizer(): suspend (List<com.adobe.clawdea.provider.openai.agent.AgentMessage>) -> String =
+        { span ->
+            val client = clientFactory(profile, currentCredential!!)
+            val prompt = com.adobe.clawdea.provider.openai.agent.AgentMessage(
+                role = "user",
+                content = "Summarize the conversation so far, preserving the task goal, key " +
+                    "decisions, and findings. Be concise but keep facts needed to continue the work.",
+            )
+            val request = com.adobe.clawdea.provider.openai.agent.AgentCompletionRequest(
+                model = currentModelId,
+                messages = span + prompt,
+                tools = emptyList(),
+                maxTokens = 1024,
+                stream = false,
+            )
+            val sb = StringBuilder()
+            client.stream(request).collect { ev ->
+                if (ev is com.adobe.clawdea.provider.openai.agent.AgentStreamEvent.Text) sb.append(ev.text)
+            }
+            sb.toString().ifBlank { "[summary unavailable]" }
+        }
+
+    /**
+     * Blocking Continue/Stop checkpoint for a non-zero soft limit. Waits indefinitely (no timeout,
+     * unlike the permission-prompt path). Returns true to continue. Fails closed (false) headless.
+     */
+    private fun promptSoftLimit(
+        reason: com.adobe.clawdea.provider.openai.agent.SoftLimitReason,
+        count: Int,
+    ): Boolean {
+        val proj = project ?: return false
+        val msg = when (reason) {
+            com.adobe.clawdea.provider.openai.agent.SoftLimitReason.ROUNDS ->
+                "The agent has run $count tool-call rounds. Continue?"
+            com.adobe.clawdea.provider.openai.agent.SoftLimitReason.TIME ->
+                "The agent has run for about $count minute(s). Continue?"
+        }
+        val decision = java.util.concurrent.atomic.AtomicBoolean(false)
+        com.intellij.openapi.application.ApplicationManager.getApplication().invokeAndWait {
+            val choice = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                proj, msg, "ClawDEA — Continue Long Run?", "Continue", "Stop", null,
+            )
+            decision.set(choice == com.intellij.openapi.ui.Messages.YES)
         }
         return decision.get()
     }
