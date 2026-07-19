@@ -75,6 +75,15 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
         // Advanced
         var completionTokenBudget: Int = 512,
         var chatTokenBudget: Int = 16384,
+        // OpenAI-compatible agent loop limits. 0 = unlimited (loop runs until the model stops
+        // calling tools or the user aborts). Non-zero re-arms an indefinite-wait "continue?"
+        // checkpoint every N rounds / after M minutes. See
+        // docs/superpowers/specs/2026-07-19-unbounded-agent-loop-and-compaction-design.md.
+        var agentMaxToolRounds: Int = 0,
+        var agentMaxElapsedMinutes: Int = 0,
+        // Fraction of the context budget at which the agent loop compacts (summarizes) history.
+        // Applies to the token budget when the model's context window is known, else to CHAR_FALLBACK.
+        var agentContextCompactionThreshold: Double = 0.8,
         var actionTokenBudget: Int = 4096,
         var cliExtraArgs: String = "",
         var cliEnvScript: String = "",
