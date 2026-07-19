@@ -13,6 +13,10 @@ data class OpenAiCompatibleProfile(
     val modelMapping: ModelMapping = ModelMapping(),
     val modelRules: List<ModelRule> = emptyList(),
     val pricing: Map<String, TokenRates> = emptyMap(),
+    // Per-model context window in tokens, keyed by model id (mirrors [pricing]). Empty/absent means
+    // the window is unknown for that model; the agent loop then falls back to a char-based compaction
+    // budget. Gson deserialization of profiles lacking the field yields an empty map.
+    val contextWindows: Map<String, Int> = emptyMap(),
     // When false, the agent backend requests non-streamed completions (`stream:false`, and omits the
     // streaming-only `stream_options`). Defaults true so existing profiles and Gson deserialization of
     // profiles lacking the field keep the historical streaming behavior. Set false for gateways that
