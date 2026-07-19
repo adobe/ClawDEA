@@ -678,12 +678,10 @@ class EventStreamHandler(
                 } else 0L
                 val model = currentModel.ifBlank { resolveModelLabel() }.ifBlank { null }
                 val effort = resolveEffort().ifBlank { null }
-                if (event.costUsd > 0 || totalElapsed > 0 || model != null) {
-                    browserRenderer.appendHtml(
-                        renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
-                    )
-                }
-                costTracker.recordTurn(
+                // recordTurn returns THIS turn's marginal cost. event.costUsd is the CLI's
+                // per-process cumulative session total, so the footer must show the returned
+                // delta (not event.costUsd) or every footer would repeat the running total.
+                val turnCostUsd = costTracker.recordTurn(
                     chatId,
                     currentModel,
                     event.costUsd,
@@ -696,6 +694,11 @@ class EventStreamHandler(
                     providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
+                if (turnCostUsd > 0 || totalElapsed > 0 || model != null) {
+                    browserRenderer.appendHtml(
+                        renderer.renderCostInfo(model, effort, turnCostUsd, totalElapsed),
+                    )
+                }
                 pendingKnowledgeBucket = null
                 val priorTurns = savingsTracker.snapshot(chatId).turnCount
                 val savingsObs = com.adobe.clawdea.cost.TurnObservationBuilder.build(

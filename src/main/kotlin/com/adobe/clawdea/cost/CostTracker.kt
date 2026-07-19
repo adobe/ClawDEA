@@ -25,9 +25,14 @@ import java.time.LocalDate
  * chats in the same project show independent "$chat" values. Daily spend, the
  * subscription window, and the resolved-default model are shared project-wide.
  *
- * Cost semantics: recordTurn treats costUsd as a PER-TURN cost and adds it to the
- * chat's running total. A fresh chat starts at 0; resume resets that chat and reseeds
- * it from the resumed session's transcript; subsequent turns keep adding.
+ * Cost semantics: in a persistent stream-json session the CLI reports `total_cost_usd`
+ * as a PER-PROCESS CUMULATIVE session total that grows every turn (verified against
+ * `claude` 2.x). recordTurn therefore diffs it against the last reported value to
+ * recover this turn's marginal cost, and adds that delta to the chat's running total —
+ * summing the raw cumulative would over-count quadratically. A fresh chat starts at 0;
+ * resume/restart spawns a new process whose counter resets to ~0, which shows up as a
+ * decrease and is handled self-correctingly (see [perTurnDelta]). The flat-rate path
+ * (subscription/Bedrock report 0) is unchanged: it is token-priced per turn.
  */
 @Service(Service.Level.PROJECT)
 class CostTracker(private val project: Project) {
@@ -38,6 +43,14 @@ class CostTracker(private val project: Project) {
     private class ChatCost {
         var sessionUsd: Double = 0.0
         val perModelUsd: MutableMap<String, Double> = mutableMapOf()
+
+        /**
+         * Last cumulative `total_cost_usd` reported by the CLI for the current process, used to
+         * recover each turn's marginal cost by differencing. Negative means "no cumulative figure
+         * seen yet" (fresh chat, or the last turn was flat-rate/token-priced). Reset to -1 whenever
+         * the session baseline is reset/reseeded so the next real-dollar turn re-establishes it.
+         */
+        var lastReportedCumulativeUsd: Double = -1.0
     }
 
     private val chats = mutableMapOf<String, ChatCost>()
@@ -61,6 +74,11 @@ class CostTracker(private val project: Project) {
      */
     @Volatile private var openAiUsage: SubscriptionUsage = SubscriptionUsage.UNAVAILABLE
 
+    /**
+     * Record one turn and return its MARGINAL cost (this turn's own spend), which the caller
+     * renders in the per-turn footer. See the class-level cost semantics: [costUsd] is the CLI's
+     * per-process cumulative total, so the marginal figure is recovered by differencing.
+     */
     @Synchronized
     fun recordTurn(
         chatId: String,
@@ -79,11 +97,16 @@ class CostTracker(private val project: Project) {
         ranUnderDefaultSelection: Boolean = false,
         providerId: String = "",
         knowledgeBucket: KnowledgeBucket? = null,
-    ) {
-        val effective = effectiveTurnCost(model, costUsd, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+    ): Double {
         if (ranUnderDefaultSelection && model.isNotBlank()) defaultResolvedModel = model
+        val c = chat(chatId)
+        // `costUsd` is the CLI's PER-PROCESS CUMULATIVE session total, not this turn's cost:
+        // recover the marginal delta by differencing against the last reported cumulative. The
+        // notional token-price is the flat-rate fallback used when the CLI reports 0.
+        val notional = ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+        val (effective, newBaseline) = perTurnDelta(costUsd, c.lastReportedCumulativeUsd, notional)
+        c.lastReportedCumulativeUsd = newBaseline
         if (effective > 0) {
-            val c = chat(chatId)
             c.sessionUsd += effective
             if (model.isNotBlank()) c.perModelUsd.merge(model, effective) { a, b -> a + b }
             if (knowledgeBucket != null) addToKnowledge(knowledgeBucket, effective)
@@ -91,6 +114,7 @@ class CostTracker(private val project: Project) {
             addToDaily(effective)
         }
         publish()
+        return effective
     }
 
     /**
@@ -342,6 +366,34 @@ class CostTracker(private val project: Project) {
         ): Double =
             if (reportedUsd > 0.0) reportedUsd
             else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+
+        /** The marginal cost of one turn plus the new baseline to carry forward. See [perTurnDelta]. */
+        data class TurnDelta(val delta: Double, val newBaseline: Double)
+
+        /**
+         * Recover a single turn's marginal cost from the CLI's PER-PROCESS CUMULATIVE
+         * `total_cost_usd`. In a persistent stream-json session that field grows every turn, so the
+         * turn's own cost is `reportedCumulative - lastBaseline`. Rules:
+         *  - `reportedCumulative <= 0` → flat-rate/token-priced turn: no cumulative to diff. The
+         *    caller supplies the notional per-turn figure separately; delta is that [notionalUsd],
+         *    and the baseline is left unchanged (`< 0` stays `< 0`) so a later real-dollar turn
+         *    re-establishes it from scratch.
+         *  - `lastBaseline < 0` (none yet) → first real-dollar turn of this process: delta is the
+         *    full reported figure.
+         *  - `reportedCumulative < lastBaseline` → the cumulative went BACKWARDS, i.e. a new CLI
+         *    process (resume/restart) reset its counter. Treat the reported figure as this turn's
+         *    cost and rebase, rather than emitting a negative delta.
+         *  - otherwise → normal case: `reportedCumulative - lastBaseline`.
+         */
+        fun perTurnDelta(reportedCumulative: Double, lastBaseline: Double, notionalUsd: Double): TurnDelta {
+            if (reportedCumulative <= 0.0) return TurnDelta(notionalUsd, lastBaseline)
+            val delta = when {
+                lastBaseline < 0.0 -> reportedCumulative
+                reportedCumulative < lastBaseline -> reportedCumulative
+                else -> reportedCumulative - lastBaseline
+            }
+            return TurnDelta(delta, reportedCumulative)
+        }
 
         /** Providers to render: union of persisted-total keys and the active provider (blank ignored). */
         fun usedProviders(stored: Set<String>, active: String): List<String> {

@@ -77,6 +77,52 @@ class CostTrackerTest {
     }
 
 
+    @Test
+    fun `perTurnDelta differences the CLI cumulative into a per-turn marginal cost`() {
+        // First real-dollar turn of a process (no baseline yet): full reported figure.
+        val t1 = CostTracker.perTurnDelta(reportedCumulative = 0.31, lastBaseline = -1.0, notionalUsd = 0.0)
+        assertEquals(0.31, t1.delta, 1e-9)
+        assertEquals(0.31, t1.newBaseline, 1e-9)
+
+        // Second turn: cumulative grew to 0.35 → this turn cost the difference, baseline advances.
+        val t2 = CostTracker.perTurnDelta(reportedCumulative = 0.35, lastBaseline = t1.newBaseline, notionalUsd = 0.0)
+        assertEquals(0.04, t2.delta, 1e-9)
+        assertEquals(0.35, t2.newBaseline, 1e-9)
+    }
+
+    @Test
+    fun `perTurnDelta rebases when the cumulative goes backwards (resume or restart)`() {
+        // A new CLI process resets its counter; reported (0.025) < baseline (0.35). Treat the
+        // reported figure as this turn's cost and rebase — never emit a negative delta.
+        val d = CostTracker.perTurnDelta(reportedCumulative = 0.025, lastBaseline = 0.35, notionalUsd = 0.0)
+        assertEquals(0.025, d.delta, 1e-9)
+        assertEquals(0.025, d.newBaseline, 1e-9)
+    }
+
+    @Test
+    fun `perTurnDelta uses the notional token price on flat-rate turns and preserves the baseline`() {
+        // Subscription/Bedrock report 0 → no cumulative to diff. Delta is the notional figure and
+        // the baseline is left untouched so a later real-dollar turn re-establishes it.
+        val d = CostTracker.perTurnDelta(reportedCumulative = 0.0, lastBaseline = -1.0, notionalUsd = 0.12)
+        assertEquals(0.12, d.delta, 1e-9)
+        assertEquals(-1.0, d.newBaseline, 1e-9)
+    }
+
+    @Test
+    fun `perTurnDelta summed across a session equals the last cumulative`() {
+        // The whole point of the fix: summing per-turn deltas reproduces the final cumulative,
+        // instead of summing the cumulative itself (which over-counts quadratically).
+        val cumulatives = listOf(0.10, 0.24, 0.24, 0.51, 0.60)
+        var baseline = -1.0
+        var summed = 0.0
+        for (c in cumulatives) {
+            val d = CostTracker.perTurnDelta(c, baseline, notionalUsd = 0.0)
+            summed += d.delta
+            baseline = d.newBaseline
+        }
+        assertEquals(cumulatives.last(), summed, 1e-9)
+    }
+
     @Test fun `usedProviders unions stored keys with the active provider`() {
         assertEquals(
             listOf("anthropic", "bedrock"),
