@@ -91,7 +91,8 @@ class OpenAiCompatibleAgentBackend(
     private val clientFactory: (ResolvedProviderProfile, String) -> AgentClient =
         { p, cred -> HttpAgentClient(OpenAiCompatibleClient(), p, cred) },
     // Test seam: construct the tool executor. Production default dispatches to MCP + host tools.
-    private val executorFactory: () -> AgentToolExecutor = { defaultExecutor(project, mcpDefs, approvalGate, autoAcceptEdits) },
+    // The default doesn't capture currentSkills (can't access instance fields); init{} upgrades it.
+    executorFactory: (() -> AgentToolExecutor)? = null,
     // Test seam: renew the profile credential (real path prompts on the EDT + runs the flow).
     // Returns true if a fresh credential was persisted. Default runs the EDT renewal flow.
     private val credentialRenewer: (() -> Boolean)? = null,
@@ -133,8 +134,23 @@ class OpenAiCompatibleAgentBackend(
     // the last known id if the provider ever returns blank (should not happen post readiness gate).
     @Volatile
     private var currentModelId: String = ""
+    // Skills discovered for this session, captured from [start]'s `skills` arg (mirrors how
+    // currentModelId is resolved fresh per start). Feeds the Skill-tool advertisement + executor.
+    @Volatile
+    private var currentSkills: List<SkillInfo> = emptyList()
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
+
+    // Resolved in init: either the test-injected factory, or the production default (which reads
+    // currentSkills at call time, so must be constructed after the instance is initialized).
+    private val executorFactory: () -> AgentToolExecutor
+
+    init {
+        // Upgrade the executor factory to capture currentSkills. Tests inject their own factory
+        // (non-null), so respect that; otherwise build the production default.
+        this.executorFactory = executorFactory
+            ?: { defaultExecutor(project, mcpDefs, approvalGate, currentSkills, autoAcceptEdits) }
+    }
 
     // Dynamic: the chat chrome ("… is thinking", composer placeholder, assistant name) shows the
     // selected model's trimmed name. Computed from [currentModelId] (resolved fresh on every [start]
@@ -193,6 +209,8 @@ class OpenAiCompatibleAgentBackend(
         } else {
             log.warn("modelIdProvider returned blank at start; keeping last known model '$currentModelId'")
         }
+
+        currentSkills = skills
 
         // Build standing instructions. Degrade to empty when the platform Application is
         // unavailable (headless/unit-test contexts) — instructions are non-essential to the
@@ -440,7 +458,7 @@ class OpenAiCompatibleAgentBackend(
                 maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
                 maxContextChars = 1_000_000,
                 modelId = currentModelId,
-                tools = agentToolDefinitions(mcpDefs),
+                tools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog),
                 stream = profile.profile.streaming,
                 onSoftLimit = { reason, count -> promptSoftLimit(reason, count) },
                 compactor = com.adobe.clawdea.provider.openai.agent.ConversationCompactor(
@@ -829,22 +847,42 @@ class OpenAiCompatibleAgentBackend(
  * dispatches directly. Must stay in lockstep with what the executor can route, or the model will
  * emit tool calls the backend cannot fulfil.
  */
-internal fun agentToolDefinitions(mcpDefs: List<McpToolRouter.ToolDef>): List<OpenAiToolDefinition> =
-    OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+internal fun agentToolDefinitions(
+    mcpDefs: List<McpToolRouter.ToolDef>,
+    skills: List<SkillInfo> = emptyList(),
+    advertiseSkillTool: Boolean = false,
+): List<OpenAiToolDefinition> {
+    val base = OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+    return if (advertiseSkillTool && skills.isNotEmpty()) base + OpenAiToolCatalog.skillToolDefinition() else base
+}
 
 /**
  * Build the production tool executor: dispatches to MCP tools + host shell/patch tools.
  * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
+ * Overload without skills for compatibility with existing callers.
  */
 internal fun defaultExecutor(
     project: Project?,
     mcpDefs: List<McpToolRouter.ToolDef>,
     approvalGate: SharedToolApprovalGate,
     autoAcceptEdits: () -> Boolean,
+): AgentToolExecutor = defaultExecutor(project, mcpDefs, approvalGate, emptyList(), autoAcceptEdits)
+
+/**
+ * Build the production tool executor: dispatches to MCP tools + host shell/patch tools + skill tool.
+ * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
+ */
+internal fun defaultExecutor(
+    project: Project?,
+    mcpDefs: List<McpToolRouter.ToolDef>,
+    approvalGate: SharedToolApprovalGate,
+    skills: List<SkillInfo>,
+    autoAcceptEdits: () -> Boolean,
 ): AgentToolExecutor = ProductionToolExecutor(
     catalog = OpenAiToolCatalog(mcpDefs, emptyList()),
     shellTool = if (project != null) HostShellTool(project, approvalGate, missingRouteBehavior = MissingRouteBehavior.DENY) else null,
     patchTool = if (project != null) HostPatchTool(project, autoAcceptEdits, approvalGate) else null,
+    skillTool = com.adobe.clawdea.provider.openai.tools.SkillTool(skills),
 )
 
 /**
@@ -867,6 +905,7 @@ private class ProductionToolExecutor(
     private val catalog: OpenAiToolCatalog,
     private val shellTool: HostShellTool?,
     private val patchTool: HostPatchTool?,
+    private val skillTool: com.adobe.clawdea.provider.openai.tools.SkillTool,
 ) : AgentToolExecutor {
     private val gson = com.google.gson.Gson()
 
@@ -894,6 +933,17 @@ private class ProductionToolExecutor(
                 }
                 tool.execute(input, toolCall.id)
             } ?: ToolExecutionResult(toolCall.id, "Patch tool not available", true)
+            "Skill" -> {
+                val obj = try {
+                    com.google.gson.JsonParser.parseString(toolCall.argumentsJson).asJsonObject
+                } catch (e: Exception) {
+                    return ToolExecutionResult(toolCall.id, "Malformed Skill arguments: ${e.message}", true)
+                }
+                val name = obj.get("name")?.asString
+                    ?: return ToolExecutionResult(toolCall.id, "missing required parameter: name", true)
+                val args = obj.get("args")?.asString
+                skillTool.execute(name, args, toolCall.id)
+            }
             else -> catalog.dispatch(toolCall.id, toolCall.name, toolCall.argumentsJson)
         }
     }
