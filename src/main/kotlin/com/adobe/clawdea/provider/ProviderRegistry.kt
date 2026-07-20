@@ -5,8 +5,8 @@ object ProviderRegistry {
 
     private val descriptors = listOf(
         ProviderDescriptor("anthropic", "Anthropic", BackendKind.CLAUDE_CLI, AuthStrategy.API_KEY, true, true, true),
-        ProviderDescriptor("bedrock", "Amazon Bedrock", BackendKind.CLAUDE_CLI, AuthStrategy.ENVIRONMENT, true, true, true),
-        ProviderDescriptor("vertex", "Google Vertex AI", BackendKind.CLAUDE_CLI, AuthStrategy.ENVIRONMENT, true, true, true),
+        ProviderDescriptor("bedrock", "Bedrock", BackendKind.CLAUDE_CLI, AuthStrategy.ENVIRONMENT, true, true, true),
+        ProviderDescriptor("vertex", "Vertex", BackendKind.CLAUDE_CLI, AuthStrategy.ENVIRONMENT, true, true, true),
         ProviderDescriptor("subscription", "Claude", BackendKind.CLAUDE_CLI, AuthStrategy.CLAUDE_LOGIN, true, true, true),
         ProviderDescriptor("openai", "Codex", BackendKind.CODEX_APP_SERVER, AuthStrategy.API_KEY, false, false, false),
         ProviderDescriptor("openai-subscription", "Codex", BackendKind.CODEX_APP_SERVER, AuthStrategy.CODEX_LOGIN, false, false, false),
