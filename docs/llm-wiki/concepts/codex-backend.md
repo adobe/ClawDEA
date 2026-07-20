@@ -51,7 +51,7 @@ Anything else is a deliberately-ignored `Unknown` with a **blank** `rawJson` so 
 ## Cost and sessions
 
 - `CodexRateLimitMapper` maps a codex `RateLimitSnapshot` (`individualLimit` spend gauge, or a `credits.balance` fallback, plus `primary`/`secondary` rate-limit windows) onto ClawDEA's `SubscriptionUsage`, giving the OpenAI subscription the same live Cost Control gauge Claude has ([CodexRateLimitMapper.kt](../../../src/main/kotlin/com/adobe/clawdea/cost/CodexRateLimitMapper.kt)).
-- `CodexSessionScanner` scans codex rollout JSONL files under the **global** `~/.codex/sessions/YYYY/MM/DD/` tree, filtering by the `cwd` recorded in each rollout's `session_meta`, so codex sessions appear in the resume picker and their transcripts replay across backends. It strips codex/ClawDEA-injected synthetic turns (`<environment_context>`, the JetBrains harness note, and everything before the last `User request:` marker) ([CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/session/CodexSessionScanner.kt)).
+- `CodexSessionScanner` scans codex rollout JSONL files under the **global** `~/.codex/sessions/YYYY/MM/DD/` tree, filtering by the `cwd` recorded in each rollout's `session_meta`, so codex sessions appear in the resume picker and their transcripts replay across backends. It strips codex/ClawDEA-injected synthetic turns — the leading `<recommended_plugins>` and `<environment_context>` XML blocks (both listed in `SYNTHETIC_USER_BLOCKS`), the JetBrains harness note, and everything before the last `User request:` marker ([CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/session/CodexSessionScanner.kt)).
 
 ## Anti-patterns
 
