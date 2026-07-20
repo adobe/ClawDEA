@@ -283,7 +283,6 @@ class ChatPanel(
     private val pendingPromptController = PendingPromptController()
 
     // Skill tracking
-    private var cliBridgeHandlesSkills: Boolean = true
     private var registeredSkillAliases: List<String> = emptyList()
     private var discoveredSkills: List<com.adobe.clawdea.skills.SkillInfo> = emptyList()
 
@@ -2030,7 +2029,11 @@ class ChatPanel(
             val handler = SkillHandler(
                 skillInfo = skill,
                 sendToBridge = { text -> sendViaBridge(text) },
-                probeResult = { cliBridgeHandlesSkills },
+                // Only the Claude CLI subprocess resolves slash-command skills natively; every other
+                // backend (Codex app-server, OpenAI-compatible HTTP) receives plain user text, so it
+                // must get the skill's SKILL.md injected via SkillHandler's fallback branch. Read live
+                // so it stays correct across bridge rebuilds / provider switches.
+                probeResult = { bridge.backendKind == com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI },
             )
             for (alias in skill.aliases) {
                 commandRegistry.register(alias, handler)

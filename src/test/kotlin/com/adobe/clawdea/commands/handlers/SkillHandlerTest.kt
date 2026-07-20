@@ -96,4 +96,42 @@ class SkillHandlerTest {
         assertEquals(CommandCategory.SKILL, handler.info.category)
         assertEquals("/brainstorming", handler.info.name)
     }
+
+    @Test
+    fun `execute injects skill markdown when probe is false`() {
+        val skillContent = "---\nname: brainstorming\n---\n\n# Brainstorming\n\nDo the thing."
+        val filePath = createSkillFile(skillContent)
+        val skillInfo = makeSkillInfo(filePath)
+
+        var sent: String? = null
+        val handler = SkillHandler(
+            skillInfo,
+            sendToBridge = { sent = it },
+            probeResult = { false },
+        )
+
+        handler.execute("with args", CommandContext(appendHtml = {}, showNotification = {}))
+
+        assertTrue(sent!!.contains("<command-name>superpowers:brainstorming</command-name>"))
+        assertTrue(sent!!.contains("<command-args>with args</command-args>"))
+        assertTrue(sent!!.contains("# Brainstorming"))
+    }
+
+    @Test
+    fun `execute forwards slash name when probe is true`() {
+        val filePath = createSkillFile("---\nname: brainstorming\n---")
+        val skillInfo = makeSkillInfo(filePath)
+
+        var sent: String? = null
+        val handler = SkillHandler(
+            skillInfo,
+            sendToBridge = { sent = it },
+            probeResult = { true },
+        )
+
+        handler.execute("", CommandContext(appendHtml = {}, showNotification = {}))
+
+        // qualified name (plugin-cache skill, pluginName = "superpowers")
+        assertEquals("/superpowers:brainstorming", sent)
+    }
 }
