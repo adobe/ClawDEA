@@ -12,11 +12,57 @@
 package com.adobe.clawdea.settings
 
 import com.adobe.clawdea.gateway.ModelEntry
+import com.adobe.clawdea.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClawDEASettingsSelectedModelTest {
+
+    @Test
+    fun `openai-compatible model selection round-trips under the composite catalog key`() {
+        // Regression: the dropdown persisted the selection under the bare "openai-compatible"
+        // id while the backend factory read it under the composite "openai-compatible:<profile>"
+        // key, so the factory never saw the pick and emitted "No model selected". Both sides must
+        // key on the same composite string.
+        val settings = ClawDEASettings()
+        val dir = "/tmp/project-oac"
+        val profileId = "profile-123"
+        val modelId = "some-agentic-model"
+
+        settings.state.apiProvider = ProviderRegistry.OPENAI_COMPATIBLE_ID
+        settings.state.activeOpenAiCompatibleProfileId = profileId
+
+        val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, profileId)
+        assertEquals("openai-compatible:$profileId", catalogKey)
+
+        // Catalog is stored under the composite key (Refresh Models / probe write it there).
+        settings.state.modelCatalogs[catalogKey] = mutableListOf(
+            ModelEntry(id = modelId, displayName = "Some Agentic Model"),
+        )
+
+        // Dropdown writes the selection under the composite key...
+        settings.setSelectedModelId(dir, modelId, providerId = catalogKey)
+        // ...and the factory reads it under the same composite key.
+        assertEquals(modelId, settings.getSelectedModelId(dir, catalogKey))
+    }
+
+    @Test
+    fun `openai-compatible selection is partitioned per active profile`() {
+        val settings = ClawDEASettings()
+        val dir = "/tmp/project-oac2"
+
+        val keyA = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "profile-a")
+        val keyB = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "profile-b")
+        settings.state.modelCatalogs[keyA] = mutableListOf(ModelEntry(id = "model-a", displayName = "A"))
+        settings.state.modelCatalogs[keyB] = mutableListOf(ModelEntry(id = "model-b", displayName = "B"))
+
+        settings.setSelectedModelId(dir, "model-a", providerId = keyA)
+        settings.setSelectedModelId(dir, "model-b", providerId = keyB)
+
+        assertEquals("model-a", settings.getSelectedModelId(dir, keyA))
+        assertEquals("model-b", settings.getSelectedModelId(dir, keyB))
+    }
 
     @Test
     fun `selected model is partitioned by provider`() {

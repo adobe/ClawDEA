@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.provider.ProviderRegistry
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
@@ -83,5 +84,21 @@ class AuthManagerTest {
             ),
         ) { "anthropic" }
         assertEquals("anthropic", m.effectiveProviderId())
+    }
+
+    @Test fun `effectiveProviderId short-circuits when provider has no environment fallback`() {
+        val m = AuthManager(
+            mapOf(
+                "anthropic" to AnthropicAuthProvider(apiKey = "sk-test", envApiKey = null),
+                ProviderRegistry.OPENAI_COMPATIBLE_ID to object : AuthProvider {
+                    override val id = ProviderRegistry.OPENAI_COMPATIBLE_ID
+                    override fun isConfigured() = false
+                    override fun applyToEnvironment(env: MutableMap<String, String>) {}
+                    override fun validate() = AuthValidation(false, "test")
+                    override fun testConnection() = ConnectionTestResult(false, "test")
+                },
+            ),
+        ) { ProviderRegistry.OPENAI_COMPATIBLE_ID }
+        assertEquals(ProviderRegistry.OPENAI_COMPATIBLE_ID, m.effectiveProviderId())
     }
 }

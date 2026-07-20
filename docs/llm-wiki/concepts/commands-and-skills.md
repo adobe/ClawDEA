@@ -37,7 +37,7 @@ Skill discovery (above) only populates the registry and the `/skills` picker. To
 
 - [CliProcess.buildSkillCatalogPrompt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt) — renders one `- <qualifiedName>: <description>` line per scanned skill, wrapped in a fixed header (`Available skills (invoke via slash command):`) and a fixed trailing instruction: *"When a skill matches the user's task, suggest invoking it with /<skill-name>."* Returns an empty string for an empty skill list.
 - The catalog is appended in `CliProcess`'s `buildString { ... }` system-prompt assembly, gated by `settings.preloadSkillCatalog && skills.isNotEmpty()`.
-- [ClawDEASettings.preloadSkillCatalog](../../../src/main/kotlin/com/adobe/clawdea/settings/ClawDEASettings.kt) — defaults `true`; toggled by the "Preload skill catalog into system prompt" checkbox in [ClawDEASettingsPanel.kt](../../../src/main/kotlin/com/adobe/clawdea/settings/ClawDEASettingsPanel.kt).
+- [ClawDEASettings.preloadSkillCatalog](../../../src/main/kotlin/com/adobe/clawdea/settings/ClawDEASettings.kt) — defaults `true`; toggled by the "Preload skill catalog into system prompt" checkbox in [AdvancedTab.kt](../../../src/main/kotlin/com/adobe/clawdea/settings/tabs/AdvancedTab.kt).
 
 This is the integration seam for any task-based skill-recommendation work: today the catalog is static (every skill, every turn) and the suggestion instruction is a fixed string. Making recommendations task-aware (filtering or ranking skills against the user's prompt) would happen here.
 

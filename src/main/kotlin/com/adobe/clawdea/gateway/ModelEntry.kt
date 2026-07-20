@@ -19,6 +19,12 @@ data class ModelEntry(
     var id: String = "",
     var displayName: String = "",
     var userAdded: Boolean = false,
+    var enabled: Boolean = true,
+    var capability: String = "unknown",
+    var inputPerM: Double = 0.0,
+    var outputPerM: Double = 0.0,
+    var cachedInputPerM: Double = 0.0,
+    var reasoningPerM: Double = 0.0,
 )
 
 val DEFAULT_MODEL_CATALOG: List<ModelEntry> = listOf(

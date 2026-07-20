@@ -20,8 +20,7 @@ class ModelCatalogProbesTest {
     @Test
     fun `forProvider returns AnthropicModelProbe for anthropic`() {
         val probe = ModelCatalogProbes.forProvider(
-            providerId = "anthropic",
-            anthropicApiKey = "sk-test", bedrockRegion = "", bedrockBearerToken = "",
+            ModelProbeContext(providerId = "anthropic", anthropicApiKey = "sk-test"),
         )
         assertTrue(probe is AnthropicModelProbe)
     }
@@ -29,8 +28,7 @@ class ModelCatalogProbesTest {
     @Test
     fun `forProvider returns BedrockModelProbe for bedrock`() {
         val probe = ModelCatalogProbes.forProvider(
-            providerId = "bedrock",
-            anthropicApiKey = "", bedrockRegion = "us-east-1", bedrockBearerToken = "bearer-test",
+            ModelProbeContext(providerId = "bedrock", bedrockRegion = "us-east-1", bedrockBearerToken = "bearer-test"),
         )
         assertTrue(probe is BedrockModelProbe)
     }
@@ -38,8 +36,7 @@ class ModelCatalogProbesTest {
     @Test
     fun `forProvider returns SubscriptionModelProbe for subscription`() {
         val probe = ModelCatalogProbes.forProvider(
-            providerId = "subscription",
-            anthropicApiKey = "", bedrockRegion = "", bedrockBearerToken = "",
+            ModelProbeContext(providerId = "subscription"),
         )
         assertTrue(probe is SubscriptionModelProbe)
     }
@@ -47,8 +44,7 @@ class ModelCatalogProbesTest {
     @Test
     fun `forProvider returns CodexModelProbe for openai-subscription`() {
         val probe = ModelCatalogProbes.forProvider(
-            providerId = "openai-subscription",
-            anthropicApiKey = "", bedrockRegion = "", bedrockBearerToken = "",
+            ModelProbeContext(providerId = "openai-subscription"),
         )
         assertTrue(probe is CodexModelProbe)
     }
@@ -57,8 +53,7 @@ class ModelCatalogProbesTest {
     fun `forProvider returns null for vertex`() {
         assertNull(
             ModelCatalogProbes.forProvider(
-                providerId = "vertex",
-                anthropicApiKey = "", bedrockRegion = "us-east-1", bedrockBearerToken = "bearer-test",
+                ModelProbeContext(providerId = "vertex"),
             )
         )
     }
@@ -67,8 +62,7 @@ class ModelCatalogProbesTest {
     fun `forProvider returns null for unknown`() {
         assertNull(
             ModelCatalogProbes.forProvider(
-                providerId = "unknown",
-                anthropicApiKey = "", bedrockRegion = "us-east-1", bedrockBearerToken = "bearer-test",
+                ModelProbeContext(providerId = "unknown"),
             )
         )
     }

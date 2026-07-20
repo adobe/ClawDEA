@@ -12,7 +12,8 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.auth.AuthManager
-import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.provider.BackendKind
+import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
  * Human-readable name of the active chat agent, so UI chrome (assistant bubble
@@ -24,7 +25,13 @@ object AgentLabel {
     /** Label for the currently-effective provider. Reads app-level settings; call on EDT / after app init. */
     fun current(): String = forProvider(AuthManager.getInstance().effectiveProviderId())
 
-    /** "Codex" for the OpenAI (codex) backends, "Claude" otherwise. */
-    fun forProvider(providerId: String): String =
-        if (CliBridge.isCodexProvider(providerId)) "Codex" else "Claude"
+    /** Backend label for a registered provider; unknown providers retain the Claude fallback. */
+    fun forProvider(providerId: String): String {
+        val descriptor = ProviderRegistry.require(providerId)
+        return when (descriptor.backendKind) {
+            BackendKind.CLAUDE_CLI -> "Claude"
+            BackendKind.CODEX_APP_SERVER -> "Codex"
+            BackendKind.OPENAI_COMPATIBLE_HTTP -> descriptor.displayLabel
+        }
+    }
 }

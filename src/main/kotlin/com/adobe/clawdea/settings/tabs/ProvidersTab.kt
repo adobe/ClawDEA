@@ -9,13 +9,18 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-// src/main/kotlin/com/adobe/clawdea/settings/ClawDEASettingsPanel.kt
-package com.adobe.clawdea.settings
+// src/main/kotlin/com/adobe/clawdea/settings/tabs/ProvidersTab.kt
+package com.adobe.clawdea.settings.tabs
 
 import com.adobe.clawdea.CLAUDE_DIR
 import com.adobe.clawdea.auth.*
 import com.adobe.clawdea.cli.CliProcess
 import com.adobe.clawdea.gateway.ModelEntry
+import com.adobe.clawdea.settings.ClawDEASettings
+import com.adobe.clawdea.settings.OpenAiCompatibleSettingsCard
+import com.adobe.clawdea.settings.OpenAiSubscriptionCardPanel
+import com.adobe.clawdea.settings.SubscriptionCardPanel
+import com.adobe.clawdea.settings.ToolApprovalModeUi
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.ui.ComboBox
@@ -35,7 +40,19 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.table.AbstractTableModel
 
-class ClawDEASettingsPanel {
+/**
+ * Providers section extracted from the flat settings panel: API-provider combo,
+ * provider-specific credential cards, Check Connection, CLI paths, completions,
+ * tool approval, auto-accept edits, and the per-provider Models catalog table.
+ *
+ * The Models catalog dirty-check is folded into [isModifiedFrom] via
+ * [isModelsModified], and [applyTo] persists the catalog into
+ * [ClawDEASettings.State.modelCatalogs] so the whole triple lives in this tab.
+ */
+class ProvidersTab : SettingsTab {
+
+    override val title: String = "Providers"
+
     // Provider selection
     private val PROVIDERS = arrayOf(
         "Anthropic (direct)",
@@ -44,8 +61,9 @@ class ClawDEASettingsPanel {
         "Claude subscription (Pro / Max / Team / Enterprise)",
         "OpenAI (direct)",
         "OpenAI (ChatGPT subscription)",
+        "OpenAI-compatible",
     )
-    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription")
+    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription", "openai-compatible")
     val apiProviderCombo = ComboBox(DefaultComboBoxModel(PROVIDERS))
 
     // Anthropic fields
@@ -92,6 +110,9 @@ class ClawDEASettingsPanel {
     // OpenAI (ChatGPT subscription) card
     private val openAiSubscriptionCard = OpenAiSubscriptionCardPanel()
 
+    // OpenAI-compatible card
+    private val openAiCompatibleCard = OpenAiCompatibleSettingsCard()
+
     // Provider-specific sub-panels inside a CardLayout
     private val providerCards = JPanel(CardLayout()).apply {
         add(
@@ -128,6 +149,7 @@ class ClawDEASettingsPanel {
         )
         add(subscriptionCard.panel, "subscription")
         add(openAiSubscriptionCard.panel, "openai-subscription")
+        add(openAiCompatibleCard.panel, "openai-compatible")
     }
 
     // Check Connection
@@ -160,44 +182,6 @@ class ClawDEASettingsPanel {
         ToolApprovalModeUi.installRenderer(this)
     }
     val autoAcceptEditsCheckbox = JBCheckBox("Auto-accept file edits (still reversible from the chat diff link)", false)
-    val completionTokenBudgetField = JBTextField("2048", 6)
-    val chatTokenBudgetField = JBTextField("16384", 6)
-    val actionTokenBudgetField = JBTextField("4096", 6)
-    val cliExtraArgsField = JBTextField("", 30)
-    val cliEnvScriptField = JBTextField("", 30)
-    val enablePsiCollectorCheckbox = JBCheckBox("Enable PSI semantic context", true)
-    val enableGitCollectorCheckbox = JBCheckBox("Enable Git context", true)
-    val preloadSkillCatalogCheckbox = JBCheckBox("Preload skill catalog into system prompt", true)
-    val enableBaselineDefaultsCheckbox = JBCheckBox("Inject baseline working defaults into system prompt", true)
-    val gatewayBareModeCheckbox = JBCheckBox(
-        "Use minimal-mode CLI for completions (--bare; requires API-key auth)",
-        true,
-    )
-    val enableKnowledgeLayerCheckbox = JBCheckBox("Enable knowledge layer", true).apply {
-        toolTipText = "Main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools."
-    }
-    val enableWikiLibrarianCheckbox = JBCheckBox("Enable wiki librarian", true).apply {
-        toolTipText = "When on, the primer instructs the main agent to delegate design questions to the wiki-librarian Claude Code subagent via Task. The subagent is injected per-session via --agents and search_wiki is not registered as an MCP tool. When off, the legacy search_wiki probe directive is used."
-    }
-    val enableWorkspaceCheckbox = JBCheckBox("Enable workspace manifest", true).apply {
-        toolTipText = "Read sibling repos from .clawdea-workspace.md and surface them via list_workspace_repos / read_sibling_* MCP tools."
-    }
-    val autoUpdateWikiCheckbox = JBCheckBox("Auto-update wiki on drift", false).apply {
-        toolTipText = "When on, high-confidence drift fixes (single-match code renames; manifest comment-out) apply silently; learn-on-probe-miss writes use Write/Edit instead of propose_*. When off, every change goes through diff review."
-    }
-
-    // Profiling fields
-    private val BACKEND_OPTIONS = arrayOf("Auto", "IntelliJ Profiler", "JFR")
-    private val BACKEND_KEYS = arrayOf("auto", "intellij", "jfr")
-    val profilingBackendCombo = ComboBox(DefaultComboBoxModel(BACKEND_OPTIONS))
-    val profilingSamplingIntervalField = JBTextField("10", 6)
-    val profilingMaxDurationField = JBTextField("900", 6)
-    val profilingMaxRecordingMbField = JBTextField("500", 6)
-    val profilingStackDepthField = JBTextField("128", 6)
-    val profilingMaxRecordingsField = JBTextField("20", 6)
-    val profilingMaxStorageGbField = JBTextField("5", 6)
-    val profilingAutoAnalyzeCheckbox = JBCheckBox("Auto-analyze after capture", true)
-    val profilingTopNField = JBTextField("50", 6)
 
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
@@ -222,9 +206,7 @@ class ClawDEASettingsPanel {
         }
     }
 
-    val panel: JPanel = FormBuilder.createFormBuilder()
-        .addSeparator()
-        .addLabeledComponent(JBLabel("General"), JPanel(), 0, false)
+    override val component: JComponent = FormBuilder.createFormBuilder()
         .addLabeledComponent(JBLabel("API Provider:"), apiProviderCombo, 1, false)
         .addComponent(providerCards, 1)
         .addComponent(connectionRow, 1)
@@ -239,37 +221,8 @@ class ClawDEASettingsPanel {
         .addLabeledComponent(JBLabel("Tool approval:"), toolApprovalCombo, 1, false)
         .addComponent(autoAcceptEditsCheckbox, 1)
         .addSeparator()
-        .addLabeledComponent(JBLabel("Knowledge layer"), JPanel(), 0, false)
-        .addComponent(enableKnowledgeLayerCheckbox, 1)
-        .addComponent(enableWikiLibrarianCheckbox, 2)
-        .addComponent(enableWorkspaceCheckbox, 2)
-        .addComponent(autoUpdateWikiCheckbox, 2)
-        .addSeparator()
-        .addLabeledComponent(JBLabel("Profiling"), JPanel(), 0, false)
-        .addLabeledComponent(JBLabel("Backend:"), profilingBackendCombo, 1, false)
-        .addLabeledComponent(JBLabel("Sampling interval (ms):"), profilingSamplingIntervalField, 1, false)
-        .addLabeledComponent(JBLabel("Max duration (seconds):"), profilingMaxDurationField, 1, false)
-        .addLabeledComponent(JBLabel("Max recording size (MB):"), profilingMaxRecordingMbField, 1, false)
-        .addLabeledComponent(JBLabel("Stack depth:"), profilingStackDepthField, 1, false)
-        .addLabeledComponent(JBLabel("Max stored recordings:"), profilingMaxRecordingsField, 1, false)
-        .addLabeledComponent(JBLabel("Max storage (GB):"), profilingMaxStorageGbField, 1, false)
-        .addComponent(profilingAutoAnalyzeCheckbox, 1)
-        .addLabeledComponent(JBLabel("Top-N hotspots:"), profilingTopNField, 1, false)
-        .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
-        .addSeparator()
-        .addLabeledComponent(JBLabel("Advanced"), JPanel(), 0, false)
-        .addLabeledComponent(JBLabel("Completion token budget:"), completionTokenBudgetField, 1, false)
-        .addLabeledComponent(JBLabel("Chat token budget:"), chatTokenBudgetField, 1, false)
-        .addLabeledComponent(JBLabel("Action token budget:"), actionTokenBudgetField, 1, false)
-        .addLabeledComponent(JBLabel("CLI extra args:"), cliExtraArgsField, 1, false)
-        .addLabeledComponent(JBLabel("CLI env script:"), cliEnvScriptField, 1, false)
-        .addComponent(enablePsiCollectorCheckbox, 1)
-        .addComponent(enableGitCollectorCheckbox, 1)
-        .addComponent(preloadSkillCatalogCheckbox, 1)
-        .addComponent(enableBaselineDefaultsCheckbox, 1)
-        .addComponent(gatewayBareModeCheckbox, 1)
         .addComponentFillVertically(JPanel(), 0)
         .panel
 
@@ -293,15 +246,22 @@ class ClawDEASettingsPanel {
                 modelTableModel.replaceAll(transientCatalogs[newProvider] ?: mutableListOf())
                 modelsSectionLabel.text = "Models (${newProvider})"
             }
+            updateGenericModelsTableVisibility()
             updateApiKeyLabel()
             connectionResultLabel.text = ""
         }
         checkConnectionButton.addActionListener { doCheckConnection() }
-        enableKnowledgeLayerCheckbox.addItemListener {
-            updateKnowledgeLayerEnabledState()
-        }
         showProviderCard()
         updateApiKeyLabel()
+        updateGenericModelsTableVisibility()
+    }
+
+    fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
+
+    fun dispose() {
+        com.intellij.openapi.util.Disposer.dispose(subscriptionCard)
+        com.intellij.openapi.util.Disposer.dispose(openAiSubscriptionCard)
+        com.intellij.openapi.util.Disposer.dispose(openAiCompatibleCard)
     }
 
     private fun doCheckConnection() {
@@ -350,6 +310,7 @@ class ClawDEASettingsPanel {
             "openai-subscription" -> OpenAiSubscriptionAuthProvider(
                 CodexSubscriptionAuth.getInstance().getStatus().isSignedIn(),
             )
+            "openai-compatible" -> com.adobe.clawdea.provider.openai.auth.OpenAiCompatibleAuthProvider()
             else -> AnthropicAuthProvider(
                 String(apiKeyField.password),
                 System.getenv("ANTHROPIC_API_KEY"),
@@ -370,6 +331,13 @@ class ClawDEASettingsPanel {
         val layout = providerCards.layout as CardLayout
         layout.show(providerCards, selectedProviderKey())
         refreshSubscriptionDetectionHint()
+
+        // Hide Claude/Codex CLI path fields when OpenAI-compatible provider is selected
+        val hideCliPaths = selectedProviderKey() == "openai-compatible"
+        cliPathField.isVisible = !hideCliPaths
+        cliPathWarning.isVisible = !hideCliPaths
+        codexCliPathField.isVisible = !hideCliPaths
+        codexCliPathHint.isVisible = !hideCliPaths
     }
 
     private fun refreshSubscriptionDetectionHint() {
@@ -432,7 +400,7 @@ class ClawDEASettingsPanel {
         apiProviderCombo.selectedIndex = if (idx >= 0) idx else 0
     }
 
-    fun loadFrom(state: ClawDEASettings.State) {
+    override fun loadFrom(state: ClawDEASettings.State) {
         val settings = ClawDEASettings.getInstance()
         selectProviderByKey(state.apiProvider)
         apiKeyField.text = settings.getApiKey()
@@ -450,35 +418,13 @@ class ClawDEASettingsPanel {
         bedrockBearerTokenField.text = settings.getBedrockBearerToken()
         vertexRegionField.text = state.vertexRegion
         vertexProjectIdField.text = state.vertexProjectId
-        completionTokenBudgetField.text = state.completionTokenBudget.toString()
-        chatTokenBudgetField.text = state.chatTokenBudget.toString()
-        actionTokenBudgetField.text = state.actionTokenBudget.toString()
-        cliExtraArgsField.text = state.cliExtraArgs
-        cliEnvScriptField.text = state.cliEnvScript
-        enablePsiCollectorCheckbox.isSelected = state.enablePsiCollector
-        enableGitCollectorCheckbox.isSelected = state.enableGitCollector
-        preloadSkillCatalogCheckbox.isSelected = state.preloadSkillCatalog
-        enableBaselineDefaultsCheckbox.isSelected = state.enableBaselineDefaults
-        gatewayBareModeCheckbox.isSelected = state.gatewayBareMode
-        enableKnowledgeLayerCheckbox.isSelected = state.enableKnowledgeLayer
-        enableWikiLibrarianCheckbox.isSelected = state.enableWikiLibrarian
-        enableWorkspaceCheckbox.isSelected = state.enableWorkspace
-        autoUpdateWikiCheckbox.isSelected = state.autoUpdateWiki
-        selectProfilingBackend(state.profilingBackendPreference)
-        profilingSamplingIntervalField.text = state.profilingSamplingIntervalMs.toString()
-        profilingMaxDurationField.text = state.profilingMaxDurationSeconds.toString()
-        profilingMaxRecordingMbField.text = state.profilingMaxRecordingMb.toString()
-        profilingStackDepthField.text = state.profilingStackDepth.toString()
-        profilingMaxRecordingsField.text = state.profilingMaxRecordings.toString()
-        profilingMaxStorageGbField.text = state.profilingMaxStorageGb.toString()
-        profilingAutoAnalyzeCheckbox.isSelected = state.profilingAutoAnalyze
-        profilingTopNField.text = state.profilingTopN.toString()
-        updateKnowledgeLayerEnabledState()
         showProviderCard()
         updateApiKeyLabel()
+        openAiCompatibleCard.load(state)
+        loadModels(state.modelCatalogs)
     }
 
-    fun applyTo(state: ClawDEASettings.State) {
+    override fun applyTo(state: ClawDEASettings.State) {
         val settings = ClawDEASettings.getInstance()
         state.apiProvider = selectedProviderKey()
         settings.setApiKey(effectiveApiKey())
@@ -495,32 +441,11 @@ class ClawDEASettingsPanel {
         settings.setBedrockBearerToken(String(bedrockBearerTokenField.password))
         state.vertexRegion = vertexRegionField.text
         state.vertexProjectId = vertexProjectIdField.text
-        state.completionTokenBudget = completionTokenBudgetField.text.toIntOrNull() ?: 2048
-        state.chatTokenBudget = chatTokenBudgetField.text.toIntOrNull() ?: 16384
-        state.actionTokenBudget = actionTokenBudgetField.text.toIntOrNull() ?: 4096
-        state.cliExtraArgs = cliExtraArgsField.text
-        state.cliEnvScript = cliEnvScriptField.text
-        state.enablePsiCollector = enablePsiCollectorCheckbox.isSelected
-        state.enableGitCollector = enableGitCollectorCheckbox.isSelected
-        state.preloadSkillCatalog = preloadSkillCatalogCheckbox.isSelected
-        state.enableBaselineDefaults = enableBaselineDefaultsCheckbox.isSelected
-        state.gatewayBareMode = gatewayBareModeCheckbox.isSelected
-        state.enableKnowledgeLayer = enableKnowledgeLayerCheckbox.isSelected
-        state.enableWikiLibrarian = enableWikiLibrarianCheckbox.isSelected
-        state.enableWorkspace = enableWorkspaceCheckbox.isSelected
-        state.autoUpdateWiki = autoUpdateWikiCheckbox.isSelected
-        state.profilingBackendPreference = selectedProfilingBackendKey()
-        state.profilingSamplingIntervalMs = profilingSamplingIntervalField.text.toIntOrNull() ?: 10
-        state.profilingMaxDurationSeconds = profilingMaxDurationField.text.toIntOrNull() ?: 900
-        state.profilingMaxRecordingMb = profilingMaxRecordingMbField.text.toIntOrNull() ?: 500
-        state.profilingStackDepth = profilingStackDepthField.text.toIntOrNull() ?: 128
-        state.profilingMaxRecordings = profilingMaxRecordingsField.text.toIntOrNull() ?: 20
-        state.profilingMaxStorageGb = profilingMaxStorageGbField.text.toIntOrNull() ?: 5
-        state.profilingAutoAnalyze = profilingAutoAnalyzeCheckbox.isSelected
-        state.profilingTopN = profilingTopNField.text.toIntOrNull() ?: 50
+        openAiCompatibleCard.apply(state)
+        state.modelCatalogs = saveModels()
     }
 
-    fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
+    override fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
         val settings = ClawDEASettings.getInstance()
         return selectedProviderKey() != state.apiProvider ||
             effectiveApiKey() != settings.getApiKey() ||
@@ -537,36 +462,8 @@ class ClawDEASettingsPanel {
             String(bedrockBearerTokenField.password) != settings.getBedrockBearerToken() ||
             vertexRegionField.text != state.vertexRegion ||
             vertexProjectIdField.text != state.vertexProjectId ||
-            completionTokenBudgetField.text != state.completionTokenBudget.toString() ||
-            chatTokenBudgetField.text != state.chatTokenBudget.toString() ||
-            actionTokenBudgetField.text != state.actionTokenBudget.toString() ||
-            cliExtraArgsField.text != state.cliExtraArgs ||
-            cliEnvScriptField.text != state.cliEnvScript ||
-            enablePsiCollectorCheckbox.isSelected != state.enablePsiCollector ||
-            enableGitCollectorCheckbox.isSelected != state.enableGitCollector ||
-            preloadSkillCatalogCheckbox.isSelected != state.preloadSkillCatalog ||
-            enableBaselineDefaultsCheckbox.isSelected != state.enableBaselineDefaults ||
-            gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
-            enableKnowledgeLayerCheckbox.isSelected != state.enableKnowledgeLayer ||
-            enableWikiLibrarianCheckbox.isSelected != state.enableWikiLibrarian ||
-            enableWorkspaceCheckbox.isSelected != state.enableWorkspace ||
-            autoUpdateWikiCheckbox.isSelected != state.autoUpdateWiki ||
-            selectedProfilingBackendKey() != state.profilingBackendPreference ||
-            profilingSamplingIntervalField.text != state.profilingSamplingIntervalMs.toString() ||
-            profilingMaxDurationField.text != state.profilingMaxDurationSeconds.toString() ||
-            profilingMaxRecordingMbField.text != state.profilingMaxRecordingMb.toString() ||
-            profilingStackDepthField.text != state.profilingStackDepth.toString() ||
-            profilingMaxRecordingsField.text != state.profilingMaxRecordings.toString() ||
-            profilingMaxStorageGbField.text != state.profilingMaxStorageGb.toString() ||
-            profilingAutoAnalyzeCheckbox.isSelected != state.profilingAutoAnalyze ||
-            profilingTopNField.text != state.profilingTopN.toString()
-    }
-
-    fun getPreferredFocusedComponent(): JComponent = apiProviderCombo
-
-    fun disposeCard() {
-        com.intellij.openapi.util.Disposer.dispose(subscriptionCard)
-        com.intellij.openapi.util.Disposer.dispose(openAiSubscriptionCard)
+            openAiCompatibleCard.isModified(state) ||
+            isModelsModified(state.modelCatalogs)
     }
 
     // ------------------------------------------------------------------
@@ -579,7 +476,11 @@ class ClawDEASettingsPanel {
     fun loadModels(catalogs: Map<String, List<ModelEntry>>) {
         transientCatalogs.clear()
         for ((k, v) in catalogs) {
-            transientCatalogs[k] = v.map { it.copy() }.toMutableList()
+            // The openai-compatible card owns its (base + profile-scoped) catalogs; keep them out
+            // of the generic transientCatalogs.
+            if (isGenericCatalogKey(k)) {
+                transientCatalogs[k] = v.map { it.copy() }.toMutableList()
+            }
         }
         currentCatalogProvider = providerKey()
         modelTableModel.replaceAll(transientCatalogs[currentCatalogProvider] ?: mutableListOf())
@@ -588,9 +489,26 @@ class ClawDEASettingsPanel {
 
     fun isModelsModified(catalogs: Map<String, List<ModelEntry>>): Boolean {
         flushCurrentTableToTransient()
-        if (transientCatalogs.size != catalogs.size) return true
-        for ((k, persisted) in catalogs) {
-            val transient = transientCatalogs[k] ?: return true
+
+        // For openai-compatible, check the active profile's catalog (card-owned).
+        val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        if (activeId.isNotBlank()) {
+            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                activeId
+            )
+            val savedCatalog = catalogs[catalogKey] ?: emptyList()
+            if (openAiCompatibleCard.isModelsModified(savedCatalog)) return true
+        }
+
+        // Compare transientCatalogs against persisted catalogs, excluding openai-compatible keys
+        // (base + profile-scoped, owned by the card).
+        val genericTransient = transientCatalogs.filterKeys { isGenericCatalogKey(it) }
+        val genericPersisted = catalogs.filterKeys { isGenericCatalogKey(it) }
+
+        if (genericTransient.size != genericPersisted.size) return true
+        for ((k, persisted) in genericPersisted) {
+            val transient = genericTransient[k] ?: return true
             if (persisted.size != transient.size) return true
             val mismatch = persisted.zip(transient).any { (a, b) ->
                 a.id != b.id || a.displayName != b.displayName || a.userAdded != b.userAdded
@@ -604,8 +522,24 @@ class ClawDEASettingsPanel {
         flushCurrentTableToTransient()
         val out: MutableMap<String, MutableList<ModelEntry>> = mutableMapOf()
         for ((k, v) in transientCatalogs) {
-            out[k] = v.map { it.copy() }.toMutableList()
+            // Exclude openai-compatible (base + profile-scoped) from generic transient catalogs —
+            // that provider's catalog is owned by the card and persisted via the profile-scoped key
+            // below.
+            if (isGenericCatalogKey(k)) {
+                out[k] = v.map { it.copy() }.toMutableList()
+            }
         }
+
+        // For openai-compatible, save the active profile's catalog (card-owned).
+        val activeId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        if (activeId.isNotBlank()) {
+            val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+                activeId
+            )
+            out[catalogKey] = openAiCompatibleCard.saveModels()
+        }
+
         return out
     }
 
@@ -619,25 +553,19 @@ class ClawDEASettingsPanel {
         completionsModelCombo.selectedIndex = if (idx >= 0) idx else 0
     }
 
-    private fun updateKnowledgeLayerEnabledState() {
-        val knowledgeEnabled = enableKnowledgeLayerCheckbox.isSelected
-        enableWikiLibrarianCheckbox.isEnabled = knowledgeEnabled
-        enableWorkspaceCheckbox.isEnabled = knowledgeEnabled
-        autoUpdateWikiCheckbox.isEnabled = knowledgeEnabled
-    }
-
-    private fun selectedProfilingBackendKey(): String {
-        val idx = profilingBackendCombo.selectedIndex
-        return if (idx >= 0) BACKEND_KEYS[idx] else "auto"
-    }
-
-    private fun selectProfilingBackend(key: String) {
-        val idx = BACKEND_KEYS.indexOf(key)
-        profilingBackendCombo.selectedIndex = if (idx >= 0) idx else 0
-    }
-
     private fun flushCurrentTableToTransient() {
         transientCatalogs[currentCatalogProvider] = modelTableModel.rows.map { it.copy() }.toMutableList()
+    }
+
+    /**
+     * Toggle the generic Models section visibility based on the selected provider.
+     * The openai-compatible provider shows its own table in the card; all others use
+     * the generic table.
+     */
+    private fun updateGenericModelsTableVisibility() {
+        val show = showsGenericModelsTable(providerKey())
+        modelsSectionLabel.isVisible = show
+        modelsSection.isVisible = show
     }
 
     private class ModelCatalogTableModel(
@@ -682,5 +610,25 @@ class ClawDEASettingsPanel {
             rows.addAll(newRows.map { it.copy() })
             fireTableDataChanged()
         }
+    }
+
+    companion object {
+        /**
+         * Returns true if the generic ProvidersTab model table should be shown for the given provider.
+         * The openai-compatible provider owns its table via the profile card; all others use the
+         * generic table.
+         */
+        fun showsGenericModelsTable(providerKey: String): Boolean =
+            providerKey != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID
+
+        /**
+         * True if the catalog key belongs to the generic (per-provider) table rather than the
+         * card-owned openai-compatible catalog. Excludes both the bare `openai-compatible` key
+         * and composite `openai-compatible:<profile>` keys. Used by loadModels/saveModels/
+         * isModelsModified so all three seams stay in lockstep and never overwrite the card's catalog.
+         */
+        fun isGenericCatalogKey(key: String): Boolean =
+            key != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
+                !key.startsWith("${com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
     }
 }

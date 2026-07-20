@@ -236,6 +236,11 @@ class McpServer(private val project: Project) : Disposable {
         exchange.responseBody.use { it.write(bytes) }
     }
 
+    fun toolDefinitions(): List<McpToolRouter.ToolDef> = router.definitions()
+
+    fun dispatchTool(name: String, arguments: Map<String, String>): McpToolRouter.ToolResult =
+        router.dispatch(name, arguments)
+
     private fun stop() {
         httpServer?.let { server ->
             server.stop(1)
@@ -259,8 +264,13 @@ class McpServer(private val project: Project) : Disposable {
             "propose_notebook_edit",
         )
 
+        // Tools that legitimately run longer than TOOL_TIMEOUT_SECONDS. The agentic wiki-librarian
+        // drives a multi-round tool loop on the WIKI provider; it is bounded internally by
+        // AgenticLibrarian.maxElapsedMs/maxToolRounds, so the generic 60s cap must not kill it.
+        private val LONG_RUNNING_TOOLS = setOf(McpWikiTools.ASK_LIBRARIAN_TOOL_NAME)
+
         internal fun shouldUseGenericToolTimeout(toolName: String): Boolean =
-            toolName !in USER_INTERACTIVE_TOOLS
+            toolName !in USER_INTERACTIVE_TOOLS && toolName !in LONG_RUNNING_TOOLS
 
         fun getInstance(project: Project): McpServer =
             project.getService(McpServer::class.java)

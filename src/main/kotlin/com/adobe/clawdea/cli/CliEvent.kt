@@ -84,6 +84,7 @@ sealed class CliEvent {
         val outputTokens: Int = 0,
         val cacheReadTokens: Int = 0,
         val cacheCreationTokens: Int = 0,
+        val reasoningTokens: Int = 0,
     ) : CliEvent()
 
     /**

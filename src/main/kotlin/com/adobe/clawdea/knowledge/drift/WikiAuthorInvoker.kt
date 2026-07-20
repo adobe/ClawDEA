@@ -11,7 +11,16 @@
  */
 package com.adobe.clawdea.knowledge.drift
 
+import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.knowledge.wiki.WikiAgentsArg
+import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.openai.agent.AgentClient
+import com.adobe.clawdea.provider.openai.agent.AgentLoopController
+import com.adobe.clawdea.provider.openai.agent.AgentMessage
+import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
+import com.adobe.clawdea.provider.openai.agent.ConversationState
+import com.adobe.clawdea.provider.openai.agent.OpenAiToolDefinition
+import com.adobe.clawdea.provider.openai.catalog.ModelCapability
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,7 +48,10 @@ interface WikiAuthorInvoker {
  * on Dispatchers.IO. Uses [WikiAuthorDigestBuilder] for the prompt.
  */
 class DefaultWikiAuthorInvoker(
-    private val runner: ProcessRunner = DefaultProcessRunner,
+    // Null (the default) resolves to a [DefaultProcessRunner] bound to [selection] inside [invoke],
+    // so the subprocess authenticates as the WIKI role's provider (e.g. a Bedrock WIKI selection uses
+    // Bedrock env vars) rather than the global active provider. Tests inject a stub directly.
+    private val runner: ProcessRunner? = null,
     private val claudeCliPath: String,
     private val projectRoot: Path,
     private val mcpPort: Int = 0,
@@ -58,7 +70,18 @@ class DefaultWikiAuthorInvoker(
     private val timeoutSeconds: Long = 600,
     /** Actual wiki directory; rewrites librarian `.claude/wiki/...` paths in the digest. */
     private val wikiDir: Path? = null,
+    /**
+     * The WIKI role's selection. Threaded into the subprocess environment so the `claude` CLI
+     * authenticates as the WIKI role's provider (e.g. a Bedrock WIKI selection applies Bedrock env
+     * vars) rather than the global active provider. Null keeps the historical global-provider env
+     * (used by tests, which inject their own [runner] and never touch the environment).
+     */
+    private val selection: AgentSelection? = null,
 ) : WikiAuthorInvoker {
+
+    // Resolve the process runner: an injected [runner] (tests) wins; otherwise a selection-bound
+    // [DefaultProcessRunner] so the subprocess authenticates as the WIKI role's provider.
+    private val effectiveRunner: ProcessRunner = runner ?: DefaultProcessRunner(selection)
 
     override suspend fun invoke(events: List<DriftEvent>): WikiAuthorInvoker.Result {
         if (events.isEmpty()) {
@@ -109,7 +132,7 @@ class DefaultWikiAuthorInvoker(
 
         val result = withContext(Dispatchers.IO) {
             try {
-                runner.run(command, projectRoot, timeoutSeconds)
+                effectiveRunner.run(command, projectRoot, timeoutSeconds)
             } catch (e: Exception) {
                 LOG.warn("wiki-author runner.run threw: ${e.javaClass.simpleName}: ${e.message}", e)
                 ProcessResult(-1, "", "${e.javaClass.simpleName}: ${e.message}", timedOut = false)
@@ -145,7 +168,7 @@ class DefaultWikiAuthorInvoker(
                 // the proof is on disk: only ack signatures whose target page now
                 // exists. Unverifiable events (no wikiDir, or kinds that edit an
                 // existing page) keep the exit-0 contract.
-                val (acked, unverified) = events.partition { isAuthored(it) }
+                val (acked, unverified) = events.partition { WikiAuthorVerification.isAuthored(it, wikiDir) }
                 val ackedSignatures = acked.map { it.signature }.toSet()
                 val unverifiedSignatures = unverified.map { it.signature }.toSet()
                 if (unverifiedSignatures.isNotEmpty()) {
@@ -159,30 +182,18 @@ class DefaultWikiAuthorInvoker(
         }
     }
 
-    /**
-     * Whether [event] can be treated as authored after an exit-0 run. A
-     * `missingConcept` suggestion is only authored if its target page now exists
-     * on disk; this is the verification that closes the "claimed but did not
-     * write" gap. Other events can't be cheaply verified by existence (they edit
-     * an already-present page), so they keep the exit-0 contract.
-     */
-    private fun isAuthored(event: DriftEvent): Boolean {
-        if (event !is DriftEvent.WikiSuggestion) return true
-        if (event.kind != SuggestionKind.missingConcept) return true
-        val dir = wikiDir ?: return true
-        val target = DriftEvent.WikiSuggestion.primaryTarget(event.targetFiles)
-        if (target.isBlank()) return true
-        val rel = target.removePrefix(".claude/wiki/")
-        return java.nio.file.Files.exists(dir.resolve(rel))
-    }
-
     interface ProcessRunner {
         fun run(command: List<String>, projectRoot: Path, timeoutSeconds: Long): ProcessResult
     }
 
     data class ProcessResult(val exitCode: Int, val stdout: String, val stderr: String, val timedOut: Boolean)
 
-    object DefaultProcessRunner : ProcessRunner {
+    /**
+     * Real process runner. When constructed with a [selection], the subprocess environment is
+     * populated for that WIKI selection's provider (so a Bedrock/Vertex WIKI selection authenticates
+     * correctly); null applies the global active provider (legacy behavior).
+     */
+    class DefaultProcessRunner(private val selection: AgentSelection? = null) : ProcessRunner {
         override fun run(command: List<String>, projectRoot: Path, timeoutSeconds: Long): ProcessResult {
             val pb = ProcessBuilder(command)
                 .directory(projectRoot.toFile())
@@ -191,7 +202,8 @@ class DefaultWikiAuthorInvoker(
             val merged = mutableMapOf<String, String>()
             com.adobe.clawdea.cli.CliEnvironment.applyTo(merged)
             for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)
-            com.adobe.clawdea.auth.AuthManager.getInstance().applyToEnvironment(merged)
+            val auth = com.adobe.clawdea.auth.AuthManager.getInstance()
+            if (selection != null) auth.applyToEnvironment(merged, selection) else auth.applyToEnvironment(merged)
             val env = pb.environment()
             env.clear()
             env.putAll(merged)
@@ -217,5 +229,176 @@ class DefaultWikiAuthorInvoker(
 
     companion object {
         private val LOG = Logger.getInstance(DefaultWikiAuthorInvoker::class.java)
+    }
+}
+
+/**
+ * Shared post-run verification for BOTH wiki-author paths (Claude CLI and the agentic
+ * openai-compatible path). Closes the "model claimed success but wrote nothing" gap: a clean run is
+ * only trusted for a `missingConcept` event if its target page now exists on disk.
+ */
+object WikiAuthorVerification {
+    /**
+     * Whether [event] can be treated as authored after a clean (exit-0 / no-error) run. A
+     * `missingConcept` suggestion is only authored if its target page now exists on disk. Other
+     * events can't be cheaply verified by existence (they edit an already-present page), so they
+     * keep the clean-completion contract.
+     */
+    fun isAuthored(event: DriftEvent, wikiDir: Path?): Boolean {
+        if (event !is DriftEvent.WikiSuggestion) return true
+        if (event.kind != SuggestionKind.missingConcept) return true
+        val dir = wikiDir ?: return true
+        val target = DriftEvent.WikiSuggestion.primaryTarget(event.targetFiles)
+        if (target.isBlank()) return true
+        val rel = target.removePrefix(".claude/wiki/")
+        return java.nio.file.Files.exists(dir.resolve(rel))
+    }
+}
+
+/**
+ * Runs one wiki-author session against a digest prompt, driving the model's tool calls until the
+ * turn terminates. Returns success when the session completed without a terminal error, failure
+ * (with the error text) otherwise. The wiki content is authored as a SIDE EFFECT of the tools the
+ * session executes (Edit/Write/apply_patch through the MCP + host catalog), so the invoker treats a
+ * clean completion as "acted on all events".
+ */
+fun interface AgenticWikiSession {
+    suspend fun run(digest: String): Result<Unit>
+}
+
+/**
+ * Non-Claude wiki-author path (capability-tiered fallback per design §5.2). Builds the SAME digest
+ * as the Claude path via [WikiAuthorDigestBuilder] and drives it through an agentic tool loop (via
+ * [AgenticWikiSession]) so the model can call find_symbol/find_files/read + Edit/Write to author
+ * pages. There is NO `--agents` subagent injection — that is a Claude-CLI-only mechanism.
+ *
+ * Capability guard: a WIKI selection whose model is not [ModelCapability.AGENTIC] cannot execute
+ * tools, so it can never edit files. Rather than run a tool-less author (which would "succeed"
+ * without writing anything), the invoker refuses and reports a clear, actionable error.
+ */
+class AgenticWikiAuthorInvoker(
+    private val selection: AgentSelection,
+    private val wikiDir: Path?,
+    private val capability: ModelCapability,
+    private val session: AgenticWikiSession,
+) : WikiAuthorInvoker {
+
+    override suspend fun invoke(events: List<DriftEvent>): WikiAuthorInvoker.Result {
+        if (events.isEmpty()) {
+            return WikiAuthorInvoker.Result(emptySet(), emptySet(), null)
+        }
+        val signatures = events.map { it.signature }.toSet()
+
+        // Capability guard: wiki authoring REQUIRES tools. A completion-only (or unknown) model can
+        // only emit text and would leave the wiki untouched while appearing to "handle" the events.
+        if (capability != ModelCapability.AGENTIC) {
+            val msg = "WIKI provider model '${selection.modelId}' is not tool-capable; " +
+                "assign an agentic model in Settings > Roles"
+            LOG.warn("wiki-author (agentic) refused: $msg (capability=$capability)")
+            return WikiAuthorInvoker.Result(emptySet(), signatures, msg)
+        }
+
+        val digest = WikiAuthorDigestBuilder.build(events, wikiDir)
+        LOG.info("wiki-author (agentic) invoke: ${events.size} events via ${selection.providerId}/${selection.modelId}")
+
+        val result = try {
+            session.run(digest)
+        } catch (e: Throwable) {
+            LOG.warn("wiki-author (agentic) session threw: ${e.message}", e)
+            Result.failure(e)
+        }
+
+        return if (result.isSuccess) {
+            // Same on-disk proof the Claude path uses: a missingConcept whose target page was NOT
+            // written is WITHHELD (reported skipped → retries), guarding the "model finished without
+            // calling Write/apply_patch" failure that would otherwise silently dismiss the event.
+            val (acked, unverified) = events.partition { WikiAuthorVerification.isAuthored(it, wikiDir) }
+            val ackedSignatures = acked.map { it.signature }.toSet()
+            val unverifiedSignatures = unverified.map { it.signature }.toSet()
+            if (unverifiedSignatures.isNotEmpty()) {
+                LOG.warn("wiki-author (agentic) completed but ${unverifiedSignatures.size} event(s) " +
+                    "left no file on disk; not dismissing so they retry: $unverifiedSignatures")
+            }
+            LOG.info("wiki-author (agentic) dismissed ${ackedSignatures.size} events; " +
+                "withheld ${unverifiedSignatures.size} unverified")
+            WikiAuthorInvoker.Result(ackedSignatures, unverifiedSignatures, null)
+        } else {
+            val err = result.exceptionOrNull()?.message ?: "unknown error"
+            LOG.warn("wiki-author (agentic) failed for ${signatures.size} events: $err")
+            WikiAuthorInvoker.Result(emptySet(), signatures, "wiki-author (agentic) failed: $err")
+        }
+    }
+
+    private companion object {
+        private val LOG = Logger.getInstance(AgenticWikiAuthorInvoker::class.java)
+    }
+}
+
+/**
+ * Production [AgenticWikiSession] backed by the same [AgentLoopController] the chat uses. Feeds the
+ * digest as the user turn (optionally after a system prompt), drains the loop to its terminal
+ * [CliEvent.Result], and maps error/non-error to a [Result]. Kept free of IntelliJ/scope concerns so
+ * it is unit-testable with injected [AgentClient]/[AgentToolExecutor] fakes.
+ */
+class LoopBackedWikiSession(
+    private val client: AgentClient,
+    private val executor: AgentToolExecutor,
+    private val tools: List<OpenAiToolDefinition>,
+    private val modelId: String,
+    private val systemPrompt: String?,
+    private val streaming: Boolean,
+    private val maxToolRounds: Int = 30,
+    private val maxElapsedMs: Long = 600_000,
+    private val maxContextChars: Int = 1_000_000,
+) : AgenticWikiSession {
+
+    override suspend fun run(digest: String): Result<Unit> {
+        val state = ConversationState()
+        if (!systemPrompt.isNullOrBlank()) {
+            state.messages.add(AgentMessage(role = "system", content = systemPrompt))
+        }
+        val loop = AgentLoopController(
+            client = client,
+            executor = executor,
+            state = state,
+            maxToolRounds = maxToolRounds,
+            maxElapsedMs = maxElapsedMs,
+            maxContextChars = maxContextChars,
+            modelId = modelId,
+            tools = tools,
+            stream = streaming,
+        )
+        var terminalError: String? = null
+        val turn = loop.runTurn(digest, appendUserMessage = true) { event ->
+            if (event is CliEvent.Result && event.isError) {
+                terminalError = event.text
+            }
+        }
+        // A failed stream returns streamFailed=true WITHOUT a terminal Result; treat it as an error
+        // too (the wiki path has no retry orchestration of its own — one shot).
+        return when {
+            terminalError != null -> Result.failure(RuntimeException(terminalError))
+            turn.streamFailed -> Result.failure(RuntimeException(turn.finalText.ifBlank { "request failed" }))
+            turn.isError -> Result.failure(RuntimeException(turn.finalText.ifBlank { "wiki-author turn error" }))
+            else -> Result.success(Unit)
+        }
+    }
+}
+
+/**
+ * Codex (app-server) wiki-author path. Wiring the codex app-server for headless, unattended
+ * tool-loop authoring is out of scope for this task: return a clear "not supported" result so the
+ * events are retried rather than silently dismissed, and surface the reason.
+ */
+object CodexUnsupportedWikiAuthorInvoker : WikiAuthorInvoker {
+    override suspend fun invoke(events: List<DriftEvent>): WikiAuthorInvoker.Result {
+        if (events.isEmpty()) return WikiAuthorInvoker.Result(emptySet(), emptySet(), null)
+        val signatures = events.map { it.signature }.toSet()
+        return WikiAuthorInvoker.Result(
+            emptySet(),
+            signatures,
+            "Codex wiki-author is not supported; assign a Claude or OpenAI-compatible agentic model " +
+                "to the WIKI role in Settings > Roles",
+        )
     }
 }

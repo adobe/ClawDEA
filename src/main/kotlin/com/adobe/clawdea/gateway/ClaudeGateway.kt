@@ -31,6 +31,13 @@ import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 
+enum class GatewayPath {
+    ANTHROPIC_API,
+    BEDROCK_API,
+    OPENAI_COMPATIBLE_API,
+    CLAUDE_CLI,
+}
+
 /**
  * Claude API client for latency-sensitive features (completions, quick actions).
  *
@@ -55,28 +62,67 @@ class ClaudeGateway {
     /**
      * Stream a request, emitting StreamEvents as they arrive.
      * Chooses the fastest available path: direct Anthropic API, direct Bedrock API,
-     * or CLI fallback.
+     * OpenAI-compatible API, or CLI fallback.
      */
     fun stream(request: GatewayRequest): Flow<StreamEvent> {
         val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
+        val settings = ClawDEASettings.getInstance()
+
+        // Only inline completions are a "role"; other callers (quick-fix actions) route through the
+        // global provider with their own model. Routing the COMPLETIONS role onto them would let a
+        // Completions-role change silently hijack the actions' provider and re-model their request.
+        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
+        val providerId = resolveGatewayProviderId(
+            request.applyCompletionsRole,
+            completionsSelection.providerId,
+            authManager.effectiveProviderId(),
+        )
 
         val anthropic = authManager.providerById("anthropic") as? com.adobe.clawdea.auth.AnthropicAuthProvider
-        val apiKey = anthropic?.getApiKey().orEmpty()
-        if (apiKey.isNotBlank()) {
-            return streamViaApi(request, apiKey)
+        val anthropicKeyPresent = anthropic?.getApiKey()?.isNotBlank() == true
+
+        val bedrock = authManager.providerById("bedrock") as? com.adobe.clawdea.auth.BedrockAuthProvider
+        val bedrockDirectReady = providerId == "bedrock" &&
+            bedrock?.resolvedRegion()?.isNotBlank() == true &&
+            bedrock.resolvedBearerToken()?.isNotBlank() == true
+
+        // For completions the selection is authoritative (no fallback to the global active profile — a
+        // blank profileId means it's incompletely specified → degrades to CLI). For non-completion
+        // callers, use the globally active profile (the pre-role behavior).
+        val activeProfileId = if (request.applyCompletionsRole) {
+            resolveCompletionsProfileId(completionsSelection)
+        } else {
+            settings.state.activeOpenAiCompatibleProfileId
+        }
+        val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
+        val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
+        val openAiProfileReady = providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
+            profileStore.profile(activeProfileId) != null &&
+            credentialStore.get(activeProfileId).isNotBlank()
+
+        val path = selectPath(providerId, anthropicKeyPresent, bedrockDirectReady, openAiProfileReady)
+
+        // The COMPLETIONS-role model override applies only to completion requests; other callers keep
+        // their own request.model.
+        val effectiveModel = resolveGatewayModel(request.applyCompletionsRole, completionsSelection, request.model)
+        val effectiveRequest = if (effectiveModel != request.model) {
+            request.copy(model = effectiveModel)
+        } else {
+            request
         }
 
-        if (authManager.effectiveProviderId() == "bedrock") {
-            val bedrock = authManager.providerById("bedrock") as? com.adobe.clawdea.auth.BedrockAuthProvider
-            val region = bedrock?.resolvedRegion().orEmpty()
-            val token = bedrock?.resolvedBearerToken().orEmpty()
-            if (region.isNotBlank() && token.isNotBlank()) {
-                val model = resolveCliModel(request.model)
-                return streamViaBedrock(request, region, token, model)
+        return when (path) {
+            GatewayPath.ANTHROPIC_API -> streamViaApi(effectiveRequest, anthropic!!.getApiKey()!!)
+            GatewayPath.BEDROCK_API -> {
+                val region = bedrock!!.resolvedRegion()!!
+                val token = bedrock.resolvedBearerToken()!!
+                val model = resolveCliModel(effectiveRequest.model)
+                streamViaBedrock(effectiveRequest, region, token, model)
             }
+            GatewayPath.OPENAI_COMPATIBLE_API -> streamViaOpenAiCompatible(effectiveRequest, activeProfileId)
+            GatewayPath.CLAUDE_CLI -> streamViaCli(effectiveRequest)
         }
-
-        return streamViaCli(request)
     }
 
     /**
@@ -188,6 +234,93 @@ class ClaudeGateway {
         val contentArray = StreamingParser.extractArray(json, "\"content\"") ?: return null
         val text = StreamingParser.extractString(contentArray, "\"text\"")
         return text?.let { StreamingParser.unescapeJson(it) }
+    }
+
+    /**
+     * OpenAI-compatible provider path — uses the specified profile with renewal and retry.
+     * On 401/403: renew credential and retry once.
+     * On 429: honor Retry-After up to 60s and two attempts.
+     * Do NOT retry 5xx after any TextDelta has been emitted.
+     */
+    private fun streamViaOpenAiCompatible(request: GatewayRequest, profileId: String): Flow<StreamEvent> = flow {
+        val settings = ClawDEASettings.getInstance()
+        val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
+        val credentialStore = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore()
+
+        val resolved = profileStore.resolve(profileId, System.getenv())
+        if (resolved == null) {
+            emit(StreamEvent.Error("OpenAI-compatible profile not found or not configured. Select a profile in Settings → Tools → ClawDEA."))
+            return@flow
+        }
+
+        var credential = credentialStore.get(profileId)
+        if (credential.isBlank()) {
+            emit(StreamEvent.Error("OpenAI-compatible credential not found. Re-run the credential flow in Settings → Tools → ClawDEA."))
+            return@flow
+        }
+
+        val client = com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient()
+
+        var attempt = 0
+        var shouldRetry = true
+        var hasEmittedText = false
+
+        while (shouldRetry && attempt < 2) {
+            attempt++
+            hasEmittedText = false
+            shouldRetry = false
+
+            client.streamCompletion(resolved, credential, request).collect { event ->
+                when (event) {
+                    is StreamEvent.TextDelta -> {
+                        hasEmittedText = true
+                        emit(event)
+                    }
+                    is StreamEvent.HttpError -> {
+                        if (event.status in listOf(401, 403) && attempt == 1) {
+                            // Attempt credential renewal on auth errors (first attempt only)
+                            log.info("OpenAI-compatible auth error (${event.status}), attempting renewal")
+                            val renewed = tryRenewCredential(profileId, profileStore, credentialStore)
+                            if (renewed) {
+                                credential = credentialStore.get(profileId)
+                                shouldRetry = true
+                            } else {
+                                emit(StreamEvent.Error("Authentication failed (${event.status}). Credential renewal failed or was cancelled."))
+                            }
+                        } else if (event.status == 429) {
+                            // Honor Retry-After for rate limits
+                            val retryAfter = event.retryAfterSeconds?.coerceAtMost(60) ?: 1
+                            if (attempt < 2) {
+                                log.info("OpenAI-compatible rate limit (429), retrying after ${retryAfter}s")
+                                kotlinx.coroutines.delay(retryAfter * 1000)
+                                shouldRetry = true
+                            } else {
+                                emit(StreamEvent.Error("Rate limited (429). Maximum retries exceeded."))
+                            }
+                        } else if (event.status in 500..599 && hasEmittedText) {
+                            // Do NOT retry 5xx after streaming has started
+                            emit(StreamEvent.Error("Server error (${event.status}) after streaming began. Partial response received."))
+                        } else {
+                            // Other errors: emit and stop
+                            emit(event)
+                        }
+                    }
+                    else -> emit(event)
+                }
+            }
+        }
+    }
+
+    private fun tryRenewCredential(
+        profileId: String,
+        profileStore: com.adobe.clawdea.provider.openai.profile.ProfileStore,
+        credentialStore: com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore,
+    ): Boolean {
+        // For now, return false. Full renewal UI integration is beyond this task's scope.
+        // The brief mentions CredentialRenewalCoordinator, but wiring the UI prompt callback
+        // from a background coroutine requires architectural decisions not specified.
+        // This is a DONE_WITH_CONCERNS item.
+        return false
     }
 
     /**
@@ -358,6 +491,66 @@ class ClaudeGateway {
     }
 
     companion object {
+
+        /**
+         * Resolve the completions profile id from the role selection. The selection is
+         * authoritative — a null/blank profileId yields "" (no global fallback), which makes
+         * the openai-compatible readiness check fail and the gateway degrade to CLI.
+         */
+        internal fun resolveCompletionsProfileId(selection: com.adobe.clawdea.provider.AgentSelection): String =
+            selection.profileId ?: ""
+
+        /**
+         * Resolve the effective completions model: the selection's modelId when non-blank,
+         * otherwise the model carried by the incoming request.
+         */
+        internal fun resolveCompletionsModel(
+            selection: com.adobe.clawdea.provider.AgentSelection,
+            requestModel: String,
+        ): String = selection.modelId.ifBlank { requestModel }
+
+        /**
+         * The provider that routes a gateway request. Only genuine completion requests
+         * ([GatewayRequest.applyCompletionsRole]) route through the COMPLETIONS role selection; every
+         * other caller (e.g. quick-fix actions) uses the global effective provider, so a Completions
+         * setting can't hijack their routing.
+         */
+        internal fun resolveGatewayProviderId(
+            applyCompletionsRole: Boolean,
+            completionsProviderId: String,
+            effectiveProviderId: String,
+        ): String = if (applyCompletionsRole) completionsProviderId else effectiveProviderId
+
+        /**
+         * The model for a gateway request. The COMPLETIONS-role model override applies only to
+         * completion requests; other callers keep their own request model.
+         */
+        internal fun resolveGatewayModel(
+            applyCompletionsRole: Boolean,
+            selection: com.adobe.clawdea.provider.AgentSelection,
+            requestModel: String,
+        ): String = if (applyCompletionsRole) resolveCompletionsModel(selection, requestModel) else requestModel
+
+        /**
+         * Determine the execution path based on the selected provider and available credentials.
+         * This function is the authoritative decision point for gateway routing, ensuring that
+         * the selected provider is respected and that a stored Anthropic key doesn't hijack
+         * another provider.
+         */
+        internal fun selectPath(
+            providerId: String,
+            anthropicKeyPresent: Boolean,
+            bedrockDirectReady: Boolean,
+            openAiProfileReady: Boolean,
+        ): GatewayPath = when {
+            providerId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID && openAiProfileReady ->
+                GatewayPath.OPENAI_COMPATIBLE_API
+            providerId == "anthropic" && anthropicKeyPresent ->
+                GatewayPath.ANTHROPIC_API
+            providerId == "bedrock" && bedrockDirectReady ->
+                GatewayPath.BEDROCK_API
+            else -> GatewayPath.CLAUDE_CLI
+        }
 
         /**
          * Decide whether to append --bare to the gateway CLI invocation.

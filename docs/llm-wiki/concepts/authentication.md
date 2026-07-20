@@ -12,6 +12,25 @@
 - Subscription auth shells out to `claude auth login --claudeai` as a streaming subprocess. ClawDEA watches stdout for the paste-code prompt but lets the **CLI itself** open the browser — never opens `https://...` from the plugin ([SubscriptionAuth.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/SubscriptionAuth.kt)).
 - The `claude` binary path is resolved through `resolveClaudeCliPath()`. IntelliJ launched from Finder/Dock does **not** inherit the user's shell PATH, so the resolver also probes common install locations (`/usr/local/bin`, `/opt/homebrew/bin`, `nvm`, `volta`) ([CliProcess.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt)).
 
+## OpenAI-compatible provider profiles
+
+As of 2.1, ClawDEA supports **OpenAI-compatible provider profiles** for inline completions and intention actions. Each profile defines:
+
+- A stable **profile ID** (string) used to isolate credentials, model catalogs, and pricing.
+- An **API base URL** (required to be HTTPS unless localhost).
+- A **model catalog** with per-model capabilities (agentic, completion-only, etc.) and pricing estimates.
+- A **credential schema** and optional **declarative credential exchange flows** (e.g., OAuth2 authorization_code).
+
+**Credential persistence**: profile credentials are stored in IntelliJ's native `PasswordSafe`, keyed by `openai-compatible/<profile-id>`. Credentials never appear in `ClawDEASettings`, exports, or on-disk files outside PasswordSafe. Interactive secrets (e.g., OAuth authorization codes) are held in memory only during the exchange flow and never persisted.
+
+**No environment fallback**: unlike the built-in providers (which fall through to `ANTHROPIC_API_KEY` etc. from the shell env), OpenAI-compatible providers ONLY use credentials from PasswordSafe. This ensures profile isolation — two profiles with different API keys cannot accidentally use the same env-var credential.
+
+**Declarative credential flow**: profiles can specify OAuth2 flows (authorization_code, client_credentials, etc.) via JSON config. ClawDEA executes the HTTP flows at runtime (prompting for user confirmation when required) and persists only the durable credential (e.g., refresh token). The profile itself contains NO secrets.
+
+**Gateway routing**: when an OpenAI-compatible profile + model is selected, `ClaudeGateway.selectPath()` routes to `streamViaOpenAiCompatible()`, which sends requests to the profile's base URL with the credential from PasswordSafe. No silent fallback to Claude — if the profile's API is unreachable, the completion fails.
+
+**Agentic chat credentials**: the agentic HTTP chat backend uses the same PasswordSafe-scoped credential. On a 401/403 the backend renews the credential exactly once via a prompt + the profile's declarative credential flow (`CredentialRenewalCoordinator` → `CredentialFlowExecutor`), then retries with the fresh credential; a second auth failure surfaces a terminal error. See [OpenAI-compatible provider](openai-compatible-provider.md) for the full backend contract.
+
 ## Resolution pipeline
 
 1. **Configured provider** — `ClawDEASettings.state.apiProvider` is the user's choice in Settings → Tools → ClawDEA (`anthropic` | `bedrock` | `vertex` | `subscription` | `openai` | `openai-subscription`). The last two route the chat to the `codex` backend instead of the `claude` CLI.
@@ -49,3 +68,8 @@
 - [OpenAiSubscriptionAuthProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/OpenAiSubscriptionAuthProvider.kt) — ChatGPT subscription provider (codex backend); "configured" == `codex login status` signed in, and it removes `OPENAI_API_KEY` from the CLI env
 - [SubscriptionAuth.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/SubscriptionAuth.kt) — interactive `claude auth login --claudeai` driver
 - [SubscriptionAuthProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/SubscriptionAuthProbe.kt) — `claude auth status` probe
+- [OpenAiCompatibleAuthProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/auth/OpenAiCompatibleAuthProvider.kt) — profile-scoped PasswordSafe credential provider
+- [ProfileStore.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileStore.kt) — profile persistence and resolution against `ClawDEASettings`
+- [ProfileImportExport.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileImportExport.kt) — profile import / export
+- [ProfileValidator.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/profile/ProfileValidator.kt) — profile validation
+- [CredentialFlowExecutor.kt](../../../src/main/kotlin/com/adobe/clawdea/provider/openai/auth/CredentialFlowExecutor.kt) — declarative OAuth2 credential exchange execution

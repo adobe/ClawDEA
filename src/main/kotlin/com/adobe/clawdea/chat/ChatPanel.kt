@@ -23,7 +23,6 @@ import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.chat.permission.PermissionRequestHandler
 import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
-import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.settings.ClawDEASettings
@@ -65,6 +64,7 @@ import javax.swing.event.DocumentListener
 class ChatPanel(
     override val bridge: CliBridge,
     override val project: Project,
+    private val initialComposerDraft: String = "",
 ) : JPanel(BorderLayout()), Disposable, ChatPanelHost, InputHost {
 
     override val renderer = MessageRenderer(
@@ -121,7 +121,7 @@ class ChatPanel(
         border = BorderFactory.createEmptyBorder(2, 8, 2, 8)
     }
 
-    private val modelCombo: JComboBox<ModelEntry> = JComboBox()
+    private val modelCombo: JComboBox<ProviderModelOption> = JComboBox()
     private lateinit var modelComboManager: ModelComboManager
 
     private val effortCombo: JComboBox<EffortComboManager.EffortEntry> = JComboBox()
@@ -281,6 +281,7 @@ class ChatPanel(
 
     private lateinit var turnController: TurnController
     private val pendingPromptController = PendingPromptController()
+    private val backendRebuildCoordinator = BackendRebuildCoordinator()
 
     // Skill tracking
     private var cliBridgeHandlesSkills: Boolean = true
@@ -419,6 +420,11 @@ class ChatPanel(
             },
             onContextLabelUpdate = { updateContextLabel() },
             onSyncStreamingUi = { syncStreamingUi() },
+            onTurnBecameIdle = {
+                backendRebuildCoordinator.rebuildIfPending {
+                    rebuildSessionForBackendChange()
+                }
+            },
             onTurnCompleted = { flushQueuedPromptIfReady() },
             onTurnStartStalled = { recoverStalledPromptTurn() },
             onToolResultStalled = { recoverStalledToolTurn() },
@@ -442,18 +448,24 @@ class ChatPanel(
                     .getSelectedEffort(project.basePath ?: "")
             },
             resolveIsDefaultModel = {
-                // Default ⇔ no explicit model id stored for this provider/dir
-                // (same condition under which buildModelArg omits --model).
-                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                // Default ⇔ no explicit model id stored for THIS TAB's provider/profile.
+                // Use the bridge's selection to get the catalog key, not the global provider.
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    bridge.selection.providerId,
+                    bridge.selection.profileId.orEmpty(),
+                )
                 ClawDEASettings.getInstance()
-                    .getSelectedModelId(project.basePath ?: "", providerId).isBlank()
+                    .getSelectedModelId(project.basePath ?: "", catalogKey).isBlank()
             },
             resolveModelLabel = {
-                // Only consulted when the stream reports no model (codex). Fall back to the
-                // user's selection for this provider, or "Default" when none is pinned.
-                val providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                // Only consulted when the stream reports no model (codex). Fall back to THIS TAB's
+                // selected model, or "Default" when none is pinned.
+                val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+                    bridge.selection.providerId,
+                    bridge.selection.profileId.orEmpty(),
+                )
                 ClawDEASettings.getInstance()
-                    .getSelectedModelId(project.basePath ?: "", providerId)
+                    .getSelectedModelId(project.basePath ?: "", catalogKey)
                     .ifBlank { "Default" }
             },
         )
@@ -675,6 +687,7 @@ class ChatPanel(
 
         // Placeholder behavior
         setupPlaceholder()
+        restoreComposerDraft(initialComposerDraft)
         eventHandler.startEventListener()
         inputArea.document.addDocumentListener(object : DocumentListener {
             override fun insertUpdate(e: DocumentEvent) {
@@ -709,23 +722,36 @@ class ChatPanel(
                 com.adobe.clawdea.settings.SettingsChangedListener.TOPIC,
                 object : com.adobe.clawdea.settings.SettingsChangedListener {
                     override fun onSettingsChanged() {
-                        // A provider switch that flips the backend type (Codex⇄Claude) can't be
-                        // applied by restarting this bridge: its backend and label are fixed at
-                        // construction (a codex app-server vs. the claude CLI are different
-                        // processes). Rebuild the tab's ChatSession on the correct backend and
-                        // auto-resume so the running CLI, its label, and the model dropdown all
-                        // agree again — and the prior conversation is carried over as context.
-                        val newIsCodex = CliBridge.isCodexProvider(
-                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
-                        )
-                        if (newIsCodex != bridge.usesCodexBackend) {
-                            if (!turnController.isStreaming) {
+                        // A provider switch that changes the exact backend kind can't be applied by
+                        // restarting this bridge: its process and label are fixed at construction.
+                        // Rebuild the tab's ChatSession on the correct backend and auto-resume so the
+                        // running process, its label, and the model dropdown all agree again.
+                        val newProviderId =
+                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
+                        val selectedKind =
+                            com.adobe.clawdea.provider.ProviderRegistry.require(newProviderId).backendKind
+                        when (
+                            backendRebuildCoordinator.onBackendSelection(
+                                bridge.backendKind,
+                                selectedKind,
+                                turnController.isStreaming,
+                            )
+                        ) {
+                            BackendRebuildAction.REBUILD_NOW -> {
                                 ApplicationManager.getApplication().invokeLater(
-                                    { rebuildSessionForBackendChange() },
+                                    {
+                                        backendRebuildCoordinator.rebuildIfPending {
+                                            rebuildSessionForBackendChange()
+                                        }
+                                    },
                                     com.intellij.openapi.application.ModalityState.any(),
                                 )
+                                return
                             }
-                            return
+                            BackendRebuildAction.DEFER,
+                            BackendRebuildAction.ALREADY_PENDING,
+                            -> return
+                            BackendRebuildAction.NONE -> Unit
                         }
                         if (bridge.isRunning && !turnController.isStreaming) {
                             scope.launch {
@@ -1118,15 +1144,22 @@ class ChatPanel(
     }
 
     /**
-     * Rebuild this tab's [ChatSession] on the backend the *current* provider selects (Codex⇄Claude).
+     * Rebuild this tab's [ChatSession] on the backend the selected provider requires (Codex⇄Claude⇄HTTP).
      *
      * The backend a [CliBridge] drives is fixed at construction, so when a provider switch flips the
      * backend type there is no way to restart into the other CLI in place. Instead we replace this
      * panel's tool-window content with a brand-new [ChatSession] — its fresh bridge picks the right
      * backend/label, the model dropdown already reflects the new provider, and auto-resume replays the
      * current conversation as context so the switch doesn't lose history. Must run on the EDT.
+     *
+     * When [selection] is non-null (a per-tab dropdown pick), the new session/bridge is built on that
+     * exact [AgentSelection] so it uses the picked provider/profile/model. When null (a global
+     * provider change applied via Settings), the new session seeds CHAT_DEFAULT and the bridge resolves
+     * the effective provider — preserving the pre-per-tab behavior.
      */
-    private fun rebuildSessionForBackendChange() {
+    private fun rebuildSessionForBackendChange(
+        selection: com.adobe.clawdea.provider.AgentSelection? = null,
+    ) {
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ClawDEA") ?: return
         val contentManager = toolWindow.contentManager
         val oldContent = contentManager.contents.firstOrNull { it.component === this } ?: return
@@ -1134,8 +1167,18 @@ class ChatPanel(
         // Carry the current conversation over to the new backend as context (cross-backend replay).
         val resumeId = bridge.sessionId
         val wasSelected = contentManager.selectedContent === oldContent
+        val composerText = if (showingPlaceholder) "" else inputArea.text
+        val transferredDraft = pendingPromptController
+            .captureForBackendRebuild(composerText)
+            .visibleComposerText()
 
-        val session = ChatSession(project, tabName, autoResumeSessionId = resumeId)
+        val session = ChatSession(
+            project,
+            tabName,
+            autoResumeSessionId = resumeId,
+            initialComposerDraft = transferredDraft,
+            selection = selection,
+        )
         val newContent = com.intellij.ui.content.ContentFactory.getInstance()
             .createContent(session.panel, tabName, true)
         newContent.setDisposer(session)
@@ -1231,10 +1274,12 @@ class ChatPanel(
             modelCombo = modelCombo,
             parentDisposable = this,
             isBridgeAvailable = { bridge.isRunning && !turnController.isStreaming },
+            currentSelection = { bridge.selection },
             restartBridge = {
                 clearQueuedPrompt()
                 bridge.restart(skills = discoveredSkills)
             },
+            rebuildSession = { selection -> rebuildSessionForBackendChange(selection) },
             appendInfo = { msg -> browserRenderer.appendHtml(renderer.renderInfoMessage(msg)) },
             appendError = { msg -> browserRenderer.appendHtml(renderer.renderError(msg)) },
         )
@@ -1408,6 +1453,14 @@ class ChatPanel(
         })
     }
 
+    private fun restoreComposerDraft(draft: String) {
+        if (draft.isBlank()) return
+        inputArea.text = draft
+        inputArea.foreground = UIManager.getColor("TextArea.foreground")
+        inputArea.caretPosition = draft.length
+        showingPlaceholder = false
+    }
+
     private fun updateContextLabel() {
         // Use CC's reported contextWindow when available — Opus 4.7 is 1M, Sonnet 4.6 is
         // 200K. Hardcoding 200K pegged the indicator at 100% on Opus 4.7 because the
@@ -1480,9 +1533,10 @@ class ChatPanel(
         commandRegistry.register("/login", LocalHandler(
             CommandInfo("/login", "Sign in with your Claude or OpenAI (ChatGPT) subscription", CommandCategory.LOCAL),
         ) { _, _ ->
-            // Route to the sign-in flow for the configured provider: codex (ChatGPT) when the
-            // OpenAI subscription provider is selected, else the Claude subscription flow.
-            val isCodex = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state.apiProvider == "openai-subscription"
+            // Route to the sign-in flow for THIS TAB's provider, not the global default.
+            // The bridge's selection reflects the per-tab provider (or the effective default
+            // when no explicit tab selection was made).
+            val isCodex = bridge.selection.providerId == "openai-subscription"
             appendHtml(renderer.renderInfoMessage(if (isCodex) "Signing in with ChatGPT..." else "Signing in..."))
             if (isCodex) {
                 com.adobe.clawdea.auth.CodexSubscriptionAuth.getInstance().signIn { status ->
@@ -2102,11 +2156,14 @@ class ChatPanel(
     }
 
     /**
-     * Injects [text] into the currently-streaming turn via native steer (codex `turn/steer`).
-     * Returns false when the backend declines (no live turn) so the caller can fall back to
-     * queuing. On success, finalizes any partial answer so the steer message slots into the
-     * transcript in chronological order, then renders the user's message and re-asserts the
-     * activity indicator — the same turn keeps streaming, so no new turn/timer is started.
+     * Injects [text] into the currently-streaming turn via the backend's steer primitive. This
+     * covers both native steering (Codex `turn/steer`, which keeps the same turn running) and
+     * cancel-and-continue steering (OpenAI-compatible HTTP backend, which cancels the running round
+     * and continues with the steer message as the next turn). Returns false when the backend
+     * declines (no live turn) so the caller can fall back to queuing. On success, finalizes any
+     * partial answer so the steer message slots into the transcript in chronological order, then
+     * renders the user's message and re-asserts the activity indicator — the turn keeps streaming
+     * (or immediately continues), so no new turn/timer is started.
      */
     private fun steerActiveTurn(text: String): Boolean {
         if (!bridge.steer(text)) return false
@@ -2135,9 +2192,10 @@ class ChatPanel(
 
         if (turnController.isStreaming) {
             if (!text.startsWith("/")) {
-                // Native mid-turn steer (codex): inject the message into the live turn instead of
-                // queuing it for a fresh turn. Falls through to queuing if there is no steerable
-                // turn or the backend has no steer primitive (Claude).
+                // Mid-turn steer: inject the message into the live turn instead of queuing it for
+                // a fresh turn. Works for both native steering (Codex `turn/steer`) and
+                // cancel-and-continue steering (OpenAI-compatible HTTP). Falls through to queuing
+                // if there is no steerable turn or the backend has no steer primitive (Claude).
                 if (bridge.supportsSteer && steerActiveTurn(text)) return
                 queueCurrentComposerText()
                 return

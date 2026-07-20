@@ -11,7 +11,11 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.chat.ModelComboManager.Companion.rebuildActionFor
+import com.adobe.clawdea.chat.ModelComboManager.RebuildAction
 import com.adobe.clawdea.gateway.ModelEntry
+import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -21,6 +25,53 @@ class ModelComboManagerTest {
         ModelEntry(id = "claude-opus-4-8", displayName = "Claude Opus 4.8"),
         ModelEntry(id = "claude-sonnet-4-6", displayName = "Claude Sonnet 4.6"),
     )
+
+    // ── rebuildActionFor (pure decision) ──────────────────────────────
+
+    @Test
+    fun `identical selection yields NONE`() {
+        val sel = AgentSelection("anthropic", null, "claude-opus-4-8")
+        assertEquals(RebuildAction.NONE, rebuildActionFor(sel, sel))
+    }
+
+    @Test
+    fun `model-only difference on same provider yields RESTART`() {
+        val current = AgentSelection("anthropic", null, "claude-opus-4-8")
+        val picked = AgentSelection("anthropic", null, "claude-sonnet-4-6")
+        assertEquals(RebuildAction.RESTART, rebuildActionFor(current, picked))
+    }
+
+    @Test
+    fun `provider difference yields REBUILD_SESSION`() {
+        // anthropic -> subscription: same backend kind (CLAUDE_CLI) but different provider id.
+        val current = AgentSelection("anthropic", null, "claude-opus-4-8")
+        val picked = AgentSelection("subscription", null, "claude-opus-4-8")
+        assertEquals(RebuildAction.REBUILD_SESSION, rebuildActionFor(current, picked))
+    }
+
+    @Test
+    fun `model-only difference on openai-compatible same profile yields REBUILD_SESSION`() {
+        // The HTTP backend freezes the model in its immutable selection at construction, so a
+        // model-only change on the same profile must rebuild (restart would keep the old model).
+        val current = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-a")
+        val picked = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-b")
+        assertEquals(RebuildAction.REBUILD_SESSION, rebuildActionFor(current, picked))
+    }
+
+    @Test
+    fun `profile difference on openai-compatible yields REBUILD_SESSION`() {
+        val current = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p1", "model-x")
+        val picked = AgentSelection(ProviderRegistry.OPENAI_COMPATIBLE_ID, "p2", "model-x")
+        assertEquals(RebuildAction.REBUILD_SESSION, rebuildActionFor(current, picked))
+    }
+
+    @Test
+    fun `backend-kind difference yields REBUILD_SESSION`() {
+        // anthropic (CLAUDE_CLI) -> openai (CODEX_APP_SERVER).
+        val current = AgentSelection("anthropic", null, "claude-opus-4-8")
+        val picked = AgentSelection("openai", null, "gpt-5")
+        assertEquals(RebuildAction.REBUILD_SESSION, rebuildActionFor(current, picked))
+    }
 
     @Test
     fun `plain Default when no model observed`() {

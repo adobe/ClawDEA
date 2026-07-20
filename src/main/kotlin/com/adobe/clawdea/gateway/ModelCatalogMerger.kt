@@ -16,11 +16,32 @@ object ModelCatalogMerger {
     /**
      * Merges a freshly-probed catalog with the persisted one, preserving
      * userAdded entries on top and dropping fetched entries that collide
-     * with a userAdded id.
+     * with a userAdded id. For non-userAdded entries, carries over
+     * user-edited enablement, capability, and rates while refreshing
+     * IDs/display names.
      */
     fun merge(existing: List<ModelEntry>, fetched: List<ModelEntry>): List<ModelEntry> {
         val userEntries = existing.filter { it.userAdded }
         val userIds = userEntries.mapTo(mutableSetOf()) { it.id }
-        return userEntries + fetched.filter { it.id !in userIds }
+        val existingById = existing.associateBy { it.id }
+
+        val mergedFetched = fetched.filter { it.id !in userIds }.map { fresh ->
+            val old = existingById[fresh.id]
+            if (old != null && !old.userAdded) {
+                // Carry over user-edited fields from existing entry
+                fresh.copy(
+                    enabled = old.enabled,
+                    capability = old.capability,
+                    inputPerM = old.inputPerM,
+                    outputPerM = old.outputPerM,
+                    cachedInputPerM = old.cachedInputPerM,
+                    reasoningPerM = old.reasoningPerM,
+                )
+            } else {
+                fresh
+            }
+        }
+
+        return userEntries + mergedFetched
     }
 }

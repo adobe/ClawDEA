@@ -112,4 +112,29 @@ class WikiAgentsArgTest {
         assertTrue("author present", root.has("wiki-author"))
         assertFalse("librarian absent", root.has("wiki-librarian"))
     }
+
+    // --- buildJson with optional librarian model ---
+
+    @Test
+    fun buildJson_emits_model_for_librarian_when_provided() {
+        val json = JsonParser.parseString(WikiAgentsArg.buildJson("bedrock-model-x")).asJsonObject
+        val librarian = json.getAsJsonObject("wiki-librarian")
+        assertEquals("bedrock-model-x", librarian.get("model").asString)
+        // author entry must NOT get the librarian model
+        assertFalse(json.getAsJsonObject("wiki-author").has("model"))
+    }
+
+    @Test
+    fun buildJson_omits_model_when_blank_preserving_legacy_output() {
+        val json = JsonParser.parseString(WikiAgentsArg.buildJson()).asJsonObject
+        assertFalse(json.getAsJsonObject("wiki-librarian").has("model"))
+        assertEquals(WikiAgentsArg.buildJson(), WikiAgentsArg.buildJson(""))
+    }
+
+    @Test
+    fun librarianPromptBody_returns_substituted_nonblank_body() {
+        val body = WikiAgentsArg.librarianPromptBody()
+        assertTrue(body.isNotBlank())
+        assertFalse(body.contains("{{")) // placeholders substituted
+    }
 }

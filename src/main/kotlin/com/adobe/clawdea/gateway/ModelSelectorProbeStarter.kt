@@ -11,6 +11,9 @@
  */
 package com.adobe.clawdea.gateway
 
+import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
+import com.adobe.clawdea.provider.openai.profile.ProfileStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.Logger
@@ -34,20 +37,49 @@ object ModelSelectorProbeStarter {
             val provider = authManager.effectiveProviderId()
             val anthropic = authManager.providerById("anthropic") as? com.adobe.clawdea.auth.AnthropicAuthProvider
             val bedrock = authManager.providerById("bedrock") as? com.adobe.clawdea.auth.BedrockAuthProvider
-            val probe = ModelCatalogProbes.forProvider(
-                providerId = provider,
-                anthropicApiKey = anthropic?.getApiKey().orEmpty(),
-                bedrockRegion = bedrock?.resolvedRegion().orEmpty(),
-                bedrockBearerToken = bedrock?.resolvedBearerToken().orEmpty(),
-            ) ?: return@launch
+
+            val context = if (provider == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                val activeProfileId = settings.state.activeOpenAiCompatibleProfileId
+                if (activeProfileId.isBlank()) {
+                    log.info("$provider probe: no active profile")
+                    return@launch
+                }
+                val profile = ProfileStore(settings).resolve(activeProfileId, System.getenv())
+                if (profile == null) {
+                    log.info("$provider probe: profile $activeProfileId not resolved")
+                    return@launch
+                }
+                val credential = ProfileCredentialStore().get(activeProfileId)
+                ModelProbeContext(
+                    providerId = provider,
+                    profile = profile,
+                    credential = credential,
+                )
+            } else {
+                ModelProbeContext(
+                    providerId = provider,
+                    anthropicApiKey = anthropic?.getApiKey().orEmpty(),
+                    bedrockRegion = bedrock?.resolvedRegion().orEmpty(),
+                    bedrockBearerToken = bedrock?.resolvedBearerToken().orEmpty(),
+                )
+            }
+
+            val probe = ModelCatalogProbes.forProvider(context) ?: return@launch
 
             val fetched = probe.probe() ?: run {
                 log.info("$provider probe: no result; leaving catalog as-is")
                 return@launch
             }
-            val existing = settings.state.modelCatalogs[provider] ?: mutableListOf()
+
+            val catalogKey = if (provider == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                ProviderRegistry.catalogKey(provider, settings.state.activeOpenAiCompatibleProfileId)
+            } else {
+                provider
+            }
+
+            val existing = settings.state.modelCatalogs[catalogKey] ?: mutableListOf()
             val merged = ModelCatalogMerger.merge(existing, fetched)
-            settings.state.modelCatalogs[provider] = merged.toMutableList()
+            settings.state.modelCatalogs[catalogKey] = merged.toMutableList()
             ApplicationManager.getApplication().messageBus
                 .syncPublisher(ModelCatalogListener.TOPIC)
                 .onCatalogUpdated()

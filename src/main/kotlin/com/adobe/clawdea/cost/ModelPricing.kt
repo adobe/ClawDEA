@@ -111,4 +111,20 @@ object ModelPricing {
     // Convenience overload for Int token counts (parser emits Int).
     fun costFor(model: String, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int, cacheCreationTokens: Int): Double =
         costFor(model, inputTokens.toLong(), outputTokens.toLong(), cacheReadTokens.toLong(), cacheCreationTokens.toLong())
+
+    /**
+     * Cost estimate from configured per-million-token rates. Used for OpenAI-compatible
+     * providers where pricing is user-configured, not model-id-based.
+     */
+    fun costFor(
+        rates: com.adobe.clawdea.provider.openai.profile.TokenRates,
+        input: Int,
+        output: Int,
+        cachedInput: Int,
+        reasoning: Int,
+    ): Double =
+        input * rates.inputPerM / 1_000_000.0 +
+            output * rates.outputPerM / 1_000_000.0 +
+            cachedInput * rates.cachedInputPerM / 1_000_000.0 +
+            reasoning * rates.reasoningPerM / 1_000_000.0
 }

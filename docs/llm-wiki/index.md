@@ -21,6 +21,7 @@ Use these pages to ground reasoning before touching code. Invariants and resolut
 - [Permission prompt](concepts/permission-prompt.md) — 60-second CC cap, abandoned-decision caching
 - [Mentions and completions](concepts/mentions-and-completions.md) — `@` autocomplete and inline completion gateway
 - [Gateway completions](concepts/gateway-completions.md) — direct API vs CLI fallback for latency-sensitive features
+- [OpenAI-compatible provider](concepts/openai-compatible-provider.md) — agentic chat over any OpenAI-compatible API via an importable profile: capability gating, tools, steering, sessions, pricing, explicit fallback
 - [Cost tracking and session model](concepts/cost-tracking.md) — per-turn spend accounting, resume seeding, captured model is display-only (never feeds `--model`)
 - [Savings estimation](concepts/savings-estimation.md) — ClawDEA-vs-standard-CC savings/cost delta, four levers, signed confidence bands
 - [Usage metrics](concepts/usage-metrics.md) — what turn/tool data is captured today, available event hooks, and gaps (no analytics subsystem exists)

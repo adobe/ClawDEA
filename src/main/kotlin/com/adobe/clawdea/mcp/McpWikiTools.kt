@@ -61,6 +61,26 @@ class McpWikiTools(private val project: Project) {
                 handler = ::searchWiki,
             )
         }
+
+        // Cross-provider librarian: when the WIKI role is openai-compatible, the in-chat librarian
+        // cannot run as a CLI `--agents` subagent (that runs in the chat process on the chat
+        // provider). Expose it as an MCP tool whose handler runs the agentic loop on the WIKI
+        // provider and returns the answer. The primer/system-prompt (CliProcess) tells the main
+        // agent to call this tool instead of Agent(subagent_type="wiki-librarian").
+        // Register unconditionally when enableWikiLibrarian (handler degrades gracefully for
+        // non-openai-compatible WIKI selections); CliProcess prompt/anchor seams decide whether
+        // the agent is instructed to use it.
+        if (state.enableWikiLibrarian) {
+            router.register(
+                name = ASK_LIBRARIAN_TOOL_NAME,
+                description = ASK_LIBRARIAN_TOOL_DESCRIPTION,
+                properties = listOf(
+                    Triple("question", "string", "The user's question about this project's design/subsystems/conventions."),
+                ),
+                required = listOf("question"),
+                handler = ::askWikiLibrarian,
+            )
+        }
     }
 
     private fun wikiPath(): WikiPath? {
@@ -181,6 +201,57 @@ class McpWikiTools(private val project: Project) {
             .recordProbeMiss(query, pathTokens, hitCount, contextHash)
     }
 
+    private fun askWikiLibrarian(args: Map<String, String>): McpToolRouter.ToolResult {
+        val question = args["question"].orEmpty()
+        if (question.isBlank()) {
+            return McpToolRouter.ToolResult("missing required parameter: question", isError = true)
+        }
+        val settings = ClawDEASettings.getInstance()
+        val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+        val profileId = wikiSel.profileId ?: ""
+        val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
+        val resolved = profileStore.resolve(profileId, System.getenv())
+            ?: return McpToolRouter.ToolResult(
+                "OpenAI-compatible profile '$profileId' not configured", isError = true)
+        val credential = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore().get(profileId)
+        if (credential.isBlank()) {
+            return McpToolRouter.ToolResult(
+                "Credential not configured for profile '$profileId'", isError = true)
+        }
+        val capability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
+            modelId = wikiSel.modelId,
+            endpointCapability = null,
+            profileRules = resolved.profile.modelRules,
+            userOverride = null,
+        )
+        val mcpDefs = com.adobe.clawdea.mcp.McpServer.getInstance(project).toolDefinitions()
+        val approvalGate = com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate(
+            toolApprovalMode = { settings.state.toolApprovalMode },
+            policy = { null },
+            route = { toolName, inputJson, toolUseId ->
+                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project)
+                    .route(toolName, inputJson, toolUseId)
+            },
+            promptTimeoutMs = 300_000,
+        )
+        val client = com.adobe.clawdea.cli.backend.HttpAgentClient(
+            com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient(), resolved, credential)
+        val delegate = com.adobe.clawdea.cli.backend.defaultExecutor(
+            project, mcpDefs, approvalGate, { settings.state.autoAcceptEdits })
+        val executor = com.adobe.clawdea.knowledge.wiki.readOnlyExecutor(delegate)
+        val tools = com.adobe.clawdea.knowledge.wiki.filterLibrarianTools(
+            com.adobe.clawdea.cli.backend.agentToolDefinitions(mcpDefs))
+        val systemPrompt = try {
+            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.librarianPromptBody()
+        } catch (e: Throwable) { null }
+        val librarian = com.adobe.clawdea.knowledge.wiki.AgenticLibrarian(
+            client = client, executor = executor, tools = tools, modelId = wikiSel.modelId,
+            systemPrompt = systemPrompt, capability = capability, streaming = resolved.profile.streaming)
+        val answer = kotlinx.coroutines.runBlocking { librarian.ask(question) }
+        return McpToolRouter.ToolResult(answer.text, isError = answer.isError)
+    }
+
     companion object {
         private val GSON = Gson()
         private val STRING_LIST_TYPE = object : TypeToken<List<String>>() {}.type
@@ -200,5 +271,10 @@ class McpWikiTools(private val project: Project) {
             "one per distinct gap. Not surfaced to the main chat; only the wiki-librarian " +
             "subagent's allowlist contains this tool. Returns a short ack with the recorded " +
             "signature."
+        const val ASK_LIBRARIAN_TOOL_NAME = "ask_wiki_librarian"
+        const val ASK_LIBRARIAN_TOOL_DESCRIPTION =
+            "Ask this project's wiki librarian a question about its design, subsystems, or " +
+                "conventions. Returns a synthesized answer with page citations. Use this as your " +
+                "FIRST call for any \"how does X work\" / \"where is Y\" / change-safety question."
     }
 }

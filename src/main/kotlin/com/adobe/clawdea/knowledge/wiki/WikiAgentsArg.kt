@@ -39,9 +39,9 @@ object WikiAgentsArg {
     private const val LIBRARIAN_PATH = "/agents/wiki-librarian.md"
     private const val AUTHOR_PATH = "/agents/wiki-author.md"
 
-    fun buildJson(): String {
+    fun buildJson(librarianModelId: String = ""): String {
         val root = JsonObject()
-        addAgentTo(root, LIBRARIAN_PATH)
+        addAgentTo(root, LIBRARIAN_PATH, modelId = librarianModelId)
         addAgentTo(root, AUTHOR_PATH)
         return root.toString()
     }
@@ -52,7 +52,31 @@ object WikiAgentsArg {
         return root.toString()
     }
 
-    private fun addAgentTo(root: JsonObject, resourcePath: String) {
+    /**
+     * The wiki-author agent's fully-substituted prompt body (same text the Claude path injects via
+     * `--agents`). Reused as the system prompt for the non-Claude (openai-compatible) agentic path,
+     * which cannot use `--agents`. Throws if the bundled resource is missing (a packaging defect).
+     */
+    fun authorPromptBody(): String {
+        val raw = WikiAgentsArg::class.java.getResourceAsStream(AUTHOR_PATH)
+            ?: throw IllegalStateException("Plugin resource not found: $AUTHOR_PATH")
+        val text = raw.bufferedReader().use { it.readText() }
+        return substituteTemplates(parse(text).body)
+    }
+
+    /**
+     * The wiki-librarian agent's fully-substituted prompt body (same text the Claude path injects
+     * via `--agents`). Reused as the system prompt for the agentic (openai-compatible) librarian
+     * path, which cannot use `--agents`. Throws if the bundled resource is missing (packaging defect).
+     */
+    fun librarianPromptBody(): String {
+        val raw = WikiAgentsArg::class.java.getResourceAsStream(LIBRARIAN_PATH)
+            ?: throw IllegalStateException("Plugin resource not found: $LIBRARIAN_PATH")
+        val text = raw.bufferedReader().use { it.readText() }
+        return substituteTemplates(parse(text).body)
+    }
+
+    private fun addAgentTo(root: JsonObject, resourcePath: String, modelId: String = "") {
         val raw = WikiAgentsArg::class.java.getResourceAsStream(resourcePath)
             ?: throw IllegalStateException("Plugin resource not found: $resourcePath")
         val text = raw.bufferedReader().use { it.readText() }
@@ -63,6 +87,9 @@ object WikiAgentsArg {
             addProperty("prompt", body)
             if (parsed.tools.isNotEmpty()) {
                 add("tools", JsonArray().apply { parsed.tools.forEach { add(it) } })
+            }
+            if (modelId.isNotBlank()) {
+                addProperty("model", modelId)
             }
         }
         root.add(parsed.name, inner)

@@ -12,6 +12,13 @@
 package com.adobe.clawdea.cli
 
 import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.cli.backend.AgentBackend
+import com.adobe.clawdea.cli.backend.AgentBackendFactory
+import com.adobe.clawdea.cli.backend.SteeringMode
+import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.BackendKind
+import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.Disposable
@@ -26,27 +33,39 @@ class CliBridge(
     mcpPort: Int = 0,
     private val onAuthFailure: (reason: String) -> Unit = {},
     private val project: Project? = null,
+    selection: AgentSelection? = null,
+    settings: ClawDEASettings = ClawDEASettings.getInstance(),
+    credentialStore: ProfileCredentialStore = ProfileCredentialStore(),
+    // Test seam: resolve the effective provider id. Production uses AuthManager's fallthrough
+    // (byte-identical to the pre-per-tab CliBridge, which applies env-fallthrough: a configured
+    // provider lacking creds resolves to a credentialed one). Tests inject a fixed id.
+    effectiveProviderIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
 ) : Disposable {
 
     private val log = Logger.getInstance(CliBridge::class.java)
 
-    // Choose the agentic backend once, at construction, from the effective provider.
-    // OpenAI providers drive the `codex` CLI; everything else drives `claude`. A provider
-    // switch requires a session/bridge restart (ChatSession recreates this), which re-runs
-    // the selection.
-    private val effectiveProviderId: String = AuthManager.getInstance().effectiveProviderId()
-    private val useCodexBackend: Boolean = isCodexProvider(effectiveProviderId)
+    // Choose the agentic backend once, at construction. When an explicit selection is provided,
+    // use it; when null, fall back to the effective provider (preserving today's behavior). A
+    // provider switch requires a session/bridge restart (ChatSession recreates this), which
+    // re-runs the selection.
+    private val resolvedSelection: AgentSelection =
+        selection ?: computeDefaultSelection(effectiveProviderIdProvider(), settings, workingDirectory)
 
-    private val agentProcess: AgentProcess =
-        if (useCodexBackend) CodexAppServerProcess(workingDirectory, mcpPort, project)
-        else CliProcess(workingDirectory, mcpPort, project)
+    private val backend: AgentBackend = AgentBackendFactory.create(
+        resolvedSelection,
+        workingDirectory,
+        mcpPort,
+        project,
+        settings,
+        credentialStore,
+    )
 
-    private val parser: AgentEventParser =
-        if (useCodexBackend) {
-            CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProviderId))
-        } else {
-            CliEventParser()
-        }
+    /**
+     * The [AgentSelection] that this bridge was constructed from (effective selection, resolved from
+     * the default when null was passed). Exposed for T6/tests to read.
+     */
+    val selection: AgentSelection
+        get() = resolvedSelection
 
     private val _events = MutableSharedFlow<CliEvent>(replay = 0, extraBufferCapacity = 64)
     val events: SharedFlow<CliEvent> = _events
@@ -76,7 +95,11 @@ class CliBridge(
 
     /** True when this bridge drives the `codex` CLI (OpenAI providers). Fixed for the bridge's life. */
     val usesCodexBackend: Boolean
-        get() = useCodexBackend
+        get() = backendKind == BackendKind.CODEX_APP_SERVER
+
+    /** Exact backend process kind, fixed for the bridge's lifetime. */
+    val backendKind: BackendKind
+        get() = backend.backendKind
 
     /**
      * Human-readable name of the backend this bridge actually runs ("Codex" / "Claude"), fixed at
@@ -84,10 +107,10 @@ class CliBridge(
      * the effective provider can change in settings mid-session while the bridge keeps its backend.
      */
     val agentLabel: String
-        get() = if (useCodexBackend) "Codex" else "Claude"
+        get() = backend.agentLabel
 
     val isRunning: Boolean
-        get() = agentProcess.isAlive
+        get() = backend.isAlive
 
     fun start(
         resumeSessionId: String? = null,
@@ -104,16 +127,13 @@ class CliBridge(
         sessionId = requestedResumeSessionId
         pendingReplayContext = replayContext?.takeIf { it.isNotBlank() }
 
-        agentProcess.start(requestedResumeSessionId, skills)
+        backend.start(requestedResumeSessionId, skills)
 
         readerJob = scope.launch {
             try {
-                while (isActive && isCurrentReader(readerGeneration) && agentProcess.isAlive) {
-                    val line = agentProcess.readLine() ?: break
+                while (isActive && isCurrentReader(readerGeneration) && backend.isAlive) {
+                    val event = backend.readEvent() ?: break
                     if (!isCurrentReader(readerGeneration)) break
-                    if (line.isBlank()) continue
-
-                    val event = parser.parse(line)
 
                     if (event is CliEvent.AuthFailure) {
                         onAuthFailure(event.reason)
@@ -128,6 +148,11 @@ class CliBridge(
 
                     if (event is CliEvent.Result) {
                         sessionId = sessionAfterResult(sessionId, event.sessionId)
+                        // UnavailableAgentProcess emits a result then exits immediately
+                        if (backend is com.adobe.clawdea.cli.backend.ProcessAgentBackend &&
+                            backend.process is UnavailableAgentProcess) {
+                            expectedExitGeneration = readerGeneration
+                        }
                     }
 
                     logToolEvent(event)
@@ -166,15 +191,7 @@ class CliBridge(
         // the new backend can continue it (neither CLI can natively resume the other's session).
         val outgoing = firstMessagePayload(text)
 
-        val escaped = outgoing
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-
-        val json = """{"type":"user","message":{"role":"user","content":"$escaped"}}"""
-        agentProcess.writeLine(json)
+        backend.sendMessage(outgoing)
     }
 
     /** Prepends any pending replay transcript to the first user turn, then clears it. */
@@ -186,19 +203,23 @@ class CliBridge(
 
     fun abort() {
         expectedExitGeneration = activeGeneration
-        agentProcess.sendInterrupt()
+        backend.abort()
     }
 
-    /** True when the backend supports native mid-turn steering (codex `turn/steer`). */
+    /**
+     * True when the backend supports mid-turn steering — either native (Codex `turn/steer`) or
+     * cancel-and-continue (OpenAI-compatible HTTP). False only for backends with no steer primitive.
+     */
     val supportsSteer: Boolean
-        get() = agentProcess.supportsSteer
+        get() = backend.steeringMode != SteeringMode.NONE
 
     /**
-     * Injects [text] into the running turn without interrupting it (native steer). Returns true
-     * when the backend accepted it into a live turn; false when there is no steerable turn and the
-     * caller should send a normal new message instead.
+     * Injects [text] into the running turn. Native backends steer without interrupting; the
+     * OpenAI-compatible backend cancels the running round and continues with the steer message.
+     * Returns true when the backend accepted it into a live turn; false when there is no steerable
+     * turn and the caller should send a normal new message instead.
      */
-    fun steer(text: String): Boolean = agentProcess.steer(text)
+    fun steer(text: String): Boolean = backend.steer(text)
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         val sessionToResume = resumeSessionForRestart(sessionId, resumeSessionId)
@@ -218,7 +239,7 @@ class CliBridge(
         expectedExitGeneration = activeGeneration
         readerJob?.cancel()
         readerJob = null
-        agentProcess.stop()
+        backend.stop()
         sessionId = null
         pendingReplayContext = null
     }
@@ -244,6 +265,28 @@ class CliBridge(
     }
 
     companion object {
+        /**
+         * Computes the default AgentSelection when none is explicitly provided. The [effectiveProviderId]
+         * is resolved by the caller (production: AuthManager's env-fallthrough; tests: a fixed id).
+         * For openai-compatible, includes the active profile + selected model from [settings]; for
+         * others, profileId=null and modelId="" (they resolve model in their backend branch). This
+         * mirrors the legacy delegating `AgentBackendFactory.create(providerId, …)` overload.
+         */
+        private fun computeDefaultSelection(
+            effectiveProviderId: String,
+            settings: ClawDEASettings,
+            workingDirectory: String,
+        ): AgentSelection {
+            return if (effectiveProviderId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                val profileId = settings.state.activeOpenAiCompatibleProfileId
+                val catalogKey = ProviderRegistry.catalogKey(effectiveProviderId, profileId)
+                val modelId = settings.getSelectedModelId(workingDirectory, catalogKey) ?: ""
+                AgentSelection(effectiveProviderId, profileId.ifBlank { null }, modelId)
+            } else {
+                AgentSelection(effectiveProviderId)
+            }
+        }
+
         internal fun resumeSessionForRestart(
             currentSessionId: String?,
             requestedResumeSessionId: String?,
@@ -278,9 +321,13 @@ class CliBridge(
             resultSessionId.takeIf { it.isNotBlank() }
                 ?: currentSessionId?.takeIf { it.isNotBlank() }
 
-        /** OpenAI providers are backed by the `codex` CLI; everything else by `claude`. */
-        internal fun isCodexProvider(providerId: String): Boolean =
-            providerId == "openai" || providerId == "openai-subscription"
+        /** Compatibility delegate for callers that only distinguish Codex from other backends. */
+        internal fun isCodexProvider(providerId: String): Boolean = ProviderRegistry.isCodex(providerId)
+
+        internal fun requiresBackendRebuild(
+            currentKind: BackendKind,
+            newProviderId: String,
+        ): Boolean = currentKind != ProviderRegistry.require(newProviderId).backendKind
     }
 
     private fun isCurrentReader(readerGeneration: Long): Boolean =
@@ -294,14 +341,14 @@ class CliBridge(
         readerGeneration: Long,
         skills: List<SkillInfo>,
     ): Boolean {
-        if (!shouldRecoverFromRejectedResume(resumeSessionId, agentProcess.recentStderrLines())) {
+        if (!shouldRecoverFromRejectedResume(resumeSessionId, backend.recentErrors())) {
             return false
         }
 
         log.info("CLI rejected resume session $resumeSessionId; restarting fresh")
         expectedExitGeneration = readerGeneration
         sessionId = null
-        agentProcess.stop()
+        backend.stop()
         start(resumeSessionId = null, skills = skills)
         return true
     }

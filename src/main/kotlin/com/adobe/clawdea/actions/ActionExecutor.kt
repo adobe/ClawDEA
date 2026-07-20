@@ -51,7 +51,9 @@ object ActionExecutor {
         val promptBuilder = ActionPromptBuilder()
         val prompt = promptBuilder.build(actionType, selectedText, contextText, userInstructions)
 
-        val request = buildGatewayRequest(prompt)
+        val workingDir = project.basePath.orEmpty()
+        val modelId = resolveActionModel(workingDir)
+        val request = buildGatewayRequest(prompt, modelId)
 
         val result = StringBuilder()
         var errorMessage: String? = null
@@ -60,6 +62,7 @@ object ActionExecutor {
                 when (event) {
                     is StreamEvent.TextDelta -> result.append(event.text)
                     is StreamEvent.Error -> errorMessage = event.message
+                    is StreamEvent.HttpError -> errorMessage = event.message
                     else -> {}
                 }
             }
@@ -75,14 +78,22 @@ object ActionExecutor {
         return ActionResult(finalText, actionType, errorMessage)
     }
 
-    fun buildGatewayRequest(prompt: ActionPromptBuilder.ActionPrompt): GatewayRequest {
+    fun buildGatewayRequest(prompt: ActionPromptBuilder.ActionPrompt, modelId: String = "claude-sonnet-4-6"): GatewayRequest {
+        val effectiveModel = modelId.ifBlank { "claude-sonnet-4-6" }
         return GatewayRequest(
-            model = "claude-sonnet-4-6",
+            model = effectiveModel,
             maxTokens = 1024,
             systemPrompt = prompt.systemPrompt,
             userMessage = prompt.userMessage,
             timeoutSeconds = 30,
         )
+    }
+
+    private fun resolveActionModel(workingDirectory: String): String {
+        val authManager = com.adobe.clawdea.auth.AuthManager.getInstance()
+        val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance()
+        val catalogKey = authManager.effectiveCatalogKey()
+        return settings.getSelectedModelId(workingDirectory, catalogKey)
     }
 
     fun extractCodeFromResponse(response: String): String {

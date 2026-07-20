@@ -11,6 +11,8 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -29,6 +31,7 @@ class AuthManager(
             "subscription" to SubscriptionAuthProvider(),
             "openai" to OpenAIAuthProvider(),
             "openai-subscription" to OpenAiSubscriptionAuthProvider(),
+            ProviderRegistry.OPENAI_COMPATIBLE_ID to com.adobe.clawdea.provider.openai.auth.OpenAiCompatibleAuthProvider(),
         ),
         configuredProviderId = { ClawDEASettings.getInstance().state.apiProvider },
     )
@@ -64,18 +67,32 @@ class AuthManager(
      */
     fun effectiveProviderId(): String {
         val configured = configuredProviderId()
-        if (isCodexProviderId(configured)) return configured
+        if (!ProviderRegistry.require(configured).allowEnvironmentFallback) return configured
         val configuredProvider = providers[configured]
         if (configuredProvider?.isConfigured() == true) return configured
         val envProvider = providers.entries.firstOrNull { (id, p) ->
-            id != configured && !isCodexProviderId(id) && p.isConfigured()
+            id != configured && ProviderRegistry.require(id).allowEnvironmentFallback && p.isConfigured()
         }
         return envProvider?.key ?: configured
     }
 
-    /** OpenAI providers drive the `codex` backend. Kept local to avoid an auth->cli dependency. */
-    private fun isCodexProviderId(id: String): Boolean =
-        id == "openai" || id == "openai-subscription"
+    /**
+     * The key under which the model catalog and the user's selected model are stored
+     * for the [effectiveProviderId]. For `openai-compatible` this is the composite
+     * `openai-compatible:<activeProfileId>` so each imported profile keeps its own
+     * catalog and selection; for every other provider it is the bare provider id
+     * (see [ProviderRegistry.catalogKey]). Use this everywhere the model dropdown, the
+     * catalog, and the backend factory agree on "which model did the user pick".
+     */
+    fun effectiveCatalogKey(): String {
+        val providerId = effectiveProviderId()
+        val profileId = if (providerId == ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+            ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+        } else {
+            ""
+        }
+        return ProviderRegistry.catalogKey(providerId, profileId)
+    }
 
     fun activeProvider(): AuthProvider {
         val id = effectiveProviderId()
@@ -89,6 +106,25 @@ class AuthManager(
     fun preflight(): AuthValidation = activeProvider().validate()
 
     fun providerById(id: String): AuthProvider? = providers[id]
+
+    /**
+     * Resolves the [AuthProvider] for the given [AgentSelection], returning the requested provider
+     * by its [AgentSelection.providerId], with a fallback to anthropic if not found.
+     */
+    fun providerFor(sel: AgentSelection): AuthProvider =
+        providers[sel.providerId] ?: providers.getValue("anthropic")
+
+    /**
+     * Returns whether the provider specified in the [AgentSelection] is authenticated.
+     */
+    fun isAuthenticated(sel: AgentSelection): Boolean = providerFor(sel).isConfiguredFor(sel)
+
+    /**
+     * Applies the credentials of the provider specified in the [AgentSelection] to the environment.
+     */
+    fun applyToEnvironment(env: MutableMap<String, String>, sel: AgentSelection) {
+        providerFor(sel).applyToEnvironment(env)
+    }
 
     companion object {
         fun getInstance(): AuthManager =

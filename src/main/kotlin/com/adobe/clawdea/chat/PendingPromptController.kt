@@ -11,6 +11,14 @@
  */
 package com.adobe.clawdea.chat
 
+data class PendingInputTransfer(
+    val queuedPrompt: String?,
+    val composerText: String?,
+) {
+    fun visibleComposerText(): String =
+        listOfNotNull(queuedPrompt, composerText).joinToString("\n\n")
+}
+
 /**
  * Owns only the pending prompt state; the Swing composer owns the editable text.
  * [consume] receives the latest composer text so user edits before flush win.
@@ -48,6 +56,23 @@ class PendingPromptController {
         explicitPrompt = null
         if (queuedPrompt != null) return queuedPrompt
         return composerText.trim().ifBlank { null }
+    }
+
+    /**
+     * Removes input from the old panel before a backend rebuild and returns a draft for the
+     * replacement panel. Once captured, [consume] cannot dispatch it through the stale bridge.
+     */
+    fun captureForBackendRebuild(composerText: String): PendingInputTransfer {
+        val queuedPrompt = if (isQueued) {
+            explicitPrompt ?: composerText.trim().ifBlank { null }
+        } else {
+            null
+        }
+        val composerDraft = composerText.takeIf { text ->
+            text.isNotBlank() && text.trim() != queuedPrompt
+        }
+        clear()
+        return PendingInputTransfer(queuedPrompt, composerDraft)
     }
 
     fun clear() {

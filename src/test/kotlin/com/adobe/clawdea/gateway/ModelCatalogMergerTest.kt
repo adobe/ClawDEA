@@ -70,4 +70,70 @@ class ModelCatalogMergerTest {
     fun `merge of empty user and empty fetched returns empty`() {
         assertEquals(emptyList<ModelEntry>(), ModelCatalogMerger.merge(emptyList(), emptyList()))
     }
+
+    @Test
+    fun `merge carries over user-edited fields from existing non-userAdded entries`() {
+        val existing = listOf(
+            ModelEntry(
+                id = "model-a",
+                displayName = "Old Name",
+                userAdded = false,
+                enabled = false,
+                capability = "agentic",
+                inputPerM = 1.5,
+                outputPerM = 3.0,
+                cachedInputPerM = 0.5,
+                reasoningPerM = 2.0,
+            ),
+        )
+        val fetched = listOf(
+            ModelEntry(
+                id = "model-a",
+                displayName = "New Name",
+                userAdded = false,
+                enabled = true,
+                capability = "unknown",
+                inputPerM = 0.0,
+                outputPerM = 0.0,
+                cachedInputPerM = 0.0,
+                reasoningPerM = 0.0,
+            ),
+        )
+        val result = ModelCatalogMerger.merge(existing, fetched)
+        assertEquals(1, result.size)
+        assertEquals("model-a", result[0].id)
+        assertEquals("New Name", result[0].displayName) // fresh displayName
+        assertEquals(false, result[0].enabled) // carried over
+        assertEquals("agentic", result[0].capability) // carried over
+        assertEquals(1.5, result[0].inputPerM, 0.001) // carried over
+        assertEquals(3.0, result[0].outputPerM, 0.001) // carried over
+        assertEquals(0.5, result[0].cachedInputPerM, 0.001) // carried over
+        assertEquals(2.0, result[0].reasoningPerM, 0.001) // carried over
+    }
+
+    @Test
+    fun `merge does not carry over from userAdded entries to fetched entries`() {
+        val existing = listOf(
+            ModelEntry(
+                id = "model-a",
+                displayName = "User Model",
+                userAdded = true,
+                enabled = false,
+            ),
+        )
+        val fetched = listOf(
+            ModelEntry(
+                id = "model-b",
+                displayName = "Fetched Model",
+                userAdded = false,
+                enabled = true,
+            ),
+        )
+        val result = ModelCatalogMerger.merge(existing, fetched)
+        assertEquals(2, result.size)
+        assertEquals("model-a", result[0].id)
+        assertEquals(false, result[0].enabled)
+        assertEquals("model-b", result[1].id)
+        assertEquals(true, result[1].enabled) // not carried over
+    }
 }

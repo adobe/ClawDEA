@@ -76,6 +76,17 @@ class AuthManagerOpenAiTest {
     }
 
     @Test
+    fun `explicitly configured generic provider never falls back to Claude`() {
+        val mgr = AuthManager(
+            providers = mapOf(
+                "bedrock" to BedrockAuthProvider(region = "us-east-1", bearerToken = "tok"),
+            ),
+            configuredProviderId = { "openai-compatible" },
+        )
+        assertEquals("openai-compatible", mgr.effectiveProviderId())
+    }
+
+    @Test
     fun `configured openai-subscription never falls back to a claude backend when sign-in probe is not-ready`() {
         // Regression: OpenAiSubscriptionAuthProvider.isConfigured() reads an async codex-login probe
         // that returns a stale "not signed in" on the EDT until the first probe completes. If the

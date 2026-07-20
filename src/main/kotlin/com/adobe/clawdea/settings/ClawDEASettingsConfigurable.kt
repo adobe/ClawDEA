@@ -14,37 +14,57 @@ package com.adobe.clawdea.settings
 
 import com.adobe.clawdea.gateway.ModelCatalogListener
 import com.adobe.clawdea.gateway.ModelSelectorProbeStarter
+import com.adobe.clawdea.settings.tabs.AdvancedTab
+import com.adobe.clawdea.settings.tabs.KnowledgeLayerTab
+import com.adobe.clawdea.settings.tabs.ProfilingTab
+import com.adobe.clawdea.settings.tabs.ProvidersTab
+import com.adobe.clawdea.settings.tabs.RolesTab
+import com.adobe.clawdea.settings.tabs.SettingsTab
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.options.Configurable
+import com.intellij.ui.components.JBTabbedPane
 import javax.swing.JComponent
 
 class ClawDEASettingsConfigurable : Configurable {
 
-    private var panel: ClawDEASettingsPanel? = null
+    private var providersTab: ProvidersTab? = null
+    private var tabs: List<SettingsTab> = emptyList()
 
     override fun getDisplayName(): String = "ClawDEA"
 
     override fun createComponent(): JComponent {
-        val p = ClawDEASettingsPanel()
-        panel = p
-        return p.panel
+        val providers = ProvidersTab()
+        providersTab = providers
+        val orderedTabs = listOf(
+            providers,
+            RolesTab(),
+            KnowledgeLayerTab(),
+            ProfilingTab(),
+            AdvancedTab(),
+        )
+        tabs = orderedTabs
+
+        val state = ClawDEASettings.getInstance().state
+        val tabbedPane = JBTabbedPane()
+        for (tab in orderedTabs) {
+            tab.loadFrom(state)
+            tabbedPane.addTab(tab.title, tab.component)
+        }
+        return tabbedPane
     }
 
     override fun getPreferredFocusedComponent(): JComponent? =
-        panel?.getPreferredFocusedComponent()
+        providersTab?.getPreferredFocusedComponent()
 
     override fun isModified(): Boolean {
         val state = ClawDEASettings.getInstance().state
-        val p = panel ?: return false
-        return p.isModifiedFrom(state) || p.isModelsModified(state.modelCatalogs)
+        return tabs.any { it.isModifiedFrom(state) }
     }
 
     override fun apply() {
         val state = ClawDEASettings.getInstance().state
-        val p = panel ?: return
         val oldProvider = state.apiProvider
-        p.applyTo(state)
-        state.modelCatalogs = p.saveModels()
+        tabs.forEach { it.applyTo(state) }
         if (state.apiProvider != oldProvider) {
             ApplicationManager.getApplication().messageBus
                 .syncPublisher(ModelCatalogListener.TOPIC)
@@ -58,13 +78,12 @@ class ClawDEASettingsConfigurable : Configurable {
 
     override fun reset() {
         val state = ClawDEASettings.getInstance().state
-        val p = panel ?: return
-        p.loadFrom(state)
-        p.loadModels(state.modelCatalogs)
+        tabs.forEach { it.loadFrom(state) }
     }
 
     override fun disposeUIResources() {
-        panel?.disposeCard()
-        panel = null
+        providersTab?.dispose()
+        providersTab = null
+        tabs = emptyList()
     }
 }

@@ -71,6 +71,7 @@ class CostTracker(private val project: Project) {
         outputTokens: Int = 0,
         cacheReadTokens: Int = 0,
         cacheCreationTokens: Int = 0,
+        reasoningTokens: Int = 0,
         /**
          * True when this turn ran with no explicit model override (the "Default"
          * selection, so the CLI chose the model). Only then is [model] evidence of
@@ -80,7 +81,16 @@ class CostTracker(private val project: Project) {
         providerId: String = "",
         knowledgeBucket: KnowledgeBucket? = null,
     ) {
-        val effective = effectiveTurnCost(model, costUsd, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+        val effective = effectiveTurnCost(
+            model,
+            costUsd,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheCreationTokens,
+            reasoningTokens,
+            providerId,
+        )
         if (ranUnderDefaultSelection && model.isNotBlank()) defaultResolvedModel = model
         if (effective > 0) {
             val c = chat(chatId)
@@ -101,15 +111,21 @@ class CostTracker(private val project: Project) {
      */
     fun recordWikiAuthorCost(stdout: String) {
         val result = parseResultLine(stdout) ?: return
+        val providerId = AuthManager.getInstance().effectiveProviderId()
         val effective = effectiveTurnCost(
-            result.model, result.costUsd,
-            result.inputTokens, result.outputTokens, result.cacheReadTokens, result.cacheCreationTokens,
+            result.model,
+            result.costUsd,
+            result.inputTokens,
+            result.outputTokens,
+            result.cacheReadTokens,
+            result.cacheCreationTokens,
+            result.reasoningTokens,
+            providerId,
         )
         if (effective <= 0) {
             publish()
             return
         }
-        val providerId = AuthManager.getInstance().effectiveProviderId()
         addToKnowledge(KnowledgeBucket.WIKI_UPDATE, effective)
         if (providerId.isNotBlank()) addToProvider(providerId, effective)
         addToDaily(effective)
@@ -330,7 +346,9 @@ class CostTracker(private val project: Project) {
         /**
          * Effective per-turn cost: the real total_cost_usd when the plan reports one,
          * else a notional cost computed from token usage (subscription/bedrock are
-         * flat-rate and report 0). Keeps the chip moving on every plan.
+         * flat-rate and report 0). For OpenAI-compatible providers, uses configured
+         * per-model rates including reasoning tokens; for Claude/Codex, uses the
+         * existing model-id-based pricing table. Keeps the chip moving on every plan.
          */
         fun effectiveTurnCost(
             model: String,
@@ -339,9 +357,27 @@ class CostTracker(private val project: Project) {
             outputTokens: Int,
             cacheReadTokens: Int,
             cacheCreationTokens: Int,
-        ): Double =
-            if (reportedUsd > 0.0) reportedUsd
-            else ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+            reasoningTokens: Int,
+            providerId: String,
+        ): Double {
+            if (reportedUsd > 0.0) return reportedUsd
+
+            // OpenAI-compatible provider: use configured rates from the active profile
+            if (providerId.startsWith(com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID)) {
+                val profileId = ClawDEASettings.getInstance().state.activeOpenAiCompatibleProfileId
+                if (profileId.isNotBlank()) {
+                    val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(ClawDEASettings.getInstance())
+                    val profile = profileStore.profile(profileId)
+                    if (profile != null) {
+                        val rates = profile.pricing[model] ?: com.adobe.clawdea.provider.openai.profile.TokenRates()
+                        return ModelPricing.costFor(rates, inputTokens, outputTokens, cacheReadTokens, reasoningTokens)
+                    }
+                }
+            }
+
+            // Claude/Codex: use model-id-based pricing (reasoning not applicable, always 0)
+            return ModelPricing.costFor(model, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens)
+        }
 
         /** Providers to render: union of persisted-total keys and the active provider (blank ignored). */
         fun usedProviders(stored: Set<String>, active: String): List<String> {
@@ -358,6 +394,7 @@ class CostTracker(private val project: Project) {
             val outputTokens: Int,
             val cacheReadTokens: Int,
             val cacheCreationTokens: Int,
+            val reasoningTokens: Int,
         )
 
         /**
@@ -386,6 +423,7 @@ class CostTracker(private val project: Project) {
                 outputTokens = r.outputTokens,
                 cacheReadTokens = r.cacheReadTokens,
                 cacheCreationTokens = r.cacheCreationTokens,
+                reasoningTokens = r.reasoningTokens,
             )
         }
     }

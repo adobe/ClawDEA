@@ -34,4 +34,9 @@ class AgentLabelTest {
     fun `unknown provider defaults to Claude`() {
         assertEquals("Claude", AgentLabel.forProvider("something-else"))
     }
+
+    @Test
+    fun `generic HTTP provider uses its registry label`() {
+        assertEquals("OpenAI-compatible", AgentLabel.forProvider("openai-compatible"))
+    }
 }

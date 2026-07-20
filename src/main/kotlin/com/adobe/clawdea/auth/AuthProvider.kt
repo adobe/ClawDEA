@@ -11,12 +11,22 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.provider.AgentSelection
+
 interface AuthProvider {
     val id: String
     fun isConfigured(): Boolean
     fun applyToEnvironment(env: MutableMap<String, String>)
     fun validate(): AuthValidation
     fun testConnection(): ConnectionTestResult
+
+    /**
+     * Whether the credentials for a *specific* [selection] are present. Only meaningful for providers
+     * whose credentials are keyed by [AgentSelection.profileId] (openai-compatible, which stores one
+     * credential per imported profile). The default ignores the selection and defers to the global
+     * [isConfigured], which is correct for every single-credential provider (anthropic, bedrock, …).
+     */
+    fun isConfiguredFor(selection: AgentSelection): Boolean = isConfigured()
 }
 
 data class AuthValidation(val valid: Boolean, val message: String?)

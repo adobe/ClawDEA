@@ -76,4 +76,32 @@ class ActionExecutorTest {
 
         assertEquals("fun add(a: Int, b: Int) = a + b", result)
     }
+
+    @Test
+    fun `buildGatewayRequest uses selected model when provided`() {
+        val prompt = ActionPromptBuilder.ActionPrompt(
+            systemPrompt = "You are a code optimizer.",
+            userMessage = "```\nval x = 1\n```",
+        )
+
+        val request = ActionExecutor.buildGatewayRequest(prompt, modelId = "claude-opus-4-7")
+
+        assertEquals("claude-opus-4-7", request.model)
+        assertEquals(1024, request.maxTokens)
+        assertEquals("You are a code optimizer.", request.systemPrompt)
+        assertEquals("```\nval x = 1\n```", request.userMessage)
+        assertEquals(30L, request.timeoutSeconds)
+    }
+
+    @Test
+    fun `buildGatewayRequest falls back to sonnet when model is blank`() {
+        val prompt = ActionPromptBuilder.ActionPrompt(
+            systemPrompt = "You are a code optimizer.",
+            userMessage = "```\nval x = 1\n```",
+        )
+
+        val request = ActionExecutor.buildGatewayRequest(prompt, modelId = "")
+
+        assertEquals("claude-sonnet-4-6", request.model)
+    }
 }

@@ -36,6 +36,7 @@ class EventStreamHandler(
     private val onFilesystemRefresh: (path: String) -> Unit,
     private val onContextLabelUpdate: () -> Unit,
     private val onSyncStreamingUi: () -> Unit,
+    private val onTurnBecameIdle: () -> Boolean,
     private val onTurnCompleted: () -> Unit,
     private val onTurnStartStalled: () -> Unit,
     private val onToolResultStalled: () -> Unit,
@@ -657,7 +658,7 @@ class EventStreamHandler(
                     turnHasContent = true
                 }
                 if (event.isError) {
-                    val guidance = ErrorEnricher.enrich(event.text)
+                    val guidance = ErrorEnricher.enrich(event.text, bridge.backendKind)
                     if (guidance != null) {
                         browserRenderer.appendHtml(renderer.renderError(guidance))
                         browserRenderer.appendHtml(renderer.renderInfoMessage(event.text))
@@ -683,6 +684,17 @@ class EventStreamHandler(
                         renderer.renderCostInfo(model, effort, event.costUsd, totalElapsed),
                     )
                 }
+                // Attribute cost to THIS TAB's provider selection, not the global effectiveProviderId.
+                // The bridge's selection reflects the per-tab override or the effective default.
+                val tabProviderId = bridge.selection.providerId
+                val providerKey = if (tabProviderId == com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID) {
+                    // For openai-compatible, include the profile ID in the catalog key (cost is tracked
+                    // per profile, not just per provider).
+                    val profileId = bridge.selection.profileId.orEmpty()
+                    com.adobe.clawdea.provider.ProviderRegistry.catalogKey(tabProviderId, profileId)
+                } else {
+                    tabProviderId
+                }
                 costTracker.recordTurn(
                     chatId,
                     currentModel,
@@ -692,8 +704,9 @@ class EventStreamHandler(
                     event.outputTokens,
                     event.cacheReadTokens,
                     event.cacheCreationTokens,
+                    event.reasoningTokens,
                     ranUnderDefaultSelection = resolveIsDefaultModel(),
-                    providerId = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId(),
+                    providerId = providerKey,
                     knowledgeBucket = pendingKnowledgeBucket,
                 )
                 pendingKnowledgeBucket = null
@@ -737,6 +750,15 @@ class EventStreamHandler(
                 }
                 onContextLabelUpdate()
 
+                // Give lifecycle changes first access to the now-idle boundary. A deferred backend
+                // rebuild must replace this fixed bridge before edit feedback or a queued prompt can
+                // start another turn on it.
+                if (onTurnBecameIdle()) {
+                    editReviewCoordinator.clearForNewTurn()
+                    turnGenuinelyEnded = true
+                    return
+                }
+
                 // Layer 2 post-turn feedback for rejected/modified edits
                 var sentEditFeedback = false
                 if (editReviewCoordinator.hasFeedback()) {
@@ -768,7 +790,7 @@ class EventStreamHandler(
                     val errorMatch = Regex(""""error"\s*:\s*"([^"]+)"""").find(raw)
                     if (errorMatch != null) {
                         val errorText = errorMatch.groupValues[1]
-                        val guidance = ErrorEnricher.enrich(errorText)
+                        val guidance = ErrorEnricher.enrich(errorText, bridge.backendKind)
                         if (guidance != null) {
                             browserRenderer.appendHtml(renderer.renderError(guidance))
                             browserRenderer.appendHtml(renderer.renderInfoMessage(errorText))

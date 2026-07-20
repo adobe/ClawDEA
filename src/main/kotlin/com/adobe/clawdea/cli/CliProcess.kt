@@ -32,6 +32,11 @@ class CliProcess(
     private val workingDirectory: String,
     private val mcpPort: Int = 0,
     private val project: Project? = null,
+    // Resolves the provider id whose pinned model feeds `--model`. Defaults to the global effective
+    // provider (today's behavior) so non-factory callers are unaffected. AgentBackendFactory passes
+    // the SELECTION's provider id so a per-tab CLAUDE tab reads the Claude-pinned model, not the
+    // global provider's (which may be a Codex/OpenAI model → "invalid model" failure).
+    private val providerIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
 ) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
@@ -47,6 +52,15 @@ class CliProcess(
 
     override val isAlive: Boolean
         get() = process?.isAlive == true
+
+    /**
+     * Resolves the `--model` value for the CLI from the provider this process was built for
+     * (via [providerIdProvider]) rather than the global effective provider. A per-tab Claude tab
+     * therefore reads the Claude-pinned model even when the global default is a Codex/OpenAI
+     * provider. Internal for headless testing of the selection→model routing.
+     */
+    internal fun resolveCliModel(settings: ClawDEASettings): String =
+        settings.getCliModelId(workingDirectory, providerIdProvider())
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
@@ -122,9 +136,19 @@ class CliProcess(
 
             if (settings.enableWikiLibrarian) {
                 try {
-                    val agentsJson = com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson()
+                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
+                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+                    val mode = com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)
+                    val agentsJson = when (mode) {
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson(wikiSel.modelId)
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT_FALLBACK ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson("")
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildAuthorOnlyJson()
+                    }
                     command.addAll(listOf("--agents", agentsJson))
-                    log.info("Injected wiki-librarian + wiki-author subagents via --agents (${agentsJson.length} chars)")
+                    log.info("Injected wiki subagents via --agents (mode=$mode, ${agentsJson.length} chars)")
                 } catch (e: Throwable) {
                     log.warn("Failed to build wiki agents --agents arg; skipping injection", e)
                 }
@@ -137,7 +161,13 @@ class CliProcess(
 
             val systemPrompt = buildString {
                 if (settings.enableWikiLibrarian) {
-                    append(WIKI_LIBRARIAN_PROMPT)
+                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
+                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+                    val librarianPrompt = when (com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)) {
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL -> WIKI_LIBRARIAN_TOOL_PROMPT
+                        else -> WIKI_LIBRARIAN_PROMPT
+                    }
+                    append(librarianPrompt)
                     append("\n\n")
                 }
                 append(MCP_SYSTEM_PROMPT)
@@ -183,8 +213,7 @@ class CliProcess(
         // tool call will silently fail in stream-json. This is a degraded mode
         // triggered only when the local MCP HTTP server fails to bind.
 
-        val effectiveProvider = com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-        val selectedModel = ClawDEASettings.getInstance().getCliModelId(workingDirectory, effectiveProvider)
+        val selectedModel = resolveCliModel(ClawDEASettings.getInstance())
         command.addAll(buildModelArg(selectedModel))
 
         val selectedEffort = ClawDEASettings.getInstance().getSelectedEffort(workingDirectory)
@@ -562,6 +591,8 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
         private val MCP_SYSTEM_PROMPT = loadStaticPrompt("mcp-system-prompt")
 
         private val WIKI_LIBRARIAN_PROMPT = loadStaticPrompt("wiki-librarian-prompt")
+
+        private val WIKI_LIBRARIAN_TOOL_PROMPT = loadStaticPrompt("wiki-librarian-tool-prompt")
 
         private val EDIT_REVIEW_PROMPT = loadStaticPrompt("edit-review-prompt")
 

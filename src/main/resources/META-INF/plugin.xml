@@ -120,6 +120,20 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>2.2.0</h3>
+<h4>Chat with any OpenAI-compatible provider</h4>
+<ul>
+  <li><b>Bring your own provider via an importable profile.</b> Import a JSON profile in <b>Settings &rarr; Tools &rarr; ClawDEA</b> to chat with any OpenAI-compatible API. The profile defines the endpoint, model catalog, credential flow, and pricing &mdash; no provider-specific setup, and you preview and confirm every profile before it&rsquo;s activated.</li>
+  <li><b>Full agentic chat, not just completions.</b> When a model supports tool calls, the chat panel drives it as a real agent through ClawDEA&rsquo;s MCP toolset &mdash; index/search, the live debugger, diff-gated edit review, the project primer, and your skills &mdash; plus a permission-gated shell. Tool calls surface the same Allow / Always allow / Deny card and native diff dialog as Claude and Codex.</li>
+  <li><b>Streamed reasoning.</b> Models that emit reasoning show it live in the collapsible <b>Thinking</b> block above the answer.</li>
+  <li><b>Cancel-and-continue steering.</b> Send a message while the model is working: ClawDEA folds in your guidance, keeps the valid text produced so far, and never runs a half-finished tool call.</li>
+  <li><b>Verify tool support before you rely on it.</b> A <b>Verify Tool Support</b> button checks whether a model can actually call tools, on demand &mdash; so it never spends tokens behind your back. Models that can&rsquo;t call tools stay in completion-only mode and can&rsquo;t start an agentic chat.</li>
+  <li><b>Resume your conversations.</b> OpenAI-compatible chats appear in <code>/resume</code> alongside Claude and Codex; resuming the same profile restores the full tool state.</li>
+  <li><b>Cost estimates from your rate card.</b> The per-turn footer and Cost Control use the profile&rsquo;s configured per-token pricing (input, output, cached, and reasoning) for a spend estimate scoped to that provider.</li>
+  <li><b>Credentials stay safe.</b> Secrets live only in the IDE&rsquo;s PasswordSafe &mdash; never in settings files or on disk &mdash; and exported profiles are always redacted.</li>
+  <li><b>Switching providers is always your call.</b> ClawDEA never silently moves a conversation to a different provider on an error; carrying a conversation across providers asks first and clearly states that only message text transfers.</li>
+</ul>
+
 <h3>2.1.0</h3>
 <h4>Codex, now on the app-server protocol</h4>
 <ul>

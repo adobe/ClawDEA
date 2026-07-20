@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "id": "example.provider",
+  "name": "Example Provider",
+  "description": "A generic example provider for testing",
+  "baseUrl": "https://api.example.com",
+  "endpoints": {
+    "models": "/models",
+    "chatCompletions": "/chat/completions"
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "settings": [
+    {
+      "id": "tenant",
+      "label": "Tenant ID",
+      "environmentVariable": "EXAMPLE_TENANT",
+      "required": true,
+      "defaultValue": ""
+    }
+  ],
+  "credentialFlow": {
+    "inputs": [
+      {
+        "id": "account",
+        "label": "Account",
+        "secret": false
+      },
+      {
+        "id": "password",
+        "label": "Password",
+        "secret": true
+      }
+    ],
+    "steps": [
+      {
+        "id": "login",
+        "method": "POST",
+        "path": "/auth/login",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"account\":\"${input:account}\",\"password\":\"${input:password}\"}",
+        "expectedStatuses": [200],
+        "extracts": [
+          {
+            "name": "token",
+            "jsonPath": "$.token",
+            "durable": true
+          }
+        ]
+      }
+    ],
+    "durableCredential": "${step:token}"
+  },
+  "modelMapping": {
+    "arrayPath": "$.data",
+    "idPath": "$.id",
+    "displayNamePath": "$.id"
+  },
+  "modelRules": [
+    {
+      "pattern": ".*",
+      "capability": "completion-only"
+    }
+  ],
+  "pricing": {
+    "generic-model": {
+      "inputPerM": 1.0,
+      "outputPerM": 2.0,
+      "cachedInputPerM": 0.5,
+      "reasoningPerM": 0.0
+    }
+  }
+}
