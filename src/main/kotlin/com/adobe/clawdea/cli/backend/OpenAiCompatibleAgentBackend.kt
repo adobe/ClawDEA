@@ -934,14 +934,18 @@ private class ProductionToolExecutor(
                 tool.execute(input, toolCall.id)
             } ?: ToolExecutionResult(toolCall.id, "Patch tool not available", true)
             "Skill" -> {
-                val obj = try {
-                    com.google.gson.JsonParser.parseString(toolCall.argumentsJson).asJsonObject
+                val (name, args) = try {
+                    val obj = com.google.gson.JsonParser.parseString(toolCall.argumentsJson).asJsonObject
+                    val nameEl = obj.get("name")
+                    if (nameEl == null || nameEl.isJsonNull || !nameEl.isJsonPrimitive) {
+                        return ToolExecutionResult(toolCall.id, "missing required parameter: name", true)
+                    }
+                    val argsEl = obj.get("args")
+                    val argsStr = if (argsEl != null && argsEl.isJsonPrimitive) argsEl.asString else null
+                    nameEl.asString to argsStr
                 } catch (e: Exception) {
                     return ToolExecutionResult(toolCall.id, "Malformed Skill arguments: ${e.message}", true)
                 }
-                val name = obj.get("name")?.asString
-                    ?: return ToolExecutionResult(toolCall.id, "missing required parameter: name", true)
-                val args = obj.get("args")?.asString
                 skillTool.execute(name, args, toolCall.id)
             }
             else -> catalog.dispatch(toolCall.id, toolCall.name, toolCall.argumentsJson)

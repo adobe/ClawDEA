@@ -94,6 +94,130 @@ class OpenAiCompatibleAgentBackendSkillToolTest {
         assertTrue(result.content.contains("# Brainstorming"))
     }
 
+    @Test
+    fun `Skill with wrong-typed name returns error`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+        val executor = defaultExecutor(
+            project = null,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 0,
+            ),
+            skills = listOf(skill(f.toPath())),
+            autoAcceptEdits = { false },
+        )
+
+        val result = executor.execute(
+            AgentToolCall(id = "c2", name = "Skill", argumentsJson = """{"name":{"nested":"obj"}}"""),
+        )
+
+        assertTrue(result.isError)
+    }
+
+    @Test
+    fun `Skill with null name returns missing parameter error`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+        val executor = defaultExecutor(
+            project = null,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 0,
+            ),
+            skills = listOf(skill(f.toPath())),
+            autoAcceptEdits = { false },
+        )
+
+        val result = executor.execute(
+            AgentToolCall(id = "c3", name = "Skill", argumentsJson = """{"name":null}"""),
+        )
+
+        assertTrue(result.isError)
+        assertTrue(result.content.contains("missing required parameter: name"))
+    }
+
+    @Test
+    fun `Skill with missing name returns missing parameter error`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+        val executor = defaultExecutor(
+            project = null,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 0,
+            ),
+            skills = listOf(skill(f.toPath())),
+            autoAcceptEdits = { false },
+        )
+
+        val result = executor.execute(
+            AgentToolCall(id = "c4", name = "Skill", argumentsJson = """{}"""),
+        )
+
+        assertTrue(result.isError)
+        assertTrue(result.content.contains("missing required parameter: name"))
+    }
+
+    @Test
+    fun `Skill with malformed JSON returns malformed arguments error`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+        val executor = defaultExecutor(
+            project = null,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 0,
+            ),
+            skills = listOf(skill(f.toPath())),
+            autoAcceptEdits = { false },
+        )
+
+        val result = executor.execute(
+            AgentToolCall(id = "c5", name = "Skill", argumentsJson = "not-json"),
+        )
+
+        assertTrue(result.isError)
+        assertTrue(result.content.contains("Malformed Skill arguments"))
+    }
+
+    @Test
+    fun `Skill with non-primitive args treats args as absent and executes`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+        val executor = defaultExecutor(
+            project = null,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 0,
+            ),
+            skills = listOf(skill(f.toPath())),
+            autoAcceptEdits = { false },
+        )
+
+        val result = executor.execute(
+            AgentToolCall(id = "c6", name = "Skill", argumentsJson = """{"name":"superpowers:brainstorming","args":{"x":1}}"""),
+        )
+
+        assertFalse(result.isError)
+        assertTrue(result.content.contains("# Brainstorming"))
+    }
+
     @Test(timeout = 30_000)
     fun `Skill tool advertised on resume start with skills`() {
         val f = tempDir.newFile("SKILL.md")
