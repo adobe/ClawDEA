@@ -36,6 +36,9 @@ object ModelCatalogMerger {
                     outputPerM = old.outputPerM,
                     cachedInputPerM = old.cachedInputPerM,
                     reasoningPerM = old.reasoningPerM,
+                    // The /models endpoint never reports a context window, so a user-set value must
+                    // survive refresh (fresh.contextWindow is always 0).
+                    contextWindow = old.contextWindow,
                 )
             } else {
                 fresh

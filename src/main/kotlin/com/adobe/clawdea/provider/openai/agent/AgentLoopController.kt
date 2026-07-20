@@ -172,6 +172,8 @@ class AgentLoopController(
         // later round's stream fails after earlier rounds already produced output.
         var emittedTextOverall = false
         var executedToolsOverall = false
+        // Breaks "same failing tool call, forever" degeneration loops (weak models). Per-turn.
+        val loopGuard = ToolCallLoopGuard()
         // Guard to prevent re-compaction at an unchanged usage total (when the provider emits no
         // Usage event post-compaction, the token reading freezes until the next response).
         var lastCompactionUsageTotal = -1
@@ -191,8 +193,15 @@ class AgentLoopController(
             val usageTotal = state.usage.inputTokens + state.usage.outputTokens
             val overThreshold = when (val window = contextWindowTokens) {
                 null -> contextChars >= maxContextChars * compactionThreshold
-                // Token path: only treat as over-threshold if usage advanced past the last compaction.
-                else -> usageTotal >= window * compactionThreshold && usageTotal != lastCompactionUsageTotal
+                else -> if (usageTotal > 0) {
+                    // Token path: usage reported. Compact once usage crosses the window threshold,
+                    // guarded so it doesn't re-fire at an unchanged usage total.
+                    usageTotal >= window * compactionThreshold && usageTotal != lastCompactionUsageTotal
+                } else {
+                    // Usage not reported by this provider: estimate tokens from chars (~4 chars/token)
+                    // against the SAME window, so compaction still fires instead of never triggering.
+                    (contextChars / CHARS_PER_TOKEN_ESTIMATE) >= window * compactionThreshold
+                }
             }
             if (overThreshold) {
                 val compacted = compactor?.let { c ->
@@ -391,13 +400,42 @@ class AgentLoopController(
                     continue
                 }
 
-                // Execute. A sub-agent dispatch runs the nested loop (suspend, streaming child
-                // events through emit); everything else goes to the synchronous executor.
                 val runner = subAgentRunner
-                val result = if (runner != null && toolCall.name == runner.toolName) {
-                    runner.run(toolCall, emit)
+                val isSubAgent = runner != null && toolCall.name == runner.toolName
+                val signature = loopGuard.signature(toolCall.name, toolCall.argumentsJson)
+
+                // Loop-breaker: a run of identical FAILING calls (weak models retrying a call that
+                // keeps erroring) escalates nudge → stop. Sub-agent dispatches are exempt — their
+                // repetition is not this degeneration pattern.
+                val decision = if (isSubAgent) ToolCallLoopGuard.Decision.EXECUTE else loopGuard.decide(signature)
+                if (decision == ToolCallLoopGuard.Decision.STOP) {
+                    val msg = "Stopped: repeated identical failing call to `${toolCall.name}`."
+                    emit(CliEvent.ToolResult(toolCall.id, msg, isError = true))
+                    emit(CliEvent.Result(
+                        text = state.partialAssistantText.ifBlank { msg },
+                        isError = false,
+                        costUsd = 0.0,
+                        sessionId = "",
+                        inputTokens = state.usage.inputTokens,
+                        outputTokens = state.usage.outputTokens,
+                        cacheReadTokens = state.usage.cachedInputTokens,
+                        cacheCreationTokens = 0,
+                        reasoningTokens = state.usage.reasoningTokens,
+                        contextWindow = 0,
+                    ))
+                    return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
+                }
+
+                val result = if (decision == ToolCallLoopGuard.Decision.NUDGE) {
+                    // Don't re-execute; feed back a corrective message and count it as another repeat.
+                    loopGuard.recordNudge(signature)
+                    ToolExecutionResult(toolCall.id, loopGuard.nudgeMessage(toolCall.name, loopGuard.repeatCount(signature)), isError = true)
                 } else {
-                    executor.execute(toolCall)
+                    // Execute. A sub-agent dispatch runs the nested loop (suspend, streaming child
+                    // events through emit); everything else goes to the synchronous executor.
+                    val r = if (isSubAgent) runner!!.run(toolCall, emit) else executor.execute(toolCall)
+                    if (!isSubAgent) loopGuard.recordResult(signature, r.isError)
+                    r
                 }
                 executedToolsOverall = true
                 state.completedToolCallIds.add(toolCall.id)
@@ -423,5 +461,8 @@ class AgentLoopController(
 
     companion object {
         private const val COMPACT_KEEP_TAIL = 6
+        // Rough chars-per-token used only when a provider reports no usage but a token window is
+        // known, so char-measured context can still be compared against a token budget.
+        private const val CHARS_PER_TOKEN_ESTIMATE = 4
     }
 }

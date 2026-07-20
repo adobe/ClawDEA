@@ -25,6 +25,9 @@ data class ModelEntry(
     var outputPerM: Double = 0.0,
     var cachedInputPerM: Double = 0.0,
     var reasoningPerM: Double = 0.0,
+    // Model context window in tokens (0 = unset/unknown). Used by the OpenAI-compatible agent loop
+    // to size conversation compaction; when unset the loop falls back to a conservative default.
+    var contextWindow: Int = 0,
 )
 
 val DEFAULT_MODEL_CATALOG: List<ModelEntry> = listOf(

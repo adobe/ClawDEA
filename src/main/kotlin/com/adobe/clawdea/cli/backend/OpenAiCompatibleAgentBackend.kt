@@ -465,8 +465,8 @@ class OpenAiCompatibleAgentBackend(
                 compactor = com.adobe.clawdea.provider.openai.agent.ConversationCompactor(
                     summarize = buildSummarizer(),
                 ),
-                contextWindowTokens = com.adobe.clawdea.provider.openai.agent.ContextWindows.forModel(
-                    profile.profile, currentModelId,
+                contextWindowTokens = com.adobe.clawdea.provider.openai.agent.ContextWindows.resolve(
+                    profile.profile, currentModelId, activeModelCatalog(settings),
                 ),
                 compactionThreshold = settings.agentContextCompactionThreshold,
                 onCompacted = { n ->
@@ -648,6 +648,20 @@ class OpenAiCompatibleAgentBackend(
             }
             sb.toString().ifBlank { "[summary unavailable]" }
         }
+
+    /**
+     * The user-editable model catalog for this backend's profile (the models table rows, including
+     * the "Context window" column). Empty when none is stored. Feeds context-window resolution.
+     */
+    private fun activeModelCatalog(
+        settings: com.adobe.clawdea.settings.ClawDEASettings.State,
+    ): List<com.adobe.clawdea.gateway.ModelEntry> {
+        val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+            com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profile.profile.id,
+        )
+        return settings.modelCatalogs[catalogKey] ?: emptyList()
+    }
 
     /**
      * Build the sub-agent runner for the `Agent` tool. The sub-agent shares the client + executor
