@@ -43,7 +43,7 @@ class RolesTab : SettingsTab {
     private val wikiCombo = ComboBox<ProviderModelOption>()
     private val completionsCombo = ComboBox<ProviderModelOption>()
 
-    private val wikiWarning = JBLabel("⚠ This model may not support tools; wiki authoring needs a tool-capable model.").apply {
+    private val wikiWarning = JBLabel().apply {
         foreground = Color(249, 226, 175) // yellow
         font = font.deriveFont(11f)
         isVisible = false
@@ -149,7 +149,13 @@ class RolesTab : SettingsTab {
         val catalog = ClawDEASettings.getInstance().state.modelCatalogs[catalogKey] ?: emptyList()
         val modelEntry = catalog.firstOrNull { it.id == modelId }
 
-        wikiWarning.isVisible = computeCapabilityWarning(AgentRole.WIKI, modelEntry, option.selection)
+        val warningText = wikiCapabilityWarningText(AgentRole.WIKI, modelEntry, option.selection)
+        if (warningText != null) {
+            wikiWarning.text = warningText
+            wikiWarning.isVisible = true
+        } else {
+            wikiWarning.isVisible = false
+        }
     }
 
     /**

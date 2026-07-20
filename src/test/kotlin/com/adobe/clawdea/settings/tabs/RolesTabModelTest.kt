@@ -18,6 +18,8 @@ import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,5 +173,87 @@ class RolesTabModelTest {
         val hasWarning = computeCapabilityWarning(AgentRole.WIKI, modelEntry, selection)
 
         assertTrue("WIKI with Codex provider should warn (in-chat librarian falls back)", hasWarning)
+    }
+
+    @Test
+    fun `wikiCapabilityWarningText returns completion-only message for completion_only models`() {
+        val modelEntry = ModelEntry(
+            id = "completion-model",
+            capability = "completion_only",
+            enabled = true
+        )
+        val selection = AgentSelection(
+            providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profileId = "prof1",
+            modelId = "completion-model"
+        )
+
+        val warningText = wikiCapabilityWarningText(AgentRole.WIKI, modelEntry, selection)
+
+        assertNotNull("WIKI with completion_only model should have warning text", warningText)
+        assertTrue(
+            "Warning should mention tool capability",
+            warningText!!.contains("may not support tools")
+        )
+    }
+
+    @Test
+    fun `wikiCapabilityWarningText returns Codex fallback message for Codex providers`() {
+        val modelEntry = ModelEntry(
+            id = "gpt-4",
+            capability = "agentic",
+            enabled = true
+        )
+        val selection = AgentSelection(
+            providerId = "openai",
+            profileId = null,
+            modelId = "gpt-4"
+        )
+
+        val warningText = wikiCapabilityWarningText(AgentRole.WIKI, modelEntry, selection)
+
+        assertNotNull("WIKI with Codex provider should have warning text", warningText)
+        assertTrue(
+            "Warning should mention Codex fallback",
+            warningText!!.contains("Codex") && warningText.contains("fall back")
+        )
+    }
+
+    @Test
+    fun `wikiCapabilityWarningText returns null for agentic non-Codex models`() {
+        val modelEntry = ModelEntry(
+            id = "claude-sonnet",
+            capability = "agentic",
+            enabled = true
+        )
+        val selection = AgentSelection(
+            providerId = "anthropic",
+            profileId = null,
+            modelId = "claude-sonnet"
+        )
+
+        val warningText = wikiCapabilityWarningText(AgentRole.WIKI, modelEntry, selection)
+
+        assertNull("WIKI with agentic non-Codex model should have no warning", warningText)
+    }
+
+    @Test
+    fun `wikiCapabilityWarningText returns null for non-WIKI roles`() {
+        val modelEntry = ModelEntry(
+            id = "completion-model",
+            capability = "completion_only",
+            enabled = true
+        )
+        val selection = AgentSelection(
+            providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profileId = "prof1",
+            modelId = "completion-model"
+        )
+
+        val chatWarning = wikiCapabilityWarningText(AgentRole.CHAT_DEFAULT, modelEntry, selection)
+        val completionsWarning = wikiCapabilityWarningText(AgentRole.COMPLETIONS, modelEntry, selection)
+
+        assertNull("CHAT_DEFAULT should never have warning text", chatWarning)
+        assertNull("COMPLETIONS should never have warning text", completionsWarning)
     }
 }

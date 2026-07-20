@@ -20,25 +20,39 @@ import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
+ * Returns a capability warning message for the given [role], [modelEntry], and [selection].
+ * Returns null when no warning is needed. For [AgentRole.WIKI], returns a specific message when:
+ * - The model's capability is "completion_only" (wiki authoring needs tool-capable models), OR
+ * - The selection's provider is Codex (the in-chat librarian cannot run cross-provider and falls back to the chat model).
+ */
+fun wikiCapabilityWarningText(role: String, modelEntry: ModelEntry?, selection: AgentSelection?): String? {
+    if (role != AgentRole.WIKI) return null
+    if (modelEntry == null) return null
+
+    // Warn for completion-only models
+    if (modelEntry.capability == "completion_only") {
+        return "⚠ This model may not support tools; wiki authoring needs a tool-capable model."
+    }
+
+    // Warn for Codex providers (in-chat librarian falls back to chat model)
+    if (selection != null) {
+        val backendKind = ProviderRegistry.require(selection.providerId).backendKind
+        if (backendKind == BackendKind.CODEX_APP_SERVER) {
+            return "⚠ Codex can't run the in-chat wiki librarian; it will fall back to the chat model. Assign a Claude or OpenAI-compatible agentic model for a dedicated wiki librarian."
+        }
+    }
+
+    return null
+}
+
+/**
  * Computes whether the given [role] and [modelEntry] combination should display
  * a capability warning. True when [role] is [AgentRole.WIKI] AND either:
  * - The model's capability is "completion_only" (wiki authoring needs tool-capable models), OR
  * - The selection's provider is Codex (the in-chat librarian cannot run cross-provider and falls back to the chat model).
  */
 fun computeCapabilityWarning(role: String, modelEntry: ModelEntry?, selection: AgentSelection? = null): Boolean {
-    if (role != AgentRole.WIKI) return false
-    if (modelEntry == null) return false
-
-    // Warn for completion-only models
-    if (modelEntry.capability == "completion_only") return true
-
-    // Warn for Codex providers (in-chat librarian falls back to chat model)
-    if (selection != null) {
-        val backendKind = ProviderRegistry.require(selection.providerId).backendKind
-        if (backendKind == BackendKind.CODEX_APP_SERVER) return true
-    }
-
-    return false
+    return wikiCapabilityWarningText(role, modelEntry, selection) != null
 }
 
 /**
