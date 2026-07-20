@@ -91,6 +91,11 @@ class AdvancedTab : SettingsTab {
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         completionsDebounceField.text = state.completionsDebounceMs.toString()
         completionsManualOnlyCheckbox.isSelected = state.completionsManualOnly
+        completionsModelCombo.selectedIndex = when (state.completionsModel) {
+            "sonnet" -> 0
+            "haiku" -> 1
+            else -> 0
+        }
     }
 
     override fun applyTo(state: ClawDEASettings.State) {
@@ -110,6 +115,11 @@ class AdvancedTab : SettingsTab {
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
         state.completionsManualOnly = completionsManualOnlyCheckbox.isSelected
+        state.completionsModel = when (completionsModelCombo.selectedIndex) {
+            0 -> "sonnet"
+            1 -> "haiku"
+            else -> "sonnet"
+        }
     }
 
     override fun isModifiedFrom(state: ClawDEASettings.State): Boolean =
@@ -128,5 +138,10 @@ class AdvancedTab : SettingsTab {
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             completionsDebounceField.text != state.completionsDebounceMs.toString() ||
-            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly
+            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly ||
+            completionsModelCombo.selectedIndex != (when (state.completionsModel) {
+                "sonnet" -> 0
+                "haiku" -> 1
+                else -> 0
+            })
 }
