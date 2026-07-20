@@ -56,4 +56,18 @@ class WikiIndexSourceTest {
         assertTrue(directive.contains("`propose_edit`"))
         assertTrue(directive.contains("[Title](concepts/<slug>.md)"))
     }
+
+    // --- Mode-aware anchor (Task 8) ---
+
+    @Test fun `anchor names agent subagent in claude mode`() {
+        val a = WikiIndexSource.buildLibrarianAnchor(com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT)
+        assertTrue(a.contains("Agent(subagent_type=\"wiki-librarian\""))
+        assertTrue(a.contains("first tool call"))
+    }
+
+    @Test fun `anchor names mcp tool in agentic mode`() {
+        val a = WikiIndexSource.buildLibrarianAnchor(com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL)
+        assertTrue(a.contains("ask_wiki_librarian"))
+        assertTrue(a.contains("first tool call"))
+    }
 }

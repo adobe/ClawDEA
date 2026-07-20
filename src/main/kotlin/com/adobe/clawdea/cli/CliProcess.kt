@@ -161,7 +161,13 @@ class CliProcess(
 
             val systemPrompt = buildString {
                 if (settings.enableWikiLibrarian) {
-                    append(WIKI_LIBRARIAN_PROMPT)
+                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
+                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+                    val librarianPrompt = when (com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)) {
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL -> WIKI_LIBRARIAN_TOOL_PROMPT
+                        else -> WIKI_LIBRARIAN_PROMPT
+                    }
+                    append(librarianPrompt)
                     append("\n\n")
                 }
                 append(MCP_SYSTEM_PROMPT)
@@ -585,6 +591,8 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
         private val MCP_SYSTEM_PROMPT = loadStaticPrompt("mcp-system-prompt")
 
         private val WIKI_LIBRARIAN_PROMPT = loadStaticPrompt("wiki-librarian-prompt")
+
+        private val WIKI_LIBRARIAN_TOOL_PROMPT = loadStaticPrompt("wiki-librarian-tool-prompt")
 
         private val EDIT_REVIEW_PROMPT = loadStaticPrompt("edit-review-prompt")
 
