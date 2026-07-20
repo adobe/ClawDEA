@@ -127,4 +127,14 @@ class OpenAiToolCatalogTest {
         val patchRequired = patch!!.function.parameters.getAsJsonArray("required").map { it.asString }.toSet()
         assertEquals(setOf("file_path", "original_content", "proposed_content"), patchRequired)
     }
+
+    @Test
+    fun `skill tool definition advertises name with required name param`() {
+        val def = OpenAiToolCatalog.skillToolDefinition()
+        assertEquals("Skill", def.function.name)
+        val required = def.function.parameters.getAsJsonArray("required").map { it.asString }
+        assertEquals(listOf("name"), required)
+        // optional 'args' is present in properties but not required
+        assertTrue(def.function.parameters.getAsJsonObject("properties").has("args"))
+    }
 }

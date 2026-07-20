@@ -147,6 +147,28 @@ class OpenAiToolCatalog(
             ),
         )
 
+        /**
+         * OpenAI function-tool schema for the [SkillTool] the [ProductionToolExecutor] dispatches
+         * directly. Advertised only when skills are available (see the backend's tool assembly), so
+         * agentic models can load a skill's instructions mid-turn by name.
+         */
+        fun skillToolDefinition(): OpenAiToolDefinition = OpenAiToolDefinition(
+            type = "function",
+            function = OpenAiFunctionDefinition(
+                name = "Skill",
+                description = "Load and follow a ClawDEA skill by its slash-command name. Returns the " +
+                    "skill's full instructions; follow them to complete the task. Use the exact skill " +
+                    "name from the available-skills list (with or without a leading slash).",
+                parameters = objectSchema(
+                    properties = listOf(
+                        Triple("name", "string", "The skill to invoke, by its name (e.g. \"superpowers:brainstorming\")."),
+                        Triple("args", "string", "Optional arguments/context to pass to the skill."),
+                    ),
+                    required = listOf("name"),
+                ),
+            ),
+        )
+
         private fun objectSchema(
             properties: List<Triple<String, String, String>>,
             required: List<String>,
