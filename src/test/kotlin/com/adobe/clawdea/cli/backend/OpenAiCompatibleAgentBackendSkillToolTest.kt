@@ -11,14 +11,27 @@
  */
 package com.adobe.clawdea.cli.backend
 
+import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.mcp.McpToolRouter
+import com.adobe.clawdea.provider.openai.agent.AgentClient
+import com.adobe.clawdea.provider.openai.agent.AgentCompletionRequest
+import com.adobe.clawdea.provider.openai.agent.AgentStreamEvent
 import com.adobe.clawdea.provider.openai.agent.AgentToolCall
+import com.adobe.clawdea.provider.openai.agent.OpenAiToolDefinition
+import com.adobe.clawdea.provider.openai.profile.OpenAiCompatibleProfile
+import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
+import com.adobe.clawdea.provider.openai.session.OpenAiSessionLedger
+import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.net.URI
 import java.nio.file.Path
 
 class OpenAiCompatibleAgentBackendSkillToolTest {
@@ -79,5 +92,76 @@ class OpenAiCompatibleAgentBackendSkillToolTest {
 
         assertFalse(result.isError)
         assertTrue(result.content.contains("# Brainstorming"))
+    }
+
+    @Test(timeout = 30_000)
+    fun `Skill tool advertised on resume start with skills`() {
+        val f = tempDir.newFile("SKILL.md")
+        f.writeText("# Brainstorming\n\nSteps.")
+
+        var capturedTools: List<Any>? = null
+        val backend = newBackend(
+            onRequest = { request ->
+                capturedTools = request.tools
+            }
+        )
+
+        // Resume-shaped start: non-null resumeSessionId, non-empty skills list.
+        // The ledger won't have "resume-1" (doesn't matter; currentSkills is set before the resume check).
+        backend.start(resumeSessionId = "resume-1", skills = listOf(skill(f.toPath())))
+
+        // Drain SystemInit
+        val init = backend.readEvent()
+        assertTrue("start must emit SystemInit", init is CliEvent.SystemInit)
+
+        // Send a message to trigger a request (which will populate capturedTools)
+        backend.sendMessage("go")
+
+        // Drain events until Result
+        while (true) {
+            val event = backend.readEvent() ?: break
+            if (event is CliEvent.Result) break
+        }
+
+        // Assert the Skill tool was advertised in the request
+        val toolNames = capturedTools?.map { (it as OpenAiToolDefinition).function.name }
+        assertTrue("Skill tool must be advertised on resume start with skills", toolNames?.contains("Skill") == true)
+
+        backend.stop()
+    }
+
+    private fun newBackend(
+        onRequest: (AgentCompletionRequest) -> Unit = {},
+    ): OpenAiCompatibleAgentBackend {
+        val fakeClient = object : AgentClient {
+            override suspend fun stream(request: AgentCompletionRequest): Flow<AgentStreamEvent> = flow {
+                onRequest(request)
+                emit(AgentStreamEvent.Text("done"))
+                emit(AgentStreamEvent.Finished("stop"))
+            }
+        }
+        return OpenAiCompatibleAgentBackend(
+            profile = ResolvedProviderProfile(
+                profile = OpenAiCompatibleProfile(id = "test-profile", name = "Test", baseUrl = "https://test"),
+                baseUrl = URI("https://test"),
+                configuredValues = emptyMap(),
+            ),
+            credentialProvider = { "test-key" },
+            modelIdProvider = { "test-model" },
+            project = null,
+            projectPath = tempDir.root.canonicalPath,
+            mcpDefs = emptyList(),
+            approvalGate = SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 30_000,
+            ),
+            autoAcceptEdits = { false },
+            fallbackAgentLabel = "Test Agent",
+            ledger = OpenAiSessionLedger(tempDir.root.canonicalPath),
+            clientFactory = { _, _ -> fakeClient },
+            settingsProvider = { ClawDEASettings() },
+        )
     }
 }
