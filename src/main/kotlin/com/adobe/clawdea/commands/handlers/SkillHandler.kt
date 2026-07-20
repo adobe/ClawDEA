@@ -37,13 +37,31 @@ class SkillHandler(
             val command = "/$skillRef" + if (args.isNotBlank()) " $args" else ""
             sendToBridge(command)
         } else {
-            // Fallback: inject skill markdown as a user message
+            // Fallback (non-Claude backends): the model needs the full SKILL.md, but the
+            // user should NOT see the whole markdown pasted as a chat bubble. Render a compact
+            // chip and dispatch the markdown WITHOUT rendering it (mirrors BridgeExpandingHandler).
+            // Fall back to the plain sendToBridge (which renders) only when no hidden-dispatch
+            // channel is available (headless / older call sites / tests).
             val message = buildFallbackMessage(skillInfo, args)
-            sendToBridge(message)
+            val dispatchHidden = context.dispatchToBridge
+            if (dispatchHidden != null) {
+                context.appendHtml(renderChip(skillInfo, args))
+                dispatchHidden(message)
+            } else {
+                sendToBridge(message)
+            }
         }
     }
 
     companion object {
+        /** Compact visible marker for an invoked skill — shown instead of the raw SKILL.md. */
+        fun renderChip(skillInfo: SkillInfo, args: String): String {
+            fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            val name = esc(skillInfo.aliases.firstOrNull() ?: "/${skillInfo.name}")
+            val argsSuffix = if (args.isNotBlank()) ": ${esc(args)}" else ""
+            return """<div class="info-block">Using skill <b>$name</b>$argsSuffix</div>"""
+        }
+
         fun buildFallbackMessage(skillInfo: SkillInfo, args: String): String {
             val content = skillInfo.filePath.readText()
             return buildString {
