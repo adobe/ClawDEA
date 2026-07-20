@@ -16,17 +16,29 @@ import com.adobe.clawdea.chat.ProviderModelSource
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.AgentRole
 import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
  * Computes whether the given [role] and [modelEntry] combination should display
- * a capability warning. True when [role] is [AgentRole.WIKI] AND the model's
- * capability is "completion_only" (wiki authoring needs tool-capable models).
+ * a capability warning. True when [role] is [AgentRole.WIKI] AND either:
+ * - The model's capability is "completion_only" (wiki authoring needs tool-capable models), OR
+ * - The selection's provider is Codex (the in-chat librarian cannot run cross-provider and falls back to the chat model).
  */
-fun computeCapabilityWarning(role: String, modelEntry: ModelEntry?): Boolean {
+fun computeCapabilityWarning(role: String, modelEntry: ModelEntry?, selection: AgentSelection? = null): Boolean {
     if (role != AgentRole.WIKI) return false
     if (modelEntry == null) return false
-    return modelEntry.capability == "completion_only"
+
+    // Warn for completion-only models
+    if (modelEntry.capability == "completion_only") return true
+
+    // Warn for Codex providers (in-chat librarian falls back to chat model)
+    if (selection != null) {
+        val backendKind = ProviderRegistry.require(selection.providerId).backendKind
+        if (backendKind == BackendKind.CODEX_APP_SERVER) return true
+    }
+
+    return false
 }
 
 /**

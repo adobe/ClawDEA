@@ -154,4 +154,22 @@ class RolesTabModelTest {
         assertEquals("Claude › Opus (sign in)", options[0].label)
         assertFalse(options[0].enabled)
     }
+
+    @Test
+    fun `WIKI role warns when a Codex provider model is selected`() {
+        val modelEntry = ModelEntry(
+            id = "gpt-4",
+            capability = "agentic",
+            enabled = true
+        )
+        val selection = AgentSelection(
+            providerId = "openai",
+            profileId = null,
+            modelId = "gpt-4"
+        )
+
+        val hasWarning = computeCapabilityWarning(AgentRole.WIKI, modelEntry, selection)
+
+        assertTrue("WIKI with Codex provider should warn (in-chat librarian falls back)", hasWarning)
+    }
 }

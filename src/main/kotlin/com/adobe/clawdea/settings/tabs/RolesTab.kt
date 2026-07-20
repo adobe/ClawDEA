@@ -149,7 +149,7 @@ class RolesTab : SettingsTab {
         val catalog = ClawDEASettings.getInstance().state.modelCatalogs[catalogKey] ?: emptyList()
         val modelEntry = catalog.firstOrNull { it.id == modelId }
 
-        wikiWarning.isVisible = computeCapabilityWarning(AgentRole.WIKI, modelEntry)
+        wikiWarning.isVisible = computeCapabilityWarning(AgentRole.WIKI, modelEntry, option.selection)
     }
 
     /**
