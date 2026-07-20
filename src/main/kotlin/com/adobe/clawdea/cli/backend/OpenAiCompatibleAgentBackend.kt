@@ -38,6 +38,7 @@ import com.adobe.clawdea.provider.openai.tools.MissingRouteBehavior
 import com.adobe.clawdea.provider.openai.tools.OpenAiToolCatalog
 import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -94,6 +95,11 @@ class OpenAiCompatibleAgentBackend(
     // Test seam: renew the profile credential (real path prompts on the EDT + runs the flow).
     // Returns true if a fresh credential was persisted. Default runs the EDT renewal flow.
     private val credentialRenewer: (() -> Boolean)? = null,
+    // Test seam: resolve the settings snapshot the turn loop reads its limits from. Production reads
+    // the application @Service; headless turn tests inject a plain instance so the pooled turn
+    // coroutine does not depend on an IntelliJ Application (whose absence would kill the turn before
+    // it emits a terminal Result — a blocking-queue reader would then hang forever).
+    private val settingsProvider: () -> ClawDEASettings = { ClawDEASettings.getInstance() },
 ) : AgentBackend {
 
     private val log = Logger.getInstance(OpenAiCompatibleAgentBackend::class.java)
@@ -425,7 +431,7 @@ class OpenAiCompatibleAgentBackend(
         }
 
         while (true) {
-            val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state
+            val settings = settingsProvider().state
             val loop = AgentLoopController(
                 client = clientFactory(profile, currentCredential!!),
                 executor = executorFactory(),

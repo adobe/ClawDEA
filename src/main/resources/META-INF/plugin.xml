@@ -388,6 +388,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
     <depends>Git4Idea</depends>
+    <!-- JCEF (embedded Chromium) lives in a separate platform module. The chat UI (ChatPanel,
+         JBCefJSQuery/JBCefJSQuery.Response) needs its classes on our plugin classloader; without
+         this dependency the jcef module is absent from the classloader parents and instantiating
+         ChatPanel throws NoClassDefFoundError: JBCefJSQuery$Response on installs where JCEF is not
+         already on the shared classpath. -->
+    <depends>com.intellij.modules.jcef</depends>
 
     <!-- Optional integration: clawdea-scala.xml loads only when the
          org.intellij.scala plugin is installed. -->

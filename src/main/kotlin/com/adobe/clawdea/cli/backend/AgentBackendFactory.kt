@@ -63,7 +63,15 @@ object AgentBackendFactory {
                 // Source `--model` from THIS selection's provider, not the global effective provider,
                 // so a per-tab Claude tab reads the Claude-pinned model even when the global default
                 // is a Codex/OpenAI provider (which would otherwise yield an invalid-model failure).
-                process = CliProcess(workingDirectory, mcpPort, project, providerIdProvider = { providerId }),
+                // The selection's pinned model wins so the dropdown label and the launched model agree
+                // (a fresh chat seeded from the Roles tab has no selectedModels entry to read).
+                process = CliProcess(
+                    workingDirectory,
+                    mcpPort,
+                    project,
+                    providerIdProvider = { providerId },
+                    pinnedModelId = selection.modelId,
+                ),
                 parser = CliEventParser(),
                 steeringMode = SteeringMode.NONE,
                 backendKind = BackendKind.CLAUDE_CLI,
@@ -73,14 +81,24 @@ object AgentBackendFactory {
                 // Source the model + auth mode from THIS selection's provider (symmetric with the
                 // Claude branch): a per-tab Codex tab reads the Codex-pinned model and picks ChatGPT
                 // auth iff its own provider is openai-subscription — even when the global differs.
+                // The selection's pinned model wins so the dropdown label and the launched model
+                // agree (a fresh chat seeded from the Roles tab has no selectedModels entry to read).
                 process = CodexAppServerProcess(
                     workingDirectory,
                     mcpPort,
                     project,
-                    modelProvider = { ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId) },
+                    modelProvider = {
+                        selection.modelId.ifBlank {
+                            ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId)
+                        }
+                    },
                     forceChatGptAuthProvider = { providerId == "openai-subscription" },
                 ),
-                parser = CodexAppServerParser(ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId)),
+                parser = CodexAppServerParser(
+                    selection.modelId.ifBlank {
+                        ClawDEASettings.getInstance().getCliModelId(workingDirectory, providerId)
+                    },
+                ),
                 steeringMode = SteeringMode.NATIVE,
                 backendKind = BackendKind.CODEX_APP_SERVER,
                 agentLabel = "Codex"

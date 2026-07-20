@@ -12,6 +12,7 @@
 package com.adobe.clawdea.cli.backend
 
 import com.adobe.clawdea.cli.CliEvent
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.provider.openai.agent.AgentClient
 import com.adobe.clawdea.provider.openai.agent.AgentCompletionRequest
 import com.adobe.clawdea.provider.openai.agent.AgentStreamEvent
@@ -121,6 +122,9 @@ class OpenAiCompatibleAgentBackendRetryTest {
             clientFactory = { _, _ -> fakeClient },
             executorFactory = { fakeExecutor },
             credentialRenewer = credentialRenewer,
+            // Headless turn: inject settings so the turn does not require an IntelliJ Application
+            // (its absence kills the turn before a terminal Result and hangs the drain loop).
+            settingsProvider = { ClawDEASettings() },
         )
 
         fun start() {

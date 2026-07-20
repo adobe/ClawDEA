@@ -41,6 +41,12 @@ class AdvancedTab : SettingsTab {
         "Use minimal-mode CLI for completions (--bare; requires API-key auth)",
         true,
     )
+    
+    val completionsEnabledCheckbox = JBCheckBox("Enable inline completions", true)
+    val completionsDebounceField = JBTextField("300", 6)
+    val completionsManualOnlyCheckbox = JBCheckBox("Only request completions on hotkey (Trigger Inline Completion, default Alt+\\)", false).apply {
+        toolTipText = "When on, completions never fire automatically as you type — they are requested only when you invoke the \"Trigger Inline Completion\" action. Rebind the hotkey in Settings → Keymap."
+    }
 
     override val component: JComponent = FormBuilder.createFormBuilder()
         .addLabeledComponent(JBLabel("Completion token budget:"), completionTokenBudgetField, 1, false)
@@ -56,6 +62,9 @@ class AdvancedTab : SettingsTab {
         .addComponent(preloadSkillCatalogCheckbox, 1)
         .addComponent(enableBaselineDefaultsCheckbox, 1)
         .addComponent(gatewayBareModeCheckbox, 1)
+        .addComponent(completionsEnabledCheckbox, 1)
+        .addLabeledComponent(JBLabel("Completions debounce (ms):"), completionsDebounceField, 1, false)
+        .addComponent(completionsManualOnlyCheckbox, 1)
         .addComponentFillVertically(JPanel(), 0)
         .panel
 
@@ -73,6 +82,9 @@ class AdvancedTab : SettingsTab {
         preloadSkillCatalogCheckbox.isSelected = state.preloadSkillCatalog
         enableBaselineDefaultsCheckbox.isSelected = state.enableBaselineDefaults
         gatewayBareModeCheckbox.isSelected = state.gatewayBareMode
+        completionsEnabledCheckbox.isSelected = state.completionsEnabled
+        completionsDebounceField.text = state.completionsDebounceMs.toString()
+        completionsManualOnlyCheckbox.isSelected = state.completionsManualOnly
     }
 
     override fun applyTo(state: ClawDEASettings.State) {
@@ -89,6 +101,9 @@ class AdvancedTab : SettingsTab {
         state.preloadSkillCatalog = preloadSkillCatalogCheckbox.isSelected
         state.enableBaselineDefaults = enableBaselineDefaultsCheckbox.isSelected
         state.gatewayBareMode = gatewayBareModeCheckbox.isSelected
+        state.completionsEnabled = completionsEnabledCheckbox.isSelected
+        state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
+        state.completionsManualOnly = completionsManualOnlyCheckbox.isSelected
     }
 
     override fun isModifiedFrom(state: ClawDEASettings.State): Boolean =
@@ -104,5 +119,8 @@ class AdvancedTab : SettingsTab {
             agentMaxToolRoundsField.text != state.agentMaxToolRounds.toString() ||
             agentMaxElapsedMinutesField.text != state.agentMaxElapsedMinutes.toString() ||
             agentCompactionThresholdField.text != state.agentContextCompactionThreshold.toString() ||
-            gatewayBareModeCheckbox.isSelected != state.gatewayBareMode
+            gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
+            completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
+            completionsDebounceField.text != state.completionsDebounceMs.toString() ||
+            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly
 }

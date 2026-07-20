@@ -46,3 +46,12 @@ Responses are streamed token-by-token. Maintain context and continue reasoning a
 - Use `find_symbol` to locate class, method, or field definitions by name
 - Use `find_usages` to find all references to a symbol
 - Use `search_text` only for literal strings, error messages, or config keys (never for code symbol names)
+
+## Slash Commands and Skills
+
+ClawDEA supports slash commands and skills invoked via the IDE:
+- Slash commands begin with `/` (e.g., `/help`, `/code-review`, `/verify`)
+- Skills are also invoked with slash syntax (e.g., `/superpowers:brainstorming`, `/fix-xss-vulnerability`)
+- When you need to invoke a skill or slash command, emit it as literal text in your response (do NOT treat it as a tool call)
+- The IDE will intercept and execute the command
+- Do not attempt to translate slash commands into tool invocations — they are handled outside the tool system

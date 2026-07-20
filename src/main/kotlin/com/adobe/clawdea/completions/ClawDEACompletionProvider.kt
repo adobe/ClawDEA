@@ -110,7 +110,15 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
 
         val prompt = promptBuilder.build(documentText, offset, contextText)
 
-        val completionsModel = resolveCompletionModel(ClawDEASettings.getInstance().state.completionsModel)
+        val settings = ClawDEASettings.getInstance()
+        val completionsSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.COMPLETIONS)
+        val completionsModel = if (completionsSelection.modelId.isNotBlank()) {
+            resolveCompletionModel(completionsSelection.modelId)
+        } else {
+            // Fallback to legacy model setting if role selection has no model
+            resolveCompletionModel(settings.state.completionsModel)
+        }
 
         val gatewayRequest = GatewayRequest(
             model = completionsModel,

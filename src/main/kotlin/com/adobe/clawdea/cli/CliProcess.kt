@@ -37,6 +37,12 @@ class CliProcess(
     // the SELECTION's provider id so a per-tab CLAUDE tab reads the Claude-pinned model, not the
     // global provider's (which may be a Codex/OpenAI model → "invalid model" failure).
     private val providerIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
+    // The model id pinned by THIS tab's AgentSelection. When non-blank it is the authoritative
+    // `--model` value: the same selection drives both the dropdown label and the CLI, so a fresh
+    // chat whose default was set via the Roles tab (roleSelections, never written to the
+    // selectedModels map) still launches the CLI on the shown model instead of the CLI's own
+    // default. Blank means "no pin" → fall back to the settings-map read (subscription default, etc.).
+    private val pinnedModelId: String = "",
 ) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
@@ -54,13 +60,15 @@ class CliProcess(
         get() = process?.isAlive == true
 
     /**
-     * Resolves the `--model` value for the CLI from the provider this process was built for
-     * (via [providerIdProvider]) rather than the global effective provider. A per-tab Claude tab
-     * therefore reads the Claude-pinned model even when the global default is a Codex/OpenAI
-     * provider. Internal for headless testing of the selection→model routing.
+     * Resolves the `--model` value for the CLI. The tab's [pinnedModelId] (from its AgentSelection)
+     * wins when present, so the model shown in the dropdown is exactly the model the CLI runs. When
+     * blank, falls back to the settings-map read for the provider this process was built for (via
+     * [providerIdProvider]) rather than the global effective provider — a per-tab Claude tab thus
+     * reads the Claude-pinned model even when the global default is a Codex/OpenAI provider.
+     * Internal for headless testing of the selection→model routing.
      */
     internal fun resolveCliModel(settings: ClawDEASettings): String =
-        settings.getCliModelId(workingDirectory, providerIdProvider())
+        pinnedModelId.ifBlank { settings.getCliModelId(workingDirectory, providerIdProvider()) }
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return

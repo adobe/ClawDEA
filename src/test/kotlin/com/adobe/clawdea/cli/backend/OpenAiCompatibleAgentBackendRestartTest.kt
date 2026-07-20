@@ -22,6 +22,7 @@ import com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile
 import com.adobe.clawdea.provider.openai.session.OpenAiSessionLedger
 import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import com.adobe.clawdea.settings.ClawDEASettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import org.junit.Assert.assertEquals
@@ -53,7 +54,9 @@ class OpenAiCompatibleAgentBackendRestartTest {
         backend.stop()
     }
 
-    @Test
+    // Bounded so a future regression that starves the terminal Result fails fast (the drain loop
+    // below blocks on the event queue) instead of hanging the whole test suite.
+    @Test(timeout = 30_000)
     fun `backend is restartable across stop then start`() {
         val backend = newBackend()
 
@@ -198,6 +201,10 @@ class OpenAiCompatibleAgentBackendRestartTest {
             ledger = OpenAiSessionLedger(tempFolder.root.canonicalPath),
             clientFactory = { _, _ -> fakeClient },
             executorFactory = { fakeExecutor },
+            // Inject a plain settings instance so a running turn does not depend on an IntelliJ
+            // Application (headless, none exists → the turn coroutine would die before emitting a
+            // terminal Result and the drain loop would block on the queue forever).
+            settingsProvider = { ClawDEASettings() },
         )
     }
 }
