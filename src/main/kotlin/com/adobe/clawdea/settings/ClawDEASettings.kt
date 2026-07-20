@@ -136,6 +136,11 @@ class ClawDEASettings : PersistentStateComponent<ClawDEASettings.State> {
          */
         var workspaceManifestName: String = ".clawdea-workspace.md",
         var preloadSkillCatalog: Boolean = true,
+        // When true, an agentic OpenAI-compatible model is offered an `Agent` tool so it can
+        // dispatch a depth-1 sub-agent (matching what skills like subagent-driven-development
+        // expect). The sub-agent runs a nested tool loop and its steps render in the existing
+        // sub-agent card. Sub-agents are NOT given the Agent tool (no recursion).
+        var enableOpenAiSubagents: Boolean = true,
         // When true, a small always-on values-only behavioral block ("baseline
         // working defaults") is appended to the CLI system prompt. Plugin-owned
         // and model-tunable (text lives in resources/prompts/baseline-defaults.md);

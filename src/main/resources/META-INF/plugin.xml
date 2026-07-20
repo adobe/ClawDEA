@@ -120,6 +120,14 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>3.0.0</h3>
+<h4>Skills &amp; sub-agents for OpenAI-compatible models</h4>
+<ul>
+  <li><b>Skills that dispatch sub-agents now work.</b> An agentic OpenAI-compatible model can call an <b>Agent</b> tool to run a focused sub-agent, whose steps stream into the same collapsible sub-agent card you see with Claude. Skills like plan-then-implement no longer stall when they ask for parallel work.</li>
+  <li><b>Cleaner skill invocation.</b> Running a skill on a non-Claude model now shows a compact &ldquo;Using skill&rdquo; chip instead of pasting the whole skill document into the chat &mdash; the model still receives the full instructions.</li>
+  <li><b>Edits report the truth.</b> A proposed file write that can&rsquo;t actually land on disk now reports a clear error instead of a false &ldquo;accepted&rdquo;, and relative file paths resolve against the project root so writes go where you expect.</li>
+</ul>
+
 <h3>2.2.0</h3>
 <h4>Chat with any OpenAI-compatible provider</h4>
 <ul>

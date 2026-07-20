@@ -70,6 +70,15 @@ class OpenAiCompatibleAgentBackendSkillToolTest {
     }
 
     @Test
+    fun `Agent tool advertised only when enabled`() {
+        val on = agentToolDefinitions(emptyList(), emptyList(), advertiseSkillTool = false, advertiseAgentTool = true)
+        assertTrue(on.any { it.function.name == "Agent" })
+
+        val off = agentToolDefinitions(emptyList(), emptyList(), advertiseSkillTool = false, advertiseAgentTool = false)
+        assertFalse(off.any { it.function.name == "Agent" })
+    }
+
+    @Test
     fun `executor routes Skill calls to SkillTool`() {
         val f = tempDir.newFile("SKILL.md")
         f.writeText("# Brainstorming\n\nSteps.")

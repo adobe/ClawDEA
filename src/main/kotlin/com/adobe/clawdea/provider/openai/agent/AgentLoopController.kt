@@ -36,6 +36,19 @@ interface AgentToolExecutor {
 }
 
 /**
+ * Runs a dispatched sub-agent (the `Agent` tool). Unlike [AgentToolExecutor] this is `suspend` and
+ * receives the parent loop's [emit] channel so the sub-agent's inner steps can stream as child
+ * events (each tagged with the dispatching tool_use id as their parentToolUseId). Returns the
+ * sub-agent's final report as the tool result. Kept separate from [AgentToolExecutor] so the
+ * synchronous executor and all its implementors are unaffected.
+ */
+interface SubAgentRunner {
+    /** The tool name that triggers a sub-agent dispatch. Must match the chat's card detection. */
+    val toolName: String
+    suspend fun run(toolCall: AgentToolCall, emit: (CliEvent) -> Unit): ToolExecutionResult
+}
+
+/**
  * Result of a single turn.
  *
  * [streamFailed] is true only when a streaming request failed (HTTP [status] error, remote
@@ -99,6 +112,10 @@ class AgentLoopController(
     private val compactionThreshold: Double = 0.8,
     // Notice callback after a successful compaction; arg = number of messages summarized.
     private val onCompacted: (Int) -> Unit = {},
+    // When non-null and a tool call names [SubAgentRunner.toolName], the loop routes it to this
+    // runner (suspend, with the emit channel) instead of the synchronous [executor]. Null means no
+    // sub-agent dispatch is offered (the Agent tool is also not advertised in that case).
+    private val subAgentRunner: SubAgentRunner? = null,
 ) {
 
     private val log = Logger.getInstance(AgentLoopController::class.java)
@@ -374,8 +391,14 @@ class AgentLoopController(
                     continue
                 }
 
-                // Execute
-                val result = executor.execute(toolCall)
+                // Execute. A sub-agent dispatch runs the nested loop (suspend, streaming child
+                // events through emit); everything else goes to the synchronous executor.
+                val runner = subAgentRunner
+                val result = if (runner != null && toolCall.name == runner.toolName) {
+                    runner.run(toolCall, emit)
+                } else {
+                    executor.execute(toolCall)
+                }
                 executedToolsOverall = true
                 state.completedToolCallIds.add(toolCall.id)
 

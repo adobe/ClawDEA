@@ -40,6 +40,10 @@ Responses are streamed token-by-token. Maintain context and continue reasoning a
 - Use `Edit` for surgical, line-targeted changes
 - Use `Write` to create new files or replace entire contents
 - Preserve file permissions and encoding (UTF-8 default)
+- **Use absolute paths** for `file_path` (e.g. `/Users/you/project/src/Foo.kt`). A relative path is
+  resolved against the project root, but absolute is unambiguous. When a skill asks you to write a
+  spec or plan to a file, actually call the write tool with the file's path — do not paste the
+  document into your chat reply instead.
 
 ## Project Navigation
 
@@ -60,3 +64,16 @@ Skills are reusable procedures you can invoke to complete specialized tasks.
   them — you do not need to act on those. Do not emit slash-command text yourself expecting it to
   be executed; use the `Skill` tool instead.
 - If no skills are listed in your instructions (no available-skills list, no `Skill` tool), simply proceed without them.
+
+## Dispatching Sub-Agents
+
+When an `Agent` tool is available, you may dispatch a sub-agent to carry out a well-scoped,
+self-contained task and return its final report.
+
+- Call the **`Agent`** tool with a short `description`, the full `prompt` the sub-agent should work
+  from, and an optional `subagent_type` label. Give the sub-agent everything it needs in the
+  `prompt` — it does not see your conversation.
+- The sub-agent runs its own tool loop (search, read, edit) and returns its report as the tool
+  result. It **cannot** dispatch further sub-agents, so do not instruct it to.
+- If a skill you are following asks whether to use sub-agents or work directly, and no `Agent` tool
+  is available, just work directly — do not claim to dispatch agents you cannot.

@@ -169,6 +169,32 @@ class OpenAiToolCatalog(
             ),
         )
 
+        /**
+         * OpenAI function-tool schema for the `Agent` tool the [AgentLoopController] routes to a
+         * nested sub-agent turn. Field names match what the chat's sub-agent card reads
+         * (`subagent_type`, `description`); `prompt` is the task the sub-agent runs. Advertised only
+         * when sub-agents are enabled and the model is tool-capable (see the backend's tool assembly).
+         * Sub-agents are NOT themselves given this tool, so dispatch is depth-1 (no recursion).
+         */
+        fun agentToolDefinition(): OpenAiToolDefinition = OpenAiToolDefinition(
+            type = "function",
+            function = OpenAiFunctionDefinition(
+                name = "Agent",
+                description = "Dispatch a sub-agent to independently carry out a well-scoped task and " +
+                    "return its final report. The sub-agent runs its own tool loop (search, read, " +
+                    "edit) and cannot dispatch further sub-agents. Use for parallelizable or " +
+                    "self-contained work; give it everything it needs in the prompt.",
+                parameters = objectSchema(
+                    properties = listOf(
+                        Triple("description", "string", "A short (3-5 word) description of the sub-agent's task."),
+                        Triple("prompt", "string", "The full task for the sub-agent to perform."),
+                        Triple("subagent_type", "string", "Optional label for the kind of agent (e.g. \"general-purpose\")."),
+                    ),
+                    required = listOf("description", "prompt"),
+                ),
+            ),
+        )
+
         private fun objectSchema(
             properties: List<Triple<String, String, String>>,
             required: List<String>,

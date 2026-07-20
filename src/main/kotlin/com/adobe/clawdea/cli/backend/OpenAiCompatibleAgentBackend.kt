@@ -450,6 +450,7 @@ class OpenAiCompatibleAgentBackend(
 
         while (true) {
             val settings = settingsProvider().state
+            val advertiseAgent = settings.enableOpenAiSubagents
             val loop = AgentLoopController(
                 client = clientFactory(profile, currentCredential!!),
                 executor = executorFactory(),
@@ -458,7 +459,7 @@ class OpenAiCompatibleAgentBackend(
                 maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
                 maxContextChars = 1_000_000,
                 modelId = currentModelId,
-                tools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog),
+                tools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog, advertiseAgent),
                 stream = profile.profile.streaming,
                 onSoftLimit = { reason, count -> promptSoftLimit(reason, count) },
                 compactor = com.adobe.clawdea.provider.openai.agent.ConversationCompactor(
@@ -471,6 +472,7 @@ class OpenAiCompatibleAgentBackend(
                 onCompacted = { n ->
                     queue.put(CliEvent.TextDelta("\n_Compacted context — summarized $n earlier messages._\n"))
                 },
+                subAgentRunner = if (advertiseAgent) buildSubAgentRunner(settings) else null,
             )
 
             val result = runOneRound(loop, text, append)
@@ -646,6 +648,39 @@ class OpenAiCompatibleAgentBackend(
             }
             sb.toString().ifBlank { "[summary unavailable]" }
         }
+
+    /**
+     * Build the sub-agent runner for the `Agent` tool. The sub-agent shares the client + executor
+     * but is given the tool set MINUS the Agent tool (depth-1, no recursion) and its own system
+     * prompt. Skill/Bash/apply_patch remain available so a sub-agent can still do real work.
+     */
+    private fun buildSubAgentRunner(
+        settings: com.adobe.clawdea.settings.ClawDEASettings.State,
+    ): com.adobe.clawdea.provider.openai.agent.SubAgentRunner {
+        // Same tools as the parent turn, but without the Agent tool itself.
+        val subTools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog, advertiseAgentTool = false)
+        val subPrompt = try {
+            OpenAiInstructions.build(project, currentSkills)
+        } catch (e: Exception) {
+            log.warn("Failed to build sub-agent instructions; continuing without them", e)
+            ""
+        }.let { base ->
+            val hint = "\n\nYou are a dispatched sub-agent. Complete the task described in the user " +
+                "message independently and return your final report as your last message. You cannot " +
+                "dispatch further sub-agents."
+            (base + hint).trim()
+        }
+        return com.adobe.clawdea.provider.openai.agent.SubAgentDispatcher(
+            client = clientFactory(profile, currentCredential!!),
+            executor = executorFactory(),
+            tools = subTools,
+            modelId = currentModelId,
+            systemPrompt = subPrompt,
+            streaming = profile.profile.streaming,
+            maxToolRounds = settings.agentMaxToolRounds,
+            maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
+        )
+    }
 
     /**
      * Blocking Continue/Stop checkpoint for a non-zero soft limit. Waits indefinitely (no timeout,
@@ -851,9 +886,12 @@ internal fun agentToolDefinitions(
     mcpDefs: List<McpToolRouter.ToolDef>,
     skills: List<SkillInfo> = emptyList(),
     advertiseSkillTool: Boolean = false,
+    advertiseAgentTool: Boolean = false,
 ): List<OpenAiToolDefinition> {
-    val base = OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
-    return if (advertiseSkillTool && skills.isNotEmpty()) base + OpenAiToolCatalog.skillToolDefinition() else base
+    var defs = OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+    if (advertiseSkillTool && skills.isNotEmpty()) defs = defs + OpenAiToolCatalog.skillToolDefinition()
+    if (advertiseAgentTool) defs = defs + OpenAiToolCatalog.agentToolDefinition()
+    return defs
 }
 
 /**
