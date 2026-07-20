@@ -136,9 +136,19 @@ class CliProcess(
 
             if (settings.enableWikiLibrarian) {
                 try {
-                    val agentsJson = com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson()
+                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
+                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+                    val mode = com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)
+                    val agentsJson = when (mode) {
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson(wikiSel.modelId)
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT_FALLBACK ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson("")
+                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL ->
+                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildAuthorOnlyJson()
+                    }
                     command.addAll(listOf("--agents", agentsJson))
-                    log.info("Injected wiki-librarian + wiki-author subagents via --agents (${agentsJson.length} chars)")
+                    log.info("Injected wiki subagents via --agents (mode=$mode, ${agentsJson.length} chars)")
                 } catch (e: Throwable) {
                     log.warn("Failed to build wiki agents --agents arg; skipping injection", e)
                 }
