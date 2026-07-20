@@ -482,9 +482,14 @@ class EventStreamHandler(
                                 inputTokens = inputProxy,
                             ),
                         )
+                        val summaryText = if (status == SubAgentController.Status.ERROR) {
+                            librarianErrorText(state.agentType, event.content)
+                        } else {
+                            event.content
+                        }
                         browserRenderer.finalizeSubAgent(
                             event.toolUseId,
-                            renderer.renderSubAgentSummary(status, state.stepCount, event.content),
+                            renderer.renderSubAgentSummary(status, state.stepCount, summaryText),
                         )
                     }
                     routableToolUses.remove(event.toolUseId)
@@ -822,6 +827,19 @@ class EventStreamHandler(
 
     private fun watchForToolResultStall(toolResultProgressSequence: Long) {
         scheduleStallRecovery(TOOL_RESULT_STALL_TIMEOUT_MS, toolResultProgressSequence, onToolResultStalled)
+    }
+
+    /**
+     * For a failed `wiki-librarian` subagent, prepend the WIKI-role model to the error summary so
+     * the cause is diagnosable at a glance (e.g. a Bedrock Claude 3 Haiku selection that rejects
+     * prompt caching with an HTTP 400). Other agents pass through unchanged.
+     */
+    private fun librarianErrorText(agentType: String, content: String): String {
+        if (agentType != "wiki-librarian") return content
+        val model = com.adobe.clawdea.provider.RoleSelectionStore(
+            com.adobe.clawdea.settings.ClawDEASettings.getInstance(),
+        ).get(com.adobe.clawdea.provider.AgentRole.WIKI).modelId.ifBlank { "default model" }
+        return "Wiki librarian using '$model' encountered: $content"
     }
 
     /**
