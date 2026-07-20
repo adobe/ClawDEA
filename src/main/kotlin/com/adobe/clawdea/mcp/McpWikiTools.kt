@@ -67,21 +67,19 @@ class McpWikiTools(private val project: Project) {
         // provider). Expose it as an MCP tool whose handler runs the agentic loop on the WIKI
         // provider and returns the answer. The primer/system-prompt (CliProcess) tells the main
         // agent to call this tool instead of Agent(subagent_type="wiki-librarian").
+        // Register unconditionally when enableWikiLibrarian (handler degrades gracefully for
+        // non-openai-compatible WIKI selections); CliProcess prompt/anchor seams decide whether
+        // the agent is instructed to use it.
         if (state.enableWikiLibrarian) {
-            val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-            if (com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel) ==
-                com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL) {
-                router.register(
-                    name = ASK_LIBRARIAN_TOOL_NAME,
-                    description = ASK_LIBRARIAN_TOOL_DESCRIPTION,
-                    properties = listOf(
-                        Triple("question", "string", "The user's question about this project's design/subsystems/conventions."),
-                    ),
-                    required = listOf("question"),
-                    handler = ::askWikiLibrarian,
-                )
-            }
+            router.register(
+                name = ASK_LIBRARIAN_TOOL_NAME,
+                description = ASK_LIBRARIAN_TOOL_DESCRIPTION,
+                properties = listOf(
+                    Triple("question", "string", "The user's question about this project's design/subsystems/conventions."),
+                ),
+                required = listOf("question"),
+                handler = ::askWikiLibrarian,
+            )
         }
     }
 
@@ -239,8 +237,9 @@ class McpWikiTools(private val project: Project) {
         )
         val client = com.adobe.clawdea.cli.backend.HttpAgentClient(
             com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient(), resolved, credential)
-        val executor = com.adobe.clawdea.cli.backend.defaultExecutor(
+        val delegate = com.adobe.clawdea.cli.backend.defaultExecutor(
             project, mcpDefs, approvalGate, { settings.state.autoAcceptEdits })
+        val executor = com.adobe.clawdea.knowledge.wiki.readOnlyExecutor(delegate)
         val tools = com.adobe.clawdea.knowledge.wiki.filterLibrarianTools(
             com.adobe.clawdea.cli.backend.agentToolDefinitions(mcpDefs))
         val systemPrompt = try {

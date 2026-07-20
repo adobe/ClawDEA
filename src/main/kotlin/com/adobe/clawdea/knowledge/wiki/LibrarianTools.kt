@@ -11,7 +11,10 @@
  */
 package com.adobe.clawdea.knowledge.wiki
 
+import com.adobe.clawdea.provider.openai.agent.AgentToolCall
+import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
 import com.adobe.clawdea.provider.openai.agent.OpenAiToolDefinition
+import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
 
 /**
  * The read-only tool set the agentic wiki-librarian may call. Mirrors the `tools:` frontmatter of
@@ -35,3 +38,23 @@ val LIBRARIAN_TOOL_NAMES: Set<String> = setOf(
 /** Keep only allowlisted read-only tools; drop everything else (Edit/Write/shell/etc.). */
 fun filterLibrarianTools(all: List<OpenAiToolDefinition>): List<OpenAiToolDefinition> =
     all.filter { it.function.name in LIBRARIAN_TOOL_NAMES }
+
+/**
+ * Wrap an [AgentToolExecutor] to enforce the read-only librarian allowlist at execution time.
+ * Tool calls whose names are NOT in [LIBRARIAN_TOOL_NAMES] return an error result instead of
+ * dispatching. This defense-in-depth guard protects against models emitting non-advertised tools
+ * from training priors (Bash, apply_patch, propose_write).
+ */
+fun readOnlyExecutor(delegate: AgentToolExecutor): AgentToolExecutor =
+    object : AgentToolExecutor {
+        override fun execute(toolCall: AgentToolCall): ToolExecutionResult {
+            if (toolCall.name !in LIBRARIAN_TOOL_NAMES) {
+                return ToolExecutionResult(
+                    toolCallId = toolCall.id,
+                    content = "Tool '${toolCall.name}' is not permitted for the wiki librarian (read-only).",
+                    isError = true,
+                )
+            }
+            return delegate.execute(toolCall)
+        }
+    }

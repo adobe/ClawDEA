@@ -19,21 +19,28 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 
 class McpWikiToolsLibrarianTest : BasePlatformTestCase() {
 
-    private fun setWiki(provider: String) {
+    private fun setWiki(provider: String, enableLibrarian: Boolean) {
         val s = ClawDEASettings.getInstance()
-        s.state.enableWikiLibrarian = true
+        s.state.enableWikiLibrarian = enableLibrarian
         RoleSelectionStore(s).set(AgentRole.WIKI, AgentSelection(provider, if (provider == "openai-compatible") "p" else null, "m"))
     }
 
-    fun test_tool_registered_when_wiki_is_openai_compatible() {
-        setWiki("openai-compatible")
+    fun test_tool_registered_when_enableWikiLibrarian_true_openai_compatible() {
+        setWiki("openai-compatible", enableLibrarian = true)
         val router = McpToolRouter()
         McpWikiTools(project).registerAll(router)
         assertTrue(router.definitions().any { it.name == McpWikiTools.ASK_LIBRARIAN_TOOL_NAME })
     }
 
-    fun test_tool_absent_when_wiki_is_claude() {
-        setWiki("bedrock")
+    fun test_tool_registered_when_enableWikiLibrarian_true_bedrock() {
+        setWiki("bedrock", enableLibrarian = true)
+        val router = McpToolRouter()
+        McpWikiTools(project).registerAll(router)
+        assertTrue(router.definitions().any { it.name == McpWikiTools.ASK_LIBRARIAN_TOOL_NAME })
+    }
+
+    fun test_tool_absent_when_enableWikiLibrarian_false() {
+        setWiki("openai-compatible", enableLibrarian = false)
         val router = McpToolRouter()
         McpWikiTools(project).registerAll(router)
         assertFalse(router.definitions().any { it.name == McpWikiTools.ASK_LIBRARIAN_TOOL_NAME })
