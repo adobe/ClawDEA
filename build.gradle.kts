@@ -29,7 +29,7 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     // Provides kotlinx.coroutines.test.runTest for suspend-function unit tests (steering primitives,
     // cancel-and-continue integration). Version matches the platform-bundled coroutines runtime.
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     // Required when running LightJavaCodeInsightFixtureTestCase fixtures from the
     // IDE's JUnit runner — UsefulTestCase references opentest4j AssertionFailedError
     // in method signatures, and the IntelliJ Platform test framework no longer
