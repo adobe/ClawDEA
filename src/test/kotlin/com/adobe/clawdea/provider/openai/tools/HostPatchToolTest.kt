@@ -298,10 +298,68 @@ class HostPatchToolTest {
         assertEquals(0, reviewer.reviewedPaths.size)
     }
 
+    @Test
+    fun `relative file_path is normalized against project base and allowed`() {
+        val gate = SharedToolApprovalGate(
+            toolApprovalMode = { "allow-all" },
+            policy = { null },
+            route = { _, _, _ -> null },
+            promptTimeoutMs = 1000,
+        )
+        val reviewer = FakeReviewer(EditOutcome.ACCEPTED, null)
+        val tool = HostPatchTool(
+            projectBasePath = "/work/project",
+            autoAcceptEdits = { false },
+            approvalGate = gate,
+            reviewer = reviewer,
+            coordinator = FakeCoordinator(),
+            fileReader = { "old" },
+        )
+
+        // A relative path like the one Qwen emitted must resolve under the project base,
+        // NOT be rejected as "outside project" (File(relative) → JVM CWD).
+        val result = tool.execute(
+            HostPatchInput("docs/specs/design.md", "old", "new"),
+            "tool-rel",
+        )
+
+        assertEquals(false, result.isError)
+        assertTrue(result.content.contains("applied"))
+        assertEquals("/work/project/docs/specs/design.md", reviewer.appliedPaths.single())
+    }
+
+    @Test
+    fun `write failure surfaces a truthful error instead of applied`() {
+        val gate = SharedToolApprovalGate(
+            toolApprovalMode = { "allow-all" },
+            policy = { null },
+            route = { _, _, _ -> null },
+            promptTimeoutMs = 1000,
+        )
+        val reviewer = FakeReviewer(EditOutcome.ACCEPTED, null, writeSucceeds = false)
+        val tool = HostPatchTool(
+            projectBasePath = "/work/project",
+            autoAcceptEdits = { false },
+            approvalGate = gate,
+            reviewer = reviewer,
+            coordinator = FakeCoordinator(),
+            fileReader = { "old" },
+        )
+
+        val result = tool.execute(
+            HostPatchInput("/work/project/sub/file.txt", "old", "new"),
+            "tool-fail",
+        )
+
+        assertTrue("a failed write must report an error", result.isError)
+        assertTrue(result.content.contains("Failed to write"))
+    }
+
     /** Fake reviewer for testing. */
     private class FakeReviewer(
         private val outcome: EditOutcome,
         private val modifiedContent: String?,
+        private val writeSucceeds: Boolean = true,
     ) : HostPatchTool.EditReviewer {
         val reviewedPaths = mutableListOf<String>()
         val appliedPaths = mutableListOf<String>()
@@ -316,9 +374,10 @@ class HostPatchToolTest {
             return EditDiffReviewer.ReviewResult(outcome, modifiedContent)
         }
 
-        override fun applyContent(filePath: String, content: String) {
+        override fun applyContent(filePath: String, content: String): Boolean {
             appliedPaths.add(filePath)
             appliedContent.add(content)
+            return writeSucceeds
         }
     }
 
