@@ -83,7 +83,7 @@ class SeedWikiHandlerTest {
             appendHtml = { htmlBuf.append(it) },
             showNotification = {},
             askQuestion = { _, _ -> asked = true },
-            dispatchToBridge = { dispatched = it },
+            runSeedWiki = { dispatched = it },
         ))
         assertTrue(htmlBuf.toString().contains("no project base path"))
         assertFalse("must not prompt when there's no project base", asked)
@@ -104,7 +104,7 @@ class SeedWikiHandlerTest {
                 appendHtml = {},
                 showNotification = {},
                 askQuestion = null,
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertEquals(listOf(SeedWikiHandler.DEFAULT_LOCAL_WIKI_PATH), seenPath)
             assertEquals("EXPANDED(${SeedWikiHandler.DEFAULT_LOCAL_WIKI_PATH})", dispatched)
@@ -124,7 +124,7 @@ class SeedWikiHandlerTest {
                 appendHtml = { htmlBuf.append(it) },
                 showNotification = {},
                 askQuestion = { _, onResolve -> onResolve(null) },
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertTrue("expected cancellation message, got: $htmlBuf", htmlBuf.toString().contains("cancelled"))
             assertNull(dispatched)
@@ -146,7 +146,7 @@ class SeedWikiHandlerTest {
                 askQuestion = { _, onResolve ->
                     onResolve(HandlerQuestionAnswers(answers = emptyMap(), freeforms = emptyMap()))
                 },
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertTrue(
                 "expected placement-required error, got: $htmlBuf",
@@ -178,7 +178,7 @@ class SeedWikiHandlerTest {
                         freeforms = mapOf("q" to "docs/llm-wiki" /* should be ignored */),
                     ))
                 },
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertEquals(listOf(SeedWikiHandler.DEFAULT_LOCAL_WIKI_PATH), seenPath)
             assertEquals("PROMPT(${SeedWikiHandler.DEFAULT_LOCAL_WIKI_PATH})", dispatched)
@@ -204,7 +204,7 @@ class SeedWikiHandlerTest {
                         freeforms = mapOf("q" to "/absolute/path"),
                     ))
                 },
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertTrue("expected validation error, got: $htmlBuf", htmlBuf.toString().contains("project-relative"))
             assertNull(dispatched)
@@ -236,7 +236,7 @@ class SeedWikiHandlerTest {
                         freeforms = mapOf("q" to "docs/llm-wiki"),
                     ))
                 },
-                dispatchToBridge = { dispatched = it },
+                runSeedWiki = { dispatched = it },
             ))
             assertEquals(listOf("docs/llm-wiki"), seenPath)
             assertEquals("PROMPT(docs/llm-wiki)", dispatched)
@@ -263,7 +263,7 @@ class SeedWikiHandlerTest {
                 appendHtml = {},
                 showNotification = {},
                 askQuestion = { input, _ -> captured = input /* never resolved */ },
-                dispatchToBridge = {},
+                runSeedWiki = {},
             ))
             assertEquals("custom/wiki", captured?.questions?.single()?.freeformInput?.prefill)
         } finally {

@@ -48,15 +48,16 @@ class SeedWikiHandler(
 
     override fun execute(args: String, context: CommandContext) {
         val ask = context.askQuestion
-        val dispatch = context.dispatchToBridge
-        if (ask == null || dispatch == null) {
-            // Headless fallback — match the legacy BridgeExpandingHandler
-            // behavior so non-chat call sites (tests, future scripted entry
-            // points) still bootstrap a default-mode wiki.
+        val seed = context.runSeedWiki
+        if (ask == null || seed == null) {
+            // Headless fallback — with no placement question available, bootstrap a
+            // default-mode wiki so non-chat call sites (tests, future scripted entry
+            // points) still work. The seed itself runs under the WIKI role via
+            // runSeedWiki, not the chat bridge.
             context.appendHtml(
                 """<div class="info-block">/seed-wiki: bootstrapping wiki at $DEFAULT_LOCAL_WIKI_PATH/...</div>""",
             )
-            dispatch?.invoke(expansion(DEFAULT_LOCAL_WIKI_PATH))
+            seed?.invoke(expansion(DEFAULT_LOCAL_WIKI_PATH))
             return
         }
 
@@ -73,7 +74,7 @@ class SeedWikiHandler(
                 context.appendHtml("""<div class="info-block">/seed-wiki cancelled.</div>""")
                 return@ask
             }
-            handleResolution(projectBase, resolved, context, dispatch)
+            handleResolution(projectBase, resolved, context, seed)
         }
     }
 
@@ -81,7 +82,7 @@ class SeedWikiHandler(
         projectBase: Path,
         resolved: HandlerQuestionAnswers,
         context: CommandContext,
-        dispatch: (String) -> Unit,
+        seed: (String) -> Unit,
     ) {
         val placementLabel = resolved.answers.values.firstOrNull()
         val placement = parsePlacement(placementLabel)
@@ -97,7 +98,7 @@ class SeedWikiHandler(
                 context.appendHtml(
                     """<div class="info-block">/seed-wiki: bootstrapping wiki at $DEFAULT_LOCAL_WIKI_PATH/...</div>""",
                 )
-                dispatch(expansion(DEFAULT_LOCAL_WIKI_PATH))
+                seed(expansion(DEFAULT_LOCAL_WIKI_PATH))
             }
             Placement.SHAREABLE -> {
                 val newPath = resolved.freeforms.values.firstOrNull()?.trim().orEmpty()
@@ -108,7 +109,7 @@ class SeedWikiHandler(
                     )
                     return
                 }
-                runShareableSetup(projectBase, newPath, context, dispatch)
+                runShareableSetup(projectBase, newPath, context, seed)
             }
         }
     }
@@ -123,7 +124,7 @@ class SeedWikiHandler(
         projectBase: Path,
         newPath: String,
         context: CommandContext,
-        dispatch: (String) -> Unit,
+        seed: (String) -> Unit,
     ) {
         val app = com.intellij.openapi.application.ApplicationManager.getApplication()
         val heavy = Runnable {
@@ -139,7 +140,7 @@ class SeedWikiHandler(
                     context.appendHtml(
                         """<div class="info-block">/seed-wiki: configured shareable wiki at '${escapeHtml(newPath)}'. Bootstrapping...</div>""",
                     )
-                    dispatch(expansion(newPath))
+                    seed(expansion(newPath))
                 }
             } catch (e: Throwable) {
                 LOG.warn("/seed-wiki shareable setup failed: ${e.message}", e)

@@ -51,6 +51,12 @@ data class CommandContext(
      * dispatching a path-aware expanded prompt).
      */
     val dispatchToBridge: ((text: String) -> Unit)? = null,
+    /**
+     * Optional WIKI-role seed dispatch — runs [prompt] in a subprocess/loop under the WIKI role's
+     * model (Settings → Roles), not the chat CLI's model. Non-null when invoked from the chat panel.
+     * Used by /seed-wiki so bootstrapping honors the WIKI model like the wiki-author does.
+     */
+    val runSeedWiki: ((prompt: String) -> Unit)? = null,
 )
 
 interface CommandHandler {

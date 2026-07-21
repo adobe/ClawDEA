@@ -1459,6 +1459,21 @@ class ChatPanel(
             dispatchToBridge = { text ->
                 dispatchSendToBridge(text, renderInChat = false, knowledgeBucket = knowledgeBucket)
             },
+            runSeedWiki = { prompt ->
+                appendHtml(renderer.renderInfoMessage("Seeding wiki with the WIKI-role model…"))
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
+                            .runWikiPrompt(prompt)
+                    }
+                    val msg = if (result.ok) {
+                        "Wiki seeded. Review the created files in the diff / project view."
+                    } else {
+                        "Seed wiki failed: ${result.errorMessage}"
+                    }
+                    appendHtml(renderer.renderInfoMessage(msg))
+                }
+            },
         )
     }
 
@@ -1642,11 +1657,9 @@ class ChatPanel(
             """
             Bootstrap an initial wiki for this project at $wikiPathRel/.
 
-            **CRITICAL — TOOL CHOICE:** Use the **propose_write** MCP tool (registered as
-            `mcp__clawdea-intellij__propose_write`) for every file you create. The built-in `Write` tool is
-            DISABLED in this environment — calls to it are silently rejected and no file is created.
-            If a tool result reports "tool not allowed" or you see an "Unavailable" status, you used the
-            wrong tool; retry with propose_write.
+            **TOOL CHOICE:** Use the built-in **Write** tool to create each file and **Edit** to modify
+            an existing file. This bootstrap runs headless under the WIKI role, so file writes are applied
+            directly (no diff dialog).
 
             **Scope rule (avoid overlap with CLAUDE.md):** the wiki holds subsystem-specific knowledge —
             concept pages with invariants, resolution pipelines, source pointers, and anti-patterns specific
@@ -1661,7 +1674,7 @@ class ChatPanel(
             1. **Bootstrap `CLAUDE.md` if missing.** Check whether `CLAUDE.md` exists at the project
                root.
 
-               **If it does NOT exist**, create it via `propose_write` using the template below.
+               **If it does NOT exist**, create it via Write using the template below.
                Discover real values for each section from `package.json` scripts, `pom.xml` profiles,
                `build.gradle.kts` tasks, `Makefile` targets, and the project README; do not ship the
                italicised placeholder text.
@@ -1700,7 +1713,7 @@ class ChatPanel(
                **If `CLAUDE.md` already exists**, do NOT overwrite it. Check whether it already
                contains a markdown link whose target lives under the wiki root (i.e. a link to
                `$wikiPathRel/index.md`, or any other path beginning with `$wikiPathRel/`). If such a
-               link is missing, append a new section at the end of the file via `propose_edit`:
+               link is missing, append a new section at the end of the file via Edit:
 
                ```markdown
 
@@ -1737,14 +1750,14 @@ class ChatPanel(
             $navigationTemplate
             ----- END NAVIGATION TEMPLATE -----
 
-            5. Use propose_write (NOT Write) to create:
+            5. Use Write to create:
                - $wikiPathRel/index.md — a TOC with a short intro plus standard Markdown links to each
                  concept page, e.g. `[Title](concepts/<slug>.md)`.
                - $wikiPathRel/concepts/<kebab-case-name>.md — one file per concept, using the template
                  that matches the classification. For `pipeline` or `runtime-behavior` pages, produce
                  3–7 invariants, each citing the file that makes it true.
 
-            After I accept the diffs, $wikiPathRel/index.md will join every chat's primer automatically.
+            Once written, $wikiPathRel/index.md will join every chat's primer automatically.
             """.trimIndent()
         })
 
