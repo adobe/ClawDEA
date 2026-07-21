@@ -592,8 +592,6 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
 
         private val MCP_SYSTEM_PROMPT = loadStaticPrompt("mcp-system-prompt")
 
-        internal val WIKI_LIBRARIAN_PROMPT = loadStaticPrompt("wiki-librarian-prompt")
-
         internal val WIKI_LIBRARIAN_TOOL_PROMPT = loadStaticPrompt("wiki-librarian-tool-prompt")
 
         private val EDIT_REVIEW_PROMPT = loadStaticPrompt("edit-review-prompt")

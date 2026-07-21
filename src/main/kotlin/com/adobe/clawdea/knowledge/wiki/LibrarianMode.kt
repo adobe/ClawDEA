@@ -16,27 +16,6 @@ import com.adobe.clawdea.provider.BackendKind
 import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
- * How the in-chat wiki-librarian is dispatched, tiered by the WIKI role's provider backend.
- * Mirrors [com.adobe.clawdea.knowledge.drift.DriftDetectionService.chooseWikiInvoker].
- */
-enum class LibrarianMode {
-    /** Claude-family WIKI provider: inject the librarian via `--agents`, honoring the WIKI model. */
-    CLAUDE_SUBAGENT,
-    /** OpenAI-compatible WIKI provider: expose `ask_wiki_librarian` MCP tool; no `--agents` librarian. */
-    AGENTIC_MCP_TOOL,
-    /** Codex WIKI provider (unsupported in-chat): fall back to the `--agents` subagent on the chat model. */
-    CLAUDE_SUBAGENT_FALLBACK,
-}
-
-/** Pure routing decision for the WIKI role. Unknown providers resolve to Claude (ProviderRegistry default). */
-fun chooseLibrarianMode(selection: AgentSelection): LibrarianMode =
-    when (ProviderRegistry.require(selection.providerId).backendKind) {
-        BackendKind.CLAUDE_CLI -> LibrarianMode.CLAUDE_SUBAGENT
-        BackendKind.OPENAI_COMPATIBLE_HTTP -> LibrarianMode.AGENTIC_MCP_TOOL
-        BackendKind.CODEX_APP_SERVER -> LibrarianMode.CLAUDE_SUBAGENT_FALLBACK
-    }
-
-/**
  * How the `ask_wiki_librarian` MCP tool executes the librarian, tiered by the WIKI role's provider
  * backend. Orthogonal to [LibrarianMode] (which tiers the Claude-chat `--agents` injection): this
  * decides the handler's runtime path regardless of which chat backend invoked the tool.
