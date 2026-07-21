@@ -34,6 +34,8 @@ import com.intellij.util.ui.FormBuilder
 import java.awt.CardLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
+import javax.swing.Box
+import javax.swing.BoxLayout
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -175,6 +177,23 @@ class ProvidersTab : SettingsTab {
     }
     val autoAcceptEditsCheckbox = JBCheckBox("Auto-accept file edits (still reversible from the chat diff link)", false)
 
+    // CLI Behavior — universal settings, always visible regardless of provider
+    private val cliBehaviorPanel = JPanel().apply {
+        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = javax.swing.BorderFactory.createTitledBorder("CLI Behavior")
+        add(JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(JBLabel("Tool approval:"))
+            add(Box.createHorizontalStrut(6))
+            add(toolApprovalCombo)
+        })
+        add(Box.createVerticalStrut(4))
+        add(JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(autoAcceptEditsCheckbox)
+        })
+    }
+
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
         font = font.deriveFont(11f)
@@ -206,8 +225,7 @@ class ProvidersTab : SettingsTab {
         .addComponent(cliPathWarning, 2)
         .addLabeledComponent(JBLabel("Codex CLI path:"), codexCliPathField, 1, false)
         .addComponent(codexCliPathHint, 2)
-        .addLabeledComponent(JBLabel("Tool approval:"), toolApprovalCombo, 1, false)
-        .addComponent(autoAcceptEditsCheckbox, 1)
+        .addComponent(cliBehaviorPanel, 1)
         .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
@@ -320,12 +338,16 @@ class ProvidersTab : SettingsTab {
         layout.show(providerCards, selectedProviderKey())
         refreshSubscriptionDetectionHint()
 
-        // Hide Claude/Codex CLI path fields when OpenAI-compatible provider is selected
-        val hideCliPaths = selectedProviderKey() == "openai-compatible"
-        cliPathField.isVisible = !hideCliPaths
-        cliPathWarning.isVisible = !hideCliPaths
-        codexCliPathField.isVisible = !hideCliPaths
-        codexCliPathHint.isVisible = !hideCliPaths
+        val provider = selectedProviderKey()
+        // Claude CLI path: only visible for providers that use the claude binary
+        val showCliPath = provider in listOf("anthropic", "claude-code", "claude-code-subscription")
+        cliPathField.isVisible = showCliPath
+        cliPathWarning.isVisible = showCliPath
+
+        // Codex CLI path: only visible for OpenAI providers that use the codex binary
+        val showCodexPath = provider in listOf("openai-subscription", "openai-compatible")
+        codexCliPathField.isVisible = showCodexPath
+        codexCliPathHint.isVisible = showCodexPath
     }
 
     private fun refreshSubscriptionDetectionHint() {
