@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.notes
 
+import com.adobe.clawdea.util.ClaudeProjectDir
 import com.intellij.openapi.project.Project
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -29,7 +30,7 @@ object NotesPaths {
     }
 
     internal fun notesDirFor(home: Path, projectBasePath: String): Path {
-        val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
+        val encodedPath = ClaudeProjectDir.encode(projectBasePath)
         return home.resolve(".claude").resolve("projects").resolve(encodedPath).resolve("notes")
     }
 

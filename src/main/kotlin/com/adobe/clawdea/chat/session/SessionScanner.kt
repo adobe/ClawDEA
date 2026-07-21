@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat.session
 
+import com.adobe.clawdea.util.ClaudeProjectDir
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
@@ -60,7 +61,7 @@ sealed class HistoryEntry {
 object SessionScanner {
 
     fun scan(projectBasePath: String): List<SessionInfo> {
-        val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
+        val encodedPath = ClaudeProjectDir.encode(projectBasePath)
         val sessionDir = File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath)
         if (!sessionDir.isDirectory) return emptyList()
 
@@ -72,12 +73,12 @@ object SessionScanner {
     }
 
     fun hasSessionFile(projectBasePath: String, sessionId: String): Boolean {
-        val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
+        val encodedPath = ClaudeProjectDir.encode(projectBasePath)
         return File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath + "/$sessionId.jsonl").exists()
     }
 
     fun loadHistory(projectBasePath: String, sessionId: String): List<HistoryEntry> {
-        val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
+        val encodedPath = ClaudeProjectDir.encode(projectBasePath)
         val file = File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath + "/$sessionId.jsonl")
         return loadHistoryFromFile(file)
     }
