@@ -155,25 +155,10 @@ class CliProcess(
 
             command.addAll(listOf("--mcp-config", tmpFile.absolutePath))
 
-            if (settings.enableWikiLibrarian) {
-                try {
-                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-                    val mode = com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)
-                    val agentsJson = when (mode) {
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson(wikiSel.modelId)
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT_FALLBACK ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson("")
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildAuthorOnlyJson()
-                    }
-                    command.addAll(listOf("--agents", agentsJson))
-                    log.info("Injected wiki subagents via --agents (mode=$mode, ${agentsJson.length} chars)")
-                } catch (e: Throwable) {
-                    log.warn("Failed to build wiki agents --agents arg; skipping injection", e)
-                }
-            }
+            // No `--agents` injection: the in-chat wiki-librarian is reached via the
+            // `ask_wiki_librarian` MCP tool (McpWikiTools), and wiki-author runs out-of-band
+            // via WikiAuthorInvoker. Injecting the ~14KB agents JSON here blew past Windows'
+            // cmd.exe 8191-char command-line cap ("The command line is too long.").
 
             val disallowed = buildDisallowedTools(mcpAvailable = true)
             if (disallowed != null) {
@@ -182,13 +167,9 @@ class CliProcess(
 
             val systemPrompt = buildString {
                 if (settings.enableWikiLibrarian) {
-                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-                    val librarianPrompt = when (com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)) {
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL -> WIKI_LIBRARIAN_TOOL_PROMPT
-                        else -> WIKI_LIBRARIAN_PROMPT
-                    }
-                    append(librarianPrompt)
+                    // Always the tool prompt: the librarian is reached via `ask_wiki_librarian`
+                    // for every chat backend now that `--agents` is gone.
+                    append(WIKI_LIBRARIAN_TOOL_PROMPT)
                     append("\n\n")
                 }
                 append(MCP_SYSTEM_PROMPT)
