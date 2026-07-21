@@ -25,7 +25,10 @@ data class ProviderModelOption(
     val selection: AgentSelection,
     val label: String,
     val enabled: Boolean,
-)
+) {
+    /** The model portion of [label], without its provider prefix. */
+    val modelLabel: String get() = label.substringAfter(" › ", label)
+}
 
 /**
  * A single provider or provider-profile catalog of models, input to [buildChatOptions].
@@ -50,7 +53,8 @@ data class ProviderModelSource(
  * - For openai-compatible providers: only include models with `capability == "agentic" && enabled`.
  * - For other providers: include all `enabled == true` models, regardless of capability.
  * - Unauthenticated sources: emit options with `enabled = false` and label suffix " (sign in)".
- * - Label format: `"${source.displayLabel} › ${model.displayName}"` (using U+203A right-angle-quote).
+ * - Label format: `"${source.displayLabel} › ${model.displayName}"` (using U+203A right-angle-quote); remove
+ *   `Anthropic` from model names that also contain `Claude`, avoiding redundant long labels.
  * - Order: source order is preserved; model order within each source is preserved.
  *
  * @param sources The list of provider/profile catalogs to combine.
@@ -65,7 +69,14 @@ fun buildChatOptions(sources: List<ProviderModelSource>): List<ProviderModelOpti
         }
 
         candidateModels.map { model ->
-            val modelDisplayName = if (model.displayName.isNotBlank()) model.displayName else model.id
+            val rawModelDisplayName = if (model.displayName.isNotBlank()) model.displayName else model.id
+            val modelDisplayName = if (rawModelDisplayName.contains("Anthropic", ignoreCase = true) &&
+                rawModelDisplayName.contains("Claude", ignoreCase = true)
+            ) {
+                rawModelDisplayName.replace(Regex("\\bAnthropic\\b\\s*", RegexOption.IGNORE_CASE), "").trim()
+            } else {
+                rawModelDisplayName
+            }
             val labelBase = "${source.displayLabel} › $modelDisplayName"
             val labelFinal = if (source.authenticated) labelBase else "$labelBase (sign in)"
             ProviderModelOption(

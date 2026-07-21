@@ -16,6 +16,7 @@ import com.adobe.clawdea.gateway.ModelCatalogListener
 import com.adobe.clawdea.gateway.ModelSelectorProbeStarter
 import com.adobe.clawdea.settings.tabs.AdvancedTab
 import com.adobe.clawdea.settings.tabs.KnowledgeLayerTab
+import com.adobe.clawdea.settings.tabs.PermissionsTab
 import com.adobe.clawdea.settings.tabs.ProfilingTab
 import com.adobe.clawdea.settings.tabs.ProvidersTab
 import com.adobe.clawdea.settings.tabs.RolesTab
@@ -37,6 +38,7 @@ class ClawDEASettingsConfigurable : Configurable {
         providersTab = providers
         val orderedTabs = listOf(
             providers,
+            PermissionsTab(),
             RolesTab(),
             KnowledgeLayerTab(),
             ProfilingTab(),

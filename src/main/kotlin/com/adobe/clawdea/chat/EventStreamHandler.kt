@@ -284,9 +284,9 @@ class EventStreamHandler(
                 }
             }
             is CliEvent.ReasoningDelta -> {
-                // Model reasoning/thinking tokens (codex-only; Claude's stream drops
-                // them). Streamed into a collapsible "Thinking" block above the answer;
-                // never mixed into messageBuffer, which holds the answer text. Buffered
+                // Model reasoning/thinking tokens (when exposed by the active backend;
+                // Claude's stream drops them). Streamed through the shared "Thinking"
+                // indicator without mixing into messageBuffer, which holds the answer text. Buffered
                 // and throttled to the browser — see [reasoningBuffer]/[flushReasoning].
                 reasoningBuffer.append(event.text)
                 scheduleReasoningFlush()
@@ -624,8 +624,9 @@ class EventStreamHandler(
                 // Emit any reasoning still buffered before the block is collapsed, so the last
                 // chunk isn't dropped or rendered after finalize.
                 flushReasoning()
-                browserRenderer.hideThinkingIndicator()
+                // Move any live reasoning out of the shared indicator before removing it.
                 browserRenderer.finalizeReasoning()
+                browserRenderer.hideThinkingIndicator()
                 // A `/goal` loop ends with a single trailing result. On success
                 // the condition was met → show "achieved". On an error result
                 // (CLI crash/abort), just clear the banner without claiming success.

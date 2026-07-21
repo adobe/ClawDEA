@@ -136,7 +136,10 @@ class OpenAiCompatibleSettingsCard : Disposable {
         rebuildProfileList()
     }
 
-    private fun profileRow(): JPanel = JPanel().apply {
+    // Left-aligned so the combo sits next to the "Profile:" label. A default (centering) FlowLayout
+    // would center the row in the stretched form column, leaving a large gap after the label. Keep the
+    // default hgap for normal spacing between the combo and the buttons; only the leading gap matters.
+    private fun profileRow(): JPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
         add(profileCombo)
         add(importButton)
         add(exportTemplateButton)

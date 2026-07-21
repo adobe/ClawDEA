@@ -20,12 +20,10 @@ import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.settings.OpenAiCompatibleSettingsCard
 import com.adobe.clawdea.settings.OpenAiSubscriptionCardPanel
 import com.adobe.clawdea.settings.SubscriptionCardPanel
-import com.adobe.clawdea.settings.ToolApprovalModeUi
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.ToolbarDecorator
-import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
@@ -34,8 +32,6 @@ import com.intellij.util.ui.FormBuilder
 import java.awt.CardLayout
 import java.awt.Dimension
 import java.awt.FlowLayout
-import javax.swing.Box
-import javax.swing.BoxLayout
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JButton
 import javax.swing.JComponent
@@ -166,32 +162,12 @@ class ProvidersTab : SettingsTab {
 
     // Common fields
     val cliPathField = JBTextField("claude", 30)
+    private val cliPathLabel = JBLabel("Claude CLI path:")
     val codexCliPathField = JBTextField("codex", 30)
+    private val codexCliPathLabel = JBLabel("Codex CLI path:")
     private val codexCliPathHint = JBLabel("Path to the OpenAI codex CLI (used by the OpenAI ChatGPT subscription provider).").apply {
         foreground = java.awt.Color(166, 173, 200)
         font = font.deriveFont(11f)
-    }
-    val toolApprovalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
-        toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
-        ToolApprovalModeUi.installRenderer(this)
-    }
-    val autoAcceptEditsCheckbox = JBCheckBox("Auto-accept file edits (still reversible from the chat diff link)", false)
-
-    // CLI Behavior — universal settings, always visible regardless of provider
-    private val cliBehaviorPanel = JPanel().apply {
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = javax.swing.BorderFactory.createTitledBorder("CLI Behavior")
-        add(JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(JBLabel("Tool approval:"))
-            add(Box.createHorizontalStrut(6))
-            add(toolApprovalCombo)
-        })
-        add(Box.createVerticalStrut(4))
-        add(JPanel().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(autoAcceptEditsCheckbox)
-        })
     }
 
     private val cliPathWarning = JBLabel("").apply {
@@ -221,11 +197,10 @@ class ProvidersTab : SettingsTab {
         .addLabeledComponent(JBLabel("API Provider:"), apiProviderCombo, 1, false)
         .addComponent(providerCards, 1)
         .addComponent(connectionRow, 1)
-        .addLabeledComponent(JBLabel("Claude CLI path:"), cliPathField, 1, false)
+        .addLabeledComponent(cliPathLabel, cliPathField, 1, false)
         .addComponent(cliPathWarning, 2)
-        .addLabeledComponent(JBLabel("Codex CLI path:"), codexCliPathField, 1, false)
+        .addLabeledComponent(codexCliPathLabel, codexCliPathField, 1, false)
         .addComponent(codexCliPathHint, 2)
-        .addComponent(cliBehaviorPanel, 1)
         .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
@@ -338,14 +313,16 @@ class ProvidersTab : SettingsTab {
         layout.show(providerCards, selectedProviderKey())
         refreshSubscriptionDetectionHint()
 
-        val provider = selectedProviderKey()
-        // Claude CLI path: only visible for providers that use the claude binary
-        val showCliPath = provider in listOf("anthropic", "claude-code", "claude-code-subscription")
+        val backendKind = com.adobe.clawdea.provider.ProviderRegistry.require(selectedProviderKey()).backendKind
+        // Claude CLI path: only visible for providers whose backend spawns the `claude` binary.
+        val showCliPath = backendKind == com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI
+        cliPathLabel.isVisible = showCliPath
         cliPathField.isVisible = showCliPath
         cliPathWarning.isVisible = showCliPath
 
-        // Codex CLI path: only visible for OpenAI providers that use the codex binary
-        val showCodexPath = provider in listOf("openai-subscription", "openai-compatible")
+        // Codex CLI path: only visible for providers whose backend spawns the `codex` binary.
+        val showCodexPath = backendKind == com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER
+        codexCliPathLabel.isVisible = showCodexPath
         codexCliPathField.isVisible = showCodexPath
         codexCliPathHint.isVisible = showCodexPath
     }
@@ -418,8 +395,6 @@ class ProvidersTab : SettingsTab {
         openAiApiKeyField.text = settings.getOpenAIApiKey()
         cliPathField.text = state.cliPath
         codexCliPathField.text = state.codexCliPath
-        toolApprovalCombo.selectedIndex = ToolApprovalModeUi.indexForKey(state.toolApprovalMode)
-        autoAcceptEditsCheckbox.isSelected = state.autoAcceptEdits
         bedrockRegionField.text = state.bedrockRegion
         bedrockBearerTokenField.text = settings.getBedrockBearerToken()
         vertexRegionField.text = state.vertexRegion
@@ -437,8 +412,6 @@ class ProvidersTab : SettingsTab {
         settings.setOpenAIApiKey(String(openAiApiKeyField.password))
         state.cliPath = cliPathField.text
         state.codexCliPath = codexCliPathField.text
-        state.toolApprovalMode = ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex)
-        state.autoAcceptEdits = autoAcceptEditsCheckbox.isSelected
         state.bedrockRegion = bedrockRegionField.text
         settings.setBedrockBearerToken(String(bedrockBearerTokenField.password))
         state.vertexRegion = vertexRegionField.text
@@ -454,8 +427,6 @@ class ProvidersTab : SettingsTab {
             String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
             cliPathField.text != state.cliPath ||
             codexCliPathField.text != state.codexCliPath ||
-            ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex) != state.toolApprovalMode ||
-            autoAcceptEditsCheckbox.isSelected != state.autoAcceptEdits ||
             bedrockRegionField.text != state.bedrockRegion ||
             String(bedrockBearerTokenField.password) != settings.getBedrockBearerToken() ||
             vertexRegionField.text != state.vertexRegion ||

@@ -83,6 +83,9 @@ class EffortComboManager(
         suppressEvents = true
         try {
             effortCombo.model = DefaultComboBoxModel(ENTRIES.toTypedArray())
+            effortCombo.prototypeDisplayValue = ENTRIES.maxBy {
+                effortCombo.getFontMetrics(effortCombo.font).stringWidth(it.displayName)
+            }
             effortCombo.selectedIndex =
                 ENTRIES.indexOfFirst { it.flagValue == selected }.coerceAtLeast(0)
         } finally {
