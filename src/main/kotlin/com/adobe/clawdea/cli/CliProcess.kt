@@ -60,15 +60,28 @@ class CliProcess(
         get() = process?.isAlive == true
 
     /**
-     * Resolves the `--model` value for the CLI. The tab's [pinnedModelId] (from its AgentSelection)
-     * wins when present, so the model shown in the dropdown is exactly the model the CLI runs. When
-     * blank, falls back to the settings-map read for the provider this process was built for (via
-     * [providerIdProvider]) rather than the global effective provider — a per-tab Claude tab thus
-     * reads the Claude-pinned model even when the global default is a Codex/OpenAI provider.
-     * Internal for headless testing of the selection→model routing.
+     * Resolves the `--model` value for the CLI, in precedence order:
+     *
+     * 1. **Explicit dropdown selection** — the model the user picked for this provider is persisted
+     *    to [ClawDEASettings.selectedModels] and read here first. This MUST win over [pinnedModelId]:
+     *    a model-only change on a Claude tab triggers an in-place bridge RESTART that reuses this same
+     *    [CliProcess] instance (so the pin, frozen at construction, is stale), and [resolveCliModel]
+     *    re-runs on each `start()` — reading the fresh pick is what makes the dropdown actually apply.
+     * 2. **[pinnedModelId]** — the tab's original AgentSelection model. Covers a fresh chat seeded
+     *    from the Roles tab (its model lives in `roleSelections`, never written to `selectedModels`)
+     *    so the CLI launches on the shown model instead of the CLI's own default.
+     * 3. **Provider default** — [ClawDEASettings.getCliModelId] (e.g. the subscription first entry).
+     *
+     * The provider is the one this process was BUILT for (via [providerIdProvider]), not the global
+     * effective provider — so a per-tab Claude tab reads the Claude model even when the global default
+     * is a Codex/OpenAI provider. Internal for headless testing of the selection→model routing.
      */
-    internal fun resolveCliModel(settings: ClawDEASettings): String =
-        pinnedModelId.ifBlank { settings.getCliModelId(workingDirectory, providerIdProvider()) }
+    internal fun resolveCliModel(settings: ClawDEASettings): String {
+        val explicit = settings.getSelectedModelId(workingDirectory, providerIdProvider())
+        if (explicit.isNotBlank()) return explicit
+        if (pinnedModelId.isNotBlank()) return pinnedModelId
+        return settings.getCliModelId(workingDirectory, providerIdProvider())
+    }
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
