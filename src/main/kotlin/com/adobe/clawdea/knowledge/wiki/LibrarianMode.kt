@@ -35,3 +35,26 @@ fun chooseLibrarianMode(selection: AgentSelection): LibrarianMode =
         BackendKind.OPENAI_COMPATIBLE_HTTP -> LibrarianMode.AGENTIC_MCP_TOOL
         BackendKind.CODEX_APP_SERVER -> LibrarianMode.CLAUDE_SUBAGENT_FALLBACK
     }
+
+/**
+ * How the `ask_wiki_librarian` MCP tool executes the librarian, tiered by the WIKI role's provider
+ * backend. Orthogonal to [LibrarianMode] (which tiers the Claude-chat `--agents` injection): this
+ * decides the handler's runtime path regardless of which chat backend invoked the tool.
+ * Mirrors [com.adobe.clawdea.knowledge.drift.DriftDetectionService.chooseWikiInvoker].
+ */
+enum class LibrarianExecution {
+    /** Claude-family WIKI provider: run `claude -p` with a librarian-only `--agents` def, capture text. */
+    CLAUDE_SUBPROCESS,
+    /** OpenAI-compatible WIKI provider: run the in-process agentic tool loop (AgenticLibrarian). */
+    AGENTIC_LOOP,
+    /** Codex WIKI provider: run `codex exec --json` read-only over the on-disk wiki (CodexExecLibrarian). */
+    CODEX_SUBPROCESS,
+}
+
+/** Pick the MCP tool's execution path for the WIKI role. Unknown providers resolve to Claude. */
+fun chooseLibrarianExecution(selection: AgentSelection): LibrarianExecution =
+    when (ProviderRegistry.require(selection.providerId).backendKind) {
+        BackendKind.CLAUDE_CLI -> LibrarianExecution.CLAUDE_SUBPROCESS
+        BackendKind.OPENAI_COMPATIBLE_HTTP -> LibrarianExecution.AGENTIC_LOOP
+        BackendKind.CODEX_APP_SERVER -> LibrarianExecution.CODEX_SUBPROCESS
+    }

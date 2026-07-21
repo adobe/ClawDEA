@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.knowledge.primer.sources
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,10 +21,11 @@ class WikiIndexSourceTest {
     // Full routing rules live in WIKI_LIBRARIAN_PROMPT (CliProcess); the
     // anchor here is the in-context nudge co-located with the TOC.
 
-    @Test fun `librarian anchor names the Agent tool and the wiki-librarian subagent`() {
-        val anchor = WikiIndexSource.buildLibrarianAnchor()
-        assertTrue(anchor.contains("Agent(subagent_type=\"wiki-librarian\""))
-        assertTrue(anchor.contains("first tool call"))
+    @Test fun `anchor is mechanism neutral`() {
+        val a = WikiIndexSource.buildLibrarianAnchor()
+        assertFalse(a.contains("subagent_type"))
+        assertFalse(a.contains("ask_wiki_librarian"))
+        assertTrue(a.contains("wiki librarian"))
     }
 
     @Test fun `librarian anchor explicitly covers change-safety questions`() {
@@ -57,17 +59,4 @@ class WikiIndexSourceTest {
         assertTrue(directive.contains("[Title](concepts/<slug>.md)"))
     }
 
-    // --- Mode-aware anchor (Task 8) ---
-
-    @Test fun `anchor names agent subagent in claude mode`() {
-        val a = WikiIndexSource.buildLibrarianAnchor(com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT)
-        assertTrue(a.contains("Agent(subagent_type=\"wiki-librarian\""))
-        assertTrue(a.contains("first tool call"))
-    }
-
-    @Test fun `anchor names mcp tool in agentic mode`() {
-        val a = WikiIndexSource.buildLibrarianAnchor(com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL)
-        assertTrue(a.contains("ask_wiki_librarian"))
-        assertTrue(a.contains("first tool call"))
-    }
 }

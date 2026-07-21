@@ -41,6 +41,8 @@ object CodexInstructions {
     /** Builds the first-turn preamble for the given project/skills, honoring settings toggles. */
     fun build(project: Project?, skills: List<SkillInfo>): String {
         val settings = ClawDEASettings.getInstance().state
+        val librarian =
+            if (settings.enableWikiLibrarian) CliProcess.WIKI_LIBRARIAN_TOOL_PROMPT else ""
         val tooling = try {
             PromptResource.load("codex-tooling-prompt").trim()
         } catch (e: Exception) {
@@ -59,7 +61,7 @@ object CodexInstructions {
                     ""
                 }
             } else ""
-        return compose(tooling, skillCatalog, primer)
+        return compose(librarian, tooling, skillCatalog, primer)
     }
 
     /**
