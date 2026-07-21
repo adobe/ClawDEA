@@ -140,6 +140,99 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
         return buildInvoker(basePath, wikiDir).invoke(events)
     }
 
+    /**
+     * Run an arbitrary wiki-authoring [prompt] as the WIKI role (Settings → Roles), in a dedicated
+     * subprocess/loop rather than the chat CLI — so `/seed-wiki` bootstraps under the WIKI model, not
+     * the chat tab's model. Backend tiering matches the wiki-author (Claude subprocess / agentic loop
+     * / codex unsupported). Cost is attributed to WIKI_CREATE via [CostTracker.recordWikiAuthorCost].
+     */
+    suspend fun runWikiPrompt(prompt: String): com.adobe.clawdea.knowledge.wiki.WikiPromptRunner.Result {
+        if (prompt.isBlank()) {
+            return com.adobe.clawdea.knowledge.wiki.WikiPromptRunner.Result(false, "empty prompt", "")
+        }
+        val basePath = project.basePath
+            ?: return com.adobe.clawdea.knowledge.wiki.WikiPromptRunner.Result(false, "no project base path", "")
+        val settings = ClawDEASettings.getInstance()
+        val wikiSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+            .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+        val kind = com.adobe.clawdea.provider.ProviderRegistry.require(wikiSelection.providerId).backendKind
+        val runner: com.adobe.clawdea.knowledge.wiki.WikiPromptRunner = when (kind) {
+            com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI -> {
+                val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
+                val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+                com.adobe.clawdea.knowledge.wiki.ClaudeWikiPromptRunner(
+                    runner = DefaultWikiAuthorInvoker.DefaultProcessRunner(wikiSelection),
+                    claudeCliPath = cliPath,
+                    projectRoot = Paths.get(basePath),
+                    mcpPort = mcpPort,
+                    modelId = wikiSelection.modelId,
+                    onStdout = { stdout ->
+                        project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
+                            .recordWikiAuthorCost(stdout)
+                    },
+                )
+            }
+            com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP ->
+                buildAgenticWikiPromptRunner(wikiSelection)
+            com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER ->
+                com.adobe.clawdea.knowledge.wiki.CodexUnsupportedWikiPromptRunner
+        }
+        return runner.run(prompt)
+    }
+
+    /** Agentic (openai-compatible) seed runner: same profile/capability/session wiring as [buildAgenticWikiInvoker]. */
+    private fun buildAgenticWikiPromptRunner(
+        wikiSelection: com.adobe.clawdea.provider.AgentSelection,
+    ): com.adobe.clawdea.knowledge.wiki.WikiPromptRunner {
+        val settings = ClawDEASettings.getInstance()
+        val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
+        val profileId = wikiSelection.profileId ?: ""
+        val profile = profileStore.resolve(profileId, System.getenv())
+        val capability = if (profile != null) {
+            com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
+                modelId = wikiSelection.modelId,
+                endpointCapability = null,
+                profileRules = profile.profile.modelRules,
+                userOverride = null,
+            )
+        } else {
+            com.adobe.clawdea.provider.openai.catalog.ModelCapability.UNKNOWN
+        }
+        val mcpDefs = com.adobe.clawdea.mcp.McpServer.getInstance(project).toolDefinitions()
+        val approvalGate = com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate(
+            toolApprovalMode = { settings.state.toolApprovalMode },
+            policy = { null },
+            route = { toolName, inputJson, toolUseId ->
+                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
+            },
+            promptTimeoutMs = 300_000,
+        )
+        val session = AgenticWikiSession { prompt ->
+            val credential = com.adobe.clawdea.provider.openai.auth.ProfileCredentialStore().get(profileId)
+            if (profile == null) {
+                Result.failure(RuntimeException("OpenAI-compatible profile '$profileId' not configured"))
+            } else if (credential.isBlank()) {
+                Result.failure(RuntimeException("Credential not configured for profile '$profileId'"))
+            } else {
+                val client = com.adobe.clawdea.cli.backend.HttpAgentClient(
+                    com.adobe.clawdea.provider.openai.client.OpenAiCompatibleClient(), profile, credential,
+                )
+                val executor = com.adobe.clawdea.cli.backend.defaultExecutor(
+                    project, mcpDefs, approvalGate, { settings.state.autoAcceptEdits },
+                )
+                LoopBackedWikiSession(
+                    client = client,
+                    executor = executor,
+                    tools = com.adobe.clawdea.cli.backend.agentToolDefinitions(mcpDefs),
+                    modelId = wikiSelection.modelId,
+                    systemPrompt = null,
+                    streaming = profile.profile.streaming,
+                ).run(prompt)
+            }
+        }
+        return com.adobe.clawdea.knowledge.wiki.AgenticWikiPromptRunner(session, capability, wikiSelection.modelId)
+    }
+
     fun recordProbeMiss(query: String, pathTokens: List<String>, hits: Int, contextHash: String) {
         val basePath = project.basePath ?: return
         val projectBase = Paths.get(basePath)
