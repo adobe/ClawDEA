@@ -13,7 +13,6 @@
 package com.adobe.clawdea.settings.tabs
 
 import com.adobe.clawdea.settings.ClawDEASettings
-import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
@@ -44,10 +43,6 @@ class AdvancedTab : SettingsTab {
     )
     
     val completionsEnabledCheckbox = JBCheckBox("Enable inline completions", true)
-    private val COMPLETION_MODELS = arrayOf("Sonnet", "Haiku")
-    val completionsModelCombo = ComboBox<String>(COMPLETION_MODELS).apply {
-        selectedIndex = 0
-    }
     val completionsDebounceField = JBTextField("300", 6)
     val completionsManualOnlyCheckbox = JBCheckBox("Only request completions on hotkey (Trigger Inline Completion, default Alt+\\)", false).apply {
         toolTipText = "When on, completions never fire automatically as you type — they are requested only when you invoke the \"Trigger Inline Completion\" action. Rebind the hotkey in Settings → Keymap."
@@ -68,7 +63,6 @@ class AdvancedTab : SettingsTab {
         .addComponent(enableBaselineDefaultsCheckbox, 1)
         .addComponent(gatewayBareModeCheckbox, 1)
         .addComponent(completionsEnabledCheckbox, 1)
-        .addLabeledComponent(JBLabel("Completions model:"), completionsModelCombo, 1, false)
         .addLabeledComponent(JBLabel("Completions debounce (ms):"), completionsDebounceField, 1, false)
         .addComponent(completionsManualOnlyCheckbox, 1)
         .addComponentFillVertically(JPanel(), 0)
@@ -91,11 +85,6 @@ class AdvancedTab : SettingsTab {
         completionsEnabledCheckbox.isSelected = state.completionsEnabled
         completionsDebounceField.text = state.completionsDebounceMs.toString()
         completionsManualOnlyCheckbox.isSelected = state.completionsManualOnly
-        completionsModelCombo.selectedIndex = when (state.completionsModel) {
-            "sonnet" -> 0
-            "haiku" -> 1
-            else -> 0
-        }
     }
 
     override fun applyTo(state: ClawDEASettings.State) {
@@ -115,11 +104,6 @@ class AdvancedTab : SettingsTab {
         state.completionsEnabled = completionsEnabledCheckbox.isSelected
         state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
         state.completionsManualOnly = completionsManualOnlyCheckbox.isSelected
-        state.completionsModel = when (completionsModelCombo.selectedIndex) {
-            0 -> "sonnet"
-            1 -> "haiku"
-            else -> "sonnet"
-        }
     }
 
     override fun isModifiedFrom(state: ClawDEASettings.State): Boolean =
@@ -138,10 +122,5 @@ class AdvancedTab : SettingsTab {
             gatewayBareModeCheckbox.isSelected != state.gatewayBareMode ||
             completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
             completionsDebounceField.text != state.completionsDebounceMs.toString() ||
-            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly ||
-            completionsModelCombo.selectedIndex != (when (state.completionsModel) {
-                "sonnet" -> 0
-                "haiku" -> 1
-                else -> 0
-            })
+            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly
 }
