@@ -17,8 +17,8 @@ import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
  * How the `ask_wiki_librarian` MCP tool executes the librarian, tiered by the WIKI role's provider
- * backend. Orthogonal to [LibrarianMode] (which tiers the Claude-chat `--agents` injection): this
- * decides the handler's runtime path regardless of which chat backend invoked the tool.
+ * backend. This decides the handler's runtime path for the WIKI role, based on that role's
+ * provider backend.
  * Mirrors [com.adobe.clawdea.knowledge.drift.DriftDetectionService.chooseWikiInvoker].
  */
 enum class LibrarianExecution {
