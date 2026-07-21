@@ -129,9 +129,9 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
 
     /**
      * Run the wiki-author out-of-band over [events] and return its result. Used by the manual
-     * `/refresh-wiki` path so authoring happens in a dedicated `claude -p` subprocess (its own
-     * `--agents` author def) rather than being injected into the chat CLI turn. Returns an empty
-     * result when there is no project basePath.
+     * `/refresh-wiki` path so authoring happens in a dedicated subprocess (the invoker chosen by
+     * [buildInvoker] per the WIKI role's backend) rather than being injected into the chat CLI turn.
+     * Returns an empty result when there is no project basePath.
      */
     suspend fun runAuthorNow(events: List<DriftEvent>): WikiAuthorInvoker.Result {
         val basePath = project.basePath

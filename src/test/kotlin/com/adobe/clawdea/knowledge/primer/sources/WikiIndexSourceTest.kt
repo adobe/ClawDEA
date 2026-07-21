@@ -18,7 +18,7 @@ import org.junit.Test
 class WikiIndexSourceTest {
 
     // --- Librarian anchor (enableWikiLibrarian=true) ---
-    // Full routing rules live in WIKI_LIBRARIAN_PROMPT (CliProcess); the
+    // Full routing rules live in WIKI_LIBRARIAN_TOOL_PROMPT (CliProcess); the
     // anchor here is the in-context nudge co-located with the TOC.
 
     @Test fun `anchor is mechanism neutral`() {

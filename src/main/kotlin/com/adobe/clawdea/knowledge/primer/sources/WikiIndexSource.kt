@@ -30,7 +30,7 @@ class WikiIndexSource : PrimerSource {
         // When the librarian is on, ship a one-line anchor sitting right next to
         // the TOC so the routing reminder is co-located with the content the
         // model actually scans when answering. The full routing rules are in
-        // WIKI_LIBRARIAN_PROMPT (CliProcess); this is the in-context nudge.
+        // WIKI_LIBRARIAN_TOOL_PROMPT (CliProcess); this is the in-context nudge.
         if (state.enableWikiLibrarian) {
             return buildLibrarianAnchor() + "\n\n" + index
         }

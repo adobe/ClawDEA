@@ -1902,7 +1902,6 @@ class ChatPanel(
         return RefreshWikiResult.Local(summary)
     }
 
-
     private fun queueExplicitPrompt(prompt: String): Boolean {
         val queued = pendingPromptController.queueExplicit(prompt)
         refreshPendingPromptStatus()
