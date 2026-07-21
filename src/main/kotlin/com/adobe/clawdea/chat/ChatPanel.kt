@@ -1841,7 +1841,6 @@ class ChatPanel(
 
     private sealed class RefreshWikiResult {
         data class Local(val message: String) : RefreshWikiResult()
-        data class ReviewPrompt(val prompt: String) : RefreshWikiResult()
     }
 
     private fun handleRefreshWiki(rawArgs: String) {
@@ -1865,7 +1864,6 @@ class ChatPanel(
             val result = withContext(Dispatchers.IO) { refreshWiki(args) }
             when (result) {
                 is RefreshWikiResult.Local -> appendHtml(renderer.renderInfoMessage(result.message))
-                is RefreshWikiResult.ReviewPrompt -> dispatchOrQueueRefreshPrompt(result.prompt)
             }
         }
     }
@@ -1886,23 +1884,24 @@ class ChatPanel(
             return RefreshWikiResult.Local("(no drift events detected)")
         }
 
-        val prompt = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
-            val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
-            com.adobe.clawdea.knowledge.drift.WikiAuthorDigestBuilder.build(events, wikiDir)
-        } else {
-            buildLegacyRefreshWikiPrompt(events)
+        if (!ClawDEASettings.getInstance().state.enableWikiLibrarian) {
+            // Wiki knowledge layer off: nothing to author. Surface the legacy prompt as text
+            // so the user still sees the drift, but do not dispatch it (no wiki-author available).
+            return RefreshWikiResult.Local(buildLegacyRefreshWikiPrompt(events))
         }
-        return RefreshWikiResult.ReviewPrompt(prompt)
+
+        // Author out-of-band in a dedicated subprocess (its own --agents author def) rather than
+        // injecting a @wiki-author digest into the chat CLI turn — the chat CLI no longer carries
+        // the wiki --agents definitions.
+        val result = service.runAuthorNow(events)
+        val summary = when {
+            result.errorMessage != null -> "Wiki refresh failed: ${result.errorMessage}"
+            result.actedOnSignatures.isEmpty() -> "Wiki refresh ran; no pages needed changes."
+            else -> "Wiki refresh applied ${result.actedOnSignatures.size} change(s). Review them in the diff."
+        }
+        return RefreshWikiResult.Local(summary)
     }
 
-    private fun dispatchOrQueueRefreshPrompt(prompt: String) {
-        if (turnController.isStreaming) {
-            queueExplicitPrompt(prompt)
-            appendHtml(renderer.renderInfoMessage("Queued wiki drift review until the current Claude turn finishes."))
-            return
-        }
-        dispatchSendToBridge(prompt, renderInChat = false, knowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucket.WIKI_UPDATE)
-    }
 
     private fun queueExplicitPrompt(prompt: String): Boolean {
         val queued = pendingPromptController.queueExplicit(prompt)
