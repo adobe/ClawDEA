@@ -143,7 +143,9 @@ class ClaudeSubprocessLibrarian(
             val pb = ProcessBuilder(command)
                 .directory(projectRoot.toFile())
                 .redirectErrorStream(false)
-                .redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+                // `claude -p` blocks on an open stdin pipe until EOF; the null device gives it
+                // immediate EOF. Portable across OSes (`NUL` on Windows, `/dev/null` elsewhere).
+                .redirectInput(com.adobe.clawdea.util.NullDevice.inputRedirect())
             pb.environment().apply { clear(); putAll(env) }
             val process = pb.start()
             val out = StringBuilder(); val err = StringBuilder()

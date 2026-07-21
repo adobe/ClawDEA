@@ -169,8 +169,9 @@ class CodexExecLibrarian(
                 .directory(projectRoot.toFile())
                 .redirectErrorStream(false)
                 // codex exec reads stdin as an extra `<stdin>` block and blocks on an open pipe until
-                // EOF (spike "stdin caveat") — redirect from /dev/null so the one-shot proceeds.
-                .redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+                // EOF (spike "stdin caveat") — redirect from the null device so the one-shot proceeds.
+                // Portable across OSes (`NUL` on Windows, `/dev/null` elsewhere).
+                .redirectInput(com.adobe.clawdea.util.NullDevice.inputRedirect())
             pb.environment().apply { clear(); putAll(env) }
             val process = pb.start()
             val out = StringBuilder(); val err = StringBuilder()
