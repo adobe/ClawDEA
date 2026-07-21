@@ -152,32 +152,41 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
         }
         val basePath = project.basePath
             ?: return com.adobe.clawdea.knowledge.wiki.WikiPromptRunner.Result(false, "no project base path", "")
-        val settings = ClawDEASettings.getInstance()
-        val wikiSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
-            .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-        val kind = com.adobe.clawdea.provider.ProviderRegistry.require(wikiSelection.providerId).backendKind
-        val runner: com.adobe.clawdea.knowledge.wiki.WikiPromptRunner = when (kind) {
-            com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI -> {
-                val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
-                val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
-                com.adobe.clawdea.knowledge.wiki.ClaudeWikiPromptRunner(
-                    runner = DefaultWikiAuthorInvoker.DefaultProcessRunner(wikiSelection),
-                    claudeCliPath = cliPath,
-                    projectRoot = Paths.get(basePath),
-                    mcpPort = mcpPort,
-                    modelId = wikiSelection.modelId,
-                    onStdout = { stdout ->
-                        project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
-                            .recordWikiAuthorCost(stdout)
-                    },
-                )
+        // Guard the whole setup+run: a throw from provider/service/profile resolution must still
+        // return a Result so the caller (e.g. the /seed-wiki coroutine) always renders a resolution
+        // line instead of leaving a dangling "Seeding…" message.
+        return try {
+            val settings = ClawDEASettings.getInstance()
+            val wikiSelection = com.adobe.clawdea.provider.RoleSelectionStore(settings)
+                .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+            val kind = com.adobe.clawdea.provider.ProviderRegistry.require(wikiSelection.providerId).backendKind
+            val runner: com.adobe.clawdea.knowledge.wiki.WikiPromptRunner = when (kind) {
+                com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI -> {
+                    val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
+                    val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+                    com.adobe.clawdea.knowledge.wiki.ClaudeWikiPromptRunner(
+                        runner = DefaultWikiAuthorInvoker.DefaultProcessRunner(wikiSelection),
+                        claudeCliPath = cliPath,
+                        projectRoot = Paths.get(basePath),
+                        mcpPort = mcpPort,
+                        modelId = wikiSelection.modelId,
+                        onStdout = { stdout ->
+                            project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
+                                .recordWikiAuthorCost(stdout)
+                        },
+                    )
+                }
+                com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP ->
+                    buildAgenticWikiPromptRunner(wikiSelection)
+                com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER ->
+                    com.adobe.clawdea.knowledge.wiki.CodexUnsupportedWikiPromptRunner
             }
-            com.adobe.clawdea.provider.BackendKind.OPENAI_COMPATIBLE_HTTP ->
-                buildAgenticWikiPromptRunner(wikiSelection)
-            com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER ->
-                com.adobe.clawdea.knowledge.wiki.CodexUnsupportedWikiPromptRunner
+            runner.run(prompt)
+        } catch (e: Throwable) {
+            LOG.warn("runWikiPrompt setup failed: ${e.message}", e)
+            com.adobe.clawdea.knowledge.wiki.WikiPromptRunner.Result(
+                false, "seed-wiki setup failed: ${e.message}", "")
         }
-        return runner.run(prompt)
     }
 
     /** Agentic (openai-compatible) seed runner: same profile/capability/session wiring as [buildAgenticWikiInvoker]. */
