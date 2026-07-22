@@ -11,8 +11,10 @@
  */
 package com.adobe.clawdea.provider.openai.catalog
 
+import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.openai.profile.ModelRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ModelCapabilityResolverTest {
@@ -68,6 +70,47 @@ class ModelCapabilityResolverTest {
                 profileRules = emptyList(),
                 userOverride = null,
             ),
+        )
+    }
+
+    @Test
+    fun `catalogCapability reads a verified agentic entry as endpoint capability`() {
+        // Regression: "Refresh Models" probes each model and persists the verified capability into
+        // the catalog. A model verified AGENTIC must resolve as AGENTIC even when no profile rule
+        // matches it (the reported NVIDIA NIM failure: the verified model fell through to
+        // COMPLETION_ONLY because only the profile rules were consulted).
+        val catalog = listOf(ModelEntry(id = "nvidia/nemotron", capability = "agentic"))
+        assertEquals(
+            ModelCapability.AGENTIC,
+            ModelCapabilityResolver.catalogCapability("nvidia/nemotron", catalog),
+        )
+        assertEquals(
+            ModelCapability.AGENTIC,
+            ModelCapabilityResolver.resolve(
+                modelId = "nvidia/nemotron",
+                endpointCapability = ModelCapabilityResolver.catalogCapability("nvidia/nemotron", catalog),
+                profileRules = emptyList(),
+                userOverride = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `catalogCapability treats unknown or absent entries as no signal`() {
+        // A model whose probe failed (capability="unknown") or one that isn't in the catalog must
+        // yield null so profile rules still decide — a transport failure must never override a
+        // user-authored agentic rule.
+        val catalog = listOf(ModelEntry(id = "probed", capability = "unknown"))
+        assertNull(ModelCapabilityResolver.catalogCapability("probed", catalog))
+        assertNull(ModelCapabilityResolver.catalogCapability("not-in-catalog", catalog))
+    }
+
+    @Test
+    fun `catalogCapability reads a verified completion-only entry`() {
+        val catalog = listOf(ModelEntry(id = "text-only", capability = "completion_only"))
+        assertEquals(
+            ModelCapability.COMPLETION_ONLY,
+            ModelCapabilityResolver.catalogCapability("text-only", catalog),
         )
     }
 

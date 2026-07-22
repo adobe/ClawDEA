@@ -135,6 +135,45 @@ class CliBridgeBackendSelectionTest {
     }
 
     @Test
+    fun `HTTP backend honors a catalog-verified agentic model with no matching profile rule`() {
+        // Regression (reported NVIDIA NIM failure): "Refresh Models" probes each model and persists
+        // the verified capability in the catalog, but the factory used to consult only profile rules.
+        // A model verified AGENTIC with no matching rule wrongly resolved to COMPLETION_ONLY and the
+        // backend refused to start. It must now start (no readiness error) on the strength of the
+        // persisted verification.
+        val settings = ClawDEASettings()
+        settings.state.activeOpenAiCompatibleProfileId = "nim"
+        // Profile has a rule only for a DIFFERENT model — the selected one relies on verification.
+        settings.state.importedOpenAiProfiles["nim"] =
+            """{"id":"nim","name":"NIM","baseUrl":"https://example.com","modelRules":[{"pattern":"other/*","capability":"agentic"}]}"""
+        val catalogKey = ProviderRegistry.catalogKey(ProviderRegistry.OPENAI_COMPATIBLE_ID, "nim")
+        settings.state.modelCatalogs[catalogKey] = mutableListOf(
+            com.adobe.clawdea.gateway.ModelEntry(id = "nvidia/nemotron", capability = "agentic"),
+        )
+        settings.state.selectedModels["$catalogKey|"] = "nvidia/nemotron"
+
+        val selection = AgentSelection(
+            providerId = ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profileId = "nim",
+            modelId = "nvidia/nemotron",
+        )
+        val backend = AgentBackendFactory.create(selection, settings = settings)
+
+        assertTrue(backend is OpenAiCompatibleAgentBackend)
+        backend.start(resumeSessionId = null, skills = emptyList())
+        val event = backend.readEvent()
+        // A successful (agentic) start emits SystemInit, not an error Result. The pre-fix behavior
+        // emitted a "not agentic (capability: COMPLETION_ONLY)" error Result here.
+        if (event is com.adobe.clawdea.cli.CliEvent.Result) {
+            assertFalse(
+                "expected agentic start, got error: ${event.text}",
+                event.isError && event.text.contains("not agentic"),
+            )
+        }
+        backend.stop()
+    }
+
+    @Test
     fun `HTTP backend reads activeProfileId not providerId for profile and credential lookup`() {
         // BUG 2 fix: the factory resolves by activeOpenAiCompatibleProfileId, not "openai-compatible".
         // With no active profile set, the backend degrades to error (not crash).
