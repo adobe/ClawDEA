@@ -12,6 +12,8 @@ ClawDEA also coexists with IntelliJ's own [bundled MCP server](https://www.jetbr
 
 **New in 2.2 — agentic chat over any OpenAI-compatible provider:** when a profile's model is verified as tool-capable, the chat panel drives it as a full agent over the OpenAI-compatible Chat Completions API — streamed text and reasoning, ClawDEA's MCP tools plus permission-gated shell and reviewed edits, cancel-and-continue steering, profile-native session resume, and per-token cost estimates from the profile's configured pricing. Completion-only or unverified models cannot start agentic chat, and switching a conversation between providers is always explicit — never silent. See [OpenAI-compatible provider](docs/llm-wiki/concepts/openai-compatible-provider.md).
 
+**New in 3.0 — per-role providers, a tabbed Settings UI, and a cross-provider wiki-librarian:** Settings is now organized into **Providers / Roles / Permissions / Knowledge Layer / Profiling / Advanced** tabs. The new **Roles** tab lets Chat, Wiki, and Completions each run on an independently-selected provider and model — e.g. chat on Claude, wiki upkeep on a cheap OpenAI-compatible model, completions on a third. `ask_wiki_librarian` now honors whichever provider the **Wiki** role points at: a headless `claude -p` subprocess for Claude-family, `codex exec --json` (read-only sandbox, no MCP) for Codex, or an in-process agentic tool loop for an OpenAI-compatible profile — replacing the old Claude-only `--agents` subagent. The OpenAI-compatible agent loop also gains a **Skill tool** (invoke Claude Code skills) and an **Agent tool** (dispatch sub-agents), plus configurable context-window compaction for long-running turns. The self-maintaining wiki adds **orphan-subsystem detection** — flags whole new subsystems (e.g. a batch of same-prefix classes) that no wiki page mentions at all, closing a gap the existing stale-link/rename detectors couldn't see.
+
 <p align="center">
   <img src="docs/images/debug-demo.gif" alt="ClawDEA driving IntelliJ's debugger — setting breakpoints, stepping through code, inspecting variables, and mutating values at runtime" width="800">
   <br>
@@ -26,12 +28,12 @@ ClawDEA also coexists with IntelliJ's own [bundled MCP server](https://www.jetbr
 
 ## Features
 
-**Knowledge layer (self-maintaining wiki)** — A project-local wiki under `.clawdea/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer) that **keeps itself in sync with the code**: a commit-driven drift detector notices when a page's claims go stale, and a bundled `wiki-author` subagent drafts the fix — with **Auto-update wiki on drift** enabled it lands edits unattended in the background. The primer ships with every turn so Claude starts each conversation already oriented — no "let me explore the codebase first". A bundled `wiki-librarian` subagent answers project-design questions in its own fresh context, citing concept pages and verifying claims against current source. **Team-ready:** run `/wiki-relocate docs/llm-wiki` to commit the wiki path to `.clawdea/config.json`; teammates auto-discover the shared wiki on clone, with per-user vs team-shared drift state split automatically. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`. See the [User Guide](docs/user-guide.md#wiki-team-mode) for details.
+**Knowledge layer (self-maintaining wiki)** — A project-local wiki under `.clawdea/wiki/` (auto-generated `REPO_STATE.md`, concept pages, primer) that **keeps itself in sync with the code**: a commit-driven drift detector notices when a page's claims go stale, an orphan-subsystem detector flags whole new areas with no page at all, and a bundled `wiki-author` agent drafts the fix — with **Auto-update wiki on drift** enabled it lands edits unattended in the background. The primer ships with every turn so Claude starts each conversation already oriented — no "let me explore the codebase first". The `ask_wiki_librarian` tool answers project-design questions in its own fresh context, citing concept pages and verifying claims against current source; it runs on whichever provider the **Roles** tab's Wiki role points at — Claude, Codex, or an OpenAI-compatible profile. **Team-ready:** run `/wiki-relocate docs/llm-wiki` to commit the wiki path to `.clawdea/config.json`; teammates auto-discover the shared wiki on clone, with per-user vs team-shared drift state split automatically. `/seed-workspace` assembles a multi-repo manifest for cross-repo navigation via `read_sibling_wiki` / `read_sibling_repo_state`. See the [User Guide](docs/user-guide.md#wiki-team-mode) for details.
 Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA/blob/main/docs/llm-wiki/index.md
 
 **Profiling** — Claude can profile your code via JDK Flight Recorder: launch tests or run configurations with JFR instrumentation, then analyze CPU hotspots, allocation pressure, and memory leaks. Three entry points: `/profile` slash command, gutter icon on `@Test` methods, or imported `.jfr`/`.hprof` files. Claude reads the analysis results and proposes source-level fixes — a closed diagnostic loop from "this is slow" to a concrete patch.
 
-**Chat panel** — Streams responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Reasoning is streamed live in a collapsible **Thinking** block. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings). **Backend choice:** chat with **Claude Code** or **OpenAI Codex** — switch from the model dropdown and ClawDEA routes to the right CLI automatically, keeping the full MCP toolset (index, debugger, diff-gated edit review, primer, skills) either way. Sessions from both backends appear in `/resume` (labeled by origin); resuming across backends replays the prior conversation as context.
+**Chat panel** — Streams responses with Markdown, code blocks, tool-use cards, and clickable code references that navigate to source. Reasoning is streamed live in a collapsible **Thinking** block that closes when the turn ends. Open from **Tools → Toggle ClawDEA Chat** (assign your own shortcut in Keymap settings). **Backend choice:** chat with **Claude Code**, **OpenAI Codex**, or a verified-agentic **OpenAI-compatible provider profile** — switch from the model dropdown and ClawDEA routes to the right backend automatically, keeping the full MCP toolset (index, debugger, diff-gated edit review, primer, skills, and — for OpenAI-compatible — a Skill tool and an Agent tool for sub-agent dispatch) across all three. Sessions from all backends appear in `/resume` (labeled by origin); resuming across backends replays the prior conversation as context.
 
 **Code navigation & MCP server** — A local server exposes IntelliJ's indices as MCP tools: find files, usages, callers, implementations, supertypes, resolve symbols, read diagnostics, literal/regex content search, and cross-project navigation via `list_workspace_repos` / `read_sibling_wiki` / `read_sibling_repo_state` when a workspace manifest is present.
 
@@ -51,7 +53,7 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 
 **Slash commands** — `/stop`, `/clear`, `/mode`, `/cost`, `/compact`, `/context`, `/resume`, `/skills`, `/login`, `/cc`, `/init`, `/profile`, `/callers`, `/usages`, `/implementations`, `/supertypes`, `/refresh-view`, knowledge-layer commands (`/note`, `/promote-to-wiki`, `/learn`, `/seed-wiki`, `/refresh-wiki`, `/wiki-audit`, `/wiki-gap`, `/wiki-relocate`, `/seed-workspace`), plus Claude Code skills discovered at runtime.
 
-**Session resume** — Pick up a previous session (Claude or Codex, labeled by origin) with conversation history replayed in the chat panel. Resuming the same backend is native; resuming across backends replays the prior conversation as context so you can continue seamlessly.
+**Session resume** — Pick up a previous session (Claude, Codex, or an OpenAI-compatible profile, labeled by origin) with conversation history replayed in the chat panel. Resuming the same backend is native; resuming across backends replays the prior conversation as context so you can continue seamlessly.
 
 **Mid-turn steering (Codex)** — Send a message while Codex is still working and it's injected into the running turn via native `turn/steer` — the model folds in your guidance without restarting. (Claude has no steer primitive, so a message sent mid-turn queues for the next turn as before.)
 
@@ -61,13 +63,14 @@ Check out ClawDEA's own self-maintained wiki at https://github.com/adobe/ClawDEA
 - Java 21
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm install -g @anthropic-ai/claude-code`)
 - To chat with OpenAI Codex: the [OpenAI Codex CLI](https://developers.openai.com/codex/) installed (`npm install -g @openai/codex`)
-- Auth for at least one backend: Claude (Anthropic API key, subscription, AWS Bedrock, or Google Vertex) and/or OpenAI (ChatGPT subscription or OpenAI API key)
+- To chat with an OpenAI-compatible provider (no CLI needed): an imported provider profile with a verified agentic model — see [OpenAI-compatible provider profiles](docs/user-guide.md#openai-compatible-provider-profiles)
+- Auth for at least one backend: Claude (Anthropic API key, subscription, AWS Bedrock, or Google Vertex), OpenAI (ChatGPT subscription or OpenAI API key), and/or an OpenAI-compatible profile's own credentials
 
 ## Quick Start
 
 1. Install a CLI: `npm install -g @anthropic-ai/claude-code` (Claude) and/or `npm install -g @openai/codex` (OpenAI Codex).
 2. Install the plugin from a release zip (or build from source — see below).
-3. Open **Settings → Tools → ClawDEA** and pick a provider: configure an API key or sign in with a Claude subscription, or choose **OpenAI (ChatGPT subscription)** / **OpenAI API**.
+3. Open **Settings → Tools → ClawDEA** (tabbed: Providers / Roles / Permissions / Knowledge Layer / Profiling / Advanced) and pick a provider on the **Providers** tab: configure an API key or sign in with a Claude subscription, or choose **OpenAI (ChatGPT subscription)** / **OpenAI API**. Optionally use the **Roles** tab to point Chat, Wiki, and Completions at different providers/models.
 4. Open the chat panel (**Tools → Toggle ClawDEA Chat**) and start coding.
 
 See the **[User Guide](docs/user-guide.md)** for detailed configuration, slash commands, debugger workflows, and troubleshooting.
@@ -86,16 +89,18 @@ See the **[User Guide](docs/user-guide.md)** for detailed configuration, slash c
 src/main/kotlin/com/adobe/clawdea/
   actions/       Intention actions, context menu, keyboard shortcuts
   chat/          ChatPanel, MessageRenderer, EditDiffReviewer, EditReviewCoordinator
-  cli/           CliBridge, CliProcess/CliEventParser (Claude), CodexAppServerProcess/CodexAppServerParser (OpenAI)
+  cli/           CliBridge, CliProcess/CliEventParser (Claude), CodexAppServerProcess/CodexAppServerParser (Codex); cli/backend/ has the AgentBackend abstraction, incl. OpenAiCompatibleAgentBackend
   commands/      Slash command registry and handlers
   completions/   Inline completion provider
   context/       Context engine for gathering editor state
+  cost/          Per-turn cost tracking, savings estimation, model pricing
   debug/         DebugBridge, McpDebugTools, BreakpointTracker, SuspendGate
   gateway/       Claude API gateway for completions
-  knowledge/     Drift detection, wiki maintenance, wiki-author auto-apply
-  mcp/           MCP HTTP server, tool router, index/IDE/context/edit-review tools
+  knowledge/     Drift detection (incl. orphan-subsystem detection), wiki maintenance, wiki-author auto-apply
+  mcp/           MCP HTTP server, tool router, index/IDE/context/edit-review/wiki tools
   profiling/     JFR backend, CPU/allocation/leak analysis, MCP profiling tools
-  settings/      Plugin settings and configurable UI
+  provider/      AgentSelection/AgentRole, ProviderRegistry, per-role selection; provider/openai/ has the OpenAI-compatible provider's agent loop (agent/), auth/credential exchange (auth/), model catalog (catalog/), HTTP client (client/), profile store (profile/), session ledger (session/), and tool catalog (tools/)
+  settings/      Plugin settings; settings/tabs/ has the Providers/Roles/Permissions/Knowledge Layer/Profiling/Advanced tabs
   skills/        Skill scanner and picker dialog
 
 scripts/drift/   Claude Code drift monitoring (watchlist, snapshot collector, issue filer)

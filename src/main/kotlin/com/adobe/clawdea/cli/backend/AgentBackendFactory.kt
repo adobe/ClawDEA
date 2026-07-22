@@ -157,10 +157,13 @@ object AgentBackendFactory {
                     return errorBackend("No model selected for profile '$activeProfileId'")
                 }
 
-                // Check capability
+                // Check capability. Feed the verified capability persisted by "Refresh Models"
+                // (stored per model in the catalog) so a model probed as agentic drives agentic chat
+                // even when no profile rule matches it.
+                val catalog = settings.state.modelCatalogs[catalogKey] ?: emptyList()
                 val capability = ModelCapabilityResolver.resolve(
                     modelId = selectedModelId,
-                    endpointCapability = null,
+                    endpointCapability = ModelCapabilityResolver.catalogCapability(selectedModelId, catalog),
                     profileRules = profileEntry.profile.modelRules,
                     userOverride = null,
                 )

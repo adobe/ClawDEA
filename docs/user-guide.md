@@ -4,7 +4,9 @@ ClawDEA is native [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 
 
 ClawDEA coexists with IntelliJ's own [bundled MCP server](https://www.jetbrains.com/help/idea/mcp-server.html): when you enable it, ClawDEA automatically stops serving the handful of tools the IDE already covers and keeps serving the ones with no IDE-native equivalent — see [Wiki team mode](#wiki-team-mode) and the feature list in the [README](../README.md#features).
 
-As of **2.0**, the chat panel also supports **OpenAI Codex** as an alternate backend alongside Claude Code — see [OpenAI (Codex) chat backend](#openai-codex-chat-backend). Everything else in this guide (MCP tools, debugger, edit review, knowledge layer) applies to both backends; inline completions and intention actions remain Claude-only.
+The chat panel can drive three kinds of backend: **Claude Code**, **OpenAI Codex** (see [OpenAI (Codex) chat backend](#openai-codex-chat-backend)), or a verified-agentic **OpenAI-compatible provider profile** (see [OpenAI-compatible provider profiles](#openai-compatible-provider-profiles)). MCP tools, debugger, and edit review work the same across all three; inline completions and intention actions work with Claude or a selected OpenAI-compatible profile, but not with Codex.
+
+As of **3.0**, Chat, Wiki (wiki-librarian/wiki-author), and Completions can each be pinned to a *different* provider via the **Roles** tab — see [Per-role provider selection](#roles-tab-per-role-provider-selection) — and the settings UI itself is now tabbed (Providers / Roles / Permissions / Knowledge Layer / Profiling / Advanced) rather than one flat panel.
 
 ## Getting Started
 
@@ -14,9 +16,11 @@ As of **2.0**, the chat panel also supports **OpenAI Codex** as an alternate bac
 - **Java 21** runtime
 - **Claude Code CLI** — install with `npm install -g @anthropic-ai/claude-code`
 - **OpenAI Codex CLI** (only to chat with Codex) — install with `npm install -g @openai/codex`
+- An **OpenAI-compatible provider profile** (only to chat with a third-party model) — no CLI needed, see [OpenAI-compatible provider profiles](#openai-compatible-provider-profiles)
 - Auth for at least one backend:
   - Claude: Anthropic API key, Claude Pro/Max/Team/Enterprise subscription, AWS Bedrock credentials, or Google Vertex credentials
   - OpenAI: a ChatGPT subscription (Plus/Pro/Team/Enterprise) or an OpenAI API key
+  - OpenAI-compatible: whatever credentials the imported profile requires
 
 ### Installation
 
@@ -26,24 +30,58 @@ As of **2.0**, the chat panel also supports **OpenAI Codex** as an alternate bac
 
 ### Configuration
 
-Open **Settings → Tools → ClawDEA** to configure:
+Open **Settings → Tools → ClawDEA**. Settings is organized into six tabs:
+
+| Tab | Covers |
+|-----|--------|
+| **Providers** | API Provider combo, provider-specific credentials, Check Connection, `claude`/`codex` CLI paths, per-provider model catalog |
+| **Roles** | Independent provider + model selection for the **Chat default**, **Wiki**, and **Completions** roles — see [Per-role provider selection](#roles-tab-per-role-provider-selection) |
+| **Permissions** | Tool approval mode, Auto-accept Edits |
+| **Knowledge Layer** | Wiki librarian, workspace manifest, auto-update-on-drift toggles — see [Settings](#settings) under Knowledge Layer |
+| **Profiling** | JFR backend, sampling interval, recording limits — see [Profiling settings](#settings-1) |
+| **Advanced** | Token budgets, agent loop/compaction limits, CLI extra args/env script, context collectors, completions tuning |
+
+#### Providers tab
 
 | Setting | Description |
 |---------|-------------|
-| **API Provider** | Claude: `anthropic` (direct API), `bedrock` (AWS), `vertex` (Google), or `subscription` (Claude account). OpenAI: `OpenAI (ChatGPT subscription)` or `OpenAI API`. The provider decides which CLI the chat drives — `claude` or `codex`. |
+| **API Provider** | Claude: `anthropic` (direct API), `bedrock` (AWS), `vertex` (Google), or `subscription` (Claude account). OpenAI: `OpenAI (ChatGPT subscription)` or `OpenAI API`. Plus `OpenAI-compatible` for imported provider profiles (see [OpenAI-compatible provider profiles](#openai-compatible-provider-profiles)). The provider decides which backend the chat drives — `claude`, `codex`, or the OpenAI-compatible agent loop. |
 | **API Key** | Required for `anthropic` provider and inline completions; the `OpenAI API` provider takes an OpenAI API key |
-| **CLI Path** | Path to `claude` binary (auto-detected from shell PATH) |
-| **Codex CLI Path** | Path to `codex` binary for the OpenAI backends (auto-detected from shell PATH) |
-| **Auto-accept Edits** | When on, file changes are applied immediately. When off, each edit opens a diff dialog for review. |
+| **Claude CLI path** | Path to `claude` binary (auto-detected from shell PATH); shown only when the selected provider drives Claude |
+| **Codex CLI path** | Path to `codex` binary; shown only when the selected provider drives Codex |
+| **Models** | Per-provider model catalog table (add/remove rows); the OpenAI-compatible provider's catalog lives in its own card instead — see below |
+
+#### Roles tab: per-role provider selection
+
+Chat, Wiki (the `ask_wiki_librarian` tool and `wiki-author`), and Completions each get an independent **provider + model** picker, so — for example — chat can run on Claude Opus, wiki upkeep on a cheap OpenAI-compatible model, and completions on a third provider entirely. Every picker offers all providers' models, including completion-only ones; the Wiki picker warns inline if you pick a completion-only model, since wiki authoring needs tool support. **Reset defaults** recomputes all three from whichever provider is currently authenticated (latest Opus for chat, latest Haiku for wiki/completions on Claude).
+
+Roles are independent of the Providers tab's global `apiProvider`: the global provider is what a **new** chat defaults to until you override it here; an open chat tab keeps whatever provider/model it started with even if you change these later (see [Session resume](#session-resume) for cross-provider behavior).
+
+#### Permissions tab
+
+| Setting | Description |
+|---------|-------------|
 | **Tool approval mode** | `Confirm all` (every tool call asks), `Allow safe` (read-only tools auto-approved), or `Allow all` (silent auto-approve with a chat notice). |
-| **Default Chat Mode** | `Auto`, `Plan`, or `Code` — sets the initial mode for new conversations. |
+| **Auto-accept Edits** | When on, file changes are applied immediately (still reversible from the chat diff link). When off, each edit opens a diff dialog for review. |
+
+#### Advanced tab
+
+| Setting | Description |
+|---------|-------------|
+| **Completion / Chat / Action token budget** | Context budget per surface (inline completions, chat, intention actions). |
+| **Agent tool-call rounds before checkpoint** / **Agent minutes before checkpoint** | Soft limits (0 = unlimited) that trigger a context-compaction checkpoint in the OpenAI-compatible agent loop on a long-running turn. |
+| **Compact context at fraction of budget** | Threshold (0.0–1.0, default 0.8) of the context window at which the OpenAI-compatible backend compacts the conversation instead of overflowing. |
+| **CLI extra args** | Additional arguments passed to every `claude` invocation. |
+| **CLI env script** | Shell script sourced before launching CLI (for custom PATH, env vars). |
+| **Enable PSI semantic context** / **Enable Git context** | Toggle the context-engine collectors used for completions/actions. |
+| **Preload skill catalog into system prompt** | Advertises discovered Claude Code skills up front (also gates the OpenAI-compatible Skill tool — see [OpenAI-compatible provider profiles](#openai-compatible-provider-profiles)). |
+| **Inject baseline working defaults into system prompt** | Toggle the built-in baseline-defaults preamble. |
 | **Use minimal-mode CLI for completions** | When on (default), inline completions append `--bare` to the gateway CLI invocation, skipping hooks/LSP/plugin sync/auto-memory for lower latency. Only takes effect with explicit API-key or Bedrock auth; subscription users are unaffected. |
-| **CLI Extra Args** | Additional arguments passed to every `claude` invocation. |
-| **CLI Env Script** | Shell script sourced before launching CLI (for custom PATH, env vars). |
+| **Enable inline completions** / **debounce** / **manual-only** | Completions on/off, debounce delay, and hotkey-only mode (see [Manual (hotkey) trigger](#manual-hotkey-trigger)). |
 
 #### Claude subscription sign-in
 
-1. Set API Provider to **Claude subscription**.
+1. On the **Providers** tab, set API Provider to **Claude subscription**.
 2. Click **Sign in with Claude** and complete the browser authentication flow.
 3. Chat, skills, and all CLI features use your subscription.
 
@@ -54,14 +92,14 @@ Inline completions still require a separate API key — set it in the same panel
 ClawDEA can drive the [OpenAI Codex CLI](https://developers.openai.com/codex/) in the chat panel instead of Claude Code. Codex runs through the **same ClawDEA MCP server**, so it gets the full toolset — the IntelliJ index/search tools, the live debugger, diff-gated edit review (`propose_edit`/`propose_write`), the project primer, and your Claude Code skills.
 
 1. Install the Codex CLI: `npm install -g @openai/codex`.
-2. In **Settings → Tools → ClawDEA**, set **API Provider** to one of:
+2. On the **Providers** tab of **Settings → Tools → ClawDEA**, set **API Provider** to one of:
    - **OpenAI (ChatGPT subscription)** — sign in with your ChatGPT account. Click **Sign in with ChatGPT** on the settings card, or run `/login` in the chat; ClawDEA shells out to `codex login`, which opens your browser to complete authentication.
    - **OpenAI API** — authenticate with an OpenAI API key.
 3. Open (or start) a chat. The model dropdown now lists your Codex/GPT models; ClawDEA routes the conversation to `codex` automatically. The assistant label, the "… is thinking" status, and the per-turn footer all reflect the Codex backend.
 
 Codex runs over its native **app-server** protocol, which unlocks a few things beyond plain streaming:
 
-- **Streamed reasoning.** The model's reasoning is streamed live into a collapsible **Thinking** block above the answer, then auto-collapsed when the turn ends.
+- **Streamed reasoning.** The model's reasoning is streamed live into a collapsible **Thinking** block above the answer, then removed when the turn ends.
 - **Shell & patch approvals through ClawDEA's gate.** Codex's own shell commands and file patches are routed through the same permission system as Claude's tools — the same inline Allow / Always allow / Deny card, the same `permissions.allow`/`permissions.deny` precedence, and the same diff dialog for edits (see [Tool permissions](#tool-permissions)).
 - **Native interrupt & mid-turn steering.** **Esc** interrupts the live turn natively; sending a message while Codex is working injects it into the running turn (see [Mid-turn steering](#mid-turn-steering-codex)).
 
@@ -73,7 +111,9 @@ Codex runs over its native **app-server** protocol, which unlocks a few things b
 
 ### OpenAI-compatible provider profiles
 
-Organizations can distribute custom provider profiles that define model catalogs, credential flows, and pricing for OpenAI-compatible APIs. ClawDEA supports **two kinds** of profiles:
+Organizations can distribute custom provider profiles that define model catalogs, credential flows, and pricing for OpenAI-compatible APIs. This section covers *using* a profile once you have one — importing, credentials, exporting, and agentic chat. For the JSON schema itself and how to build a profile from scratch (every field, the credential-flow HTTP-step format, model capability rules, pricing), see **[OpenAI-Compatible Provider Profiles](openai-compatible-profiles.md)**.
+
+ClawDEA supports **two kinds** of profiles:
 
 - **Template profiles** — contain the API base URL, model catalog, credential schema (including declarative credential exchange flows), and pricing, but NO pre-filled credentials. Users must supply their own credentials when importing.
 - **Configured profiles** — like templates, but with credentials already supplied by the organization (typically via a secure onboarding flow external to ClawDEA). The profile JSON never contains secrets directly; credentials are encrypted and loaded into the IDE's PasswordSafe on import.
@@ -81,32 +121,33 @@ Organizations can distribute custom provider profiles that define model catalogs
 #### Importing a profile
 
 1. Obtain the profile JSON from your organization (via email, internal portal, or a secure onboarding tool).
-2. Open **Settings → Tools → ClawDEA → OpenAI-Compatible Providers**.
+2. Open **Settings → Tools → ClawDEA → Providers** tab, set **API Provider** to `OpenAI-compatible`, and find the OpenAI-compatible card.
 3. Click **Import Profile**.
 4. Select the profile JSON file.
-5. **Review the import preview** — a dialog shows the profile ID, label, API base URL, model count, credential requirements, and pricing data. This is your opportunity to confirm the profile matches what you expect.
-6. If the profile requires HTTPS but specifies a plain-HTTP URL (e.g., `http://localhost:8080`), ClawDEA warns and asks for explicit confirmation. Plain HTTP is only safe for localhost testing.
-7. **Confirm** to import. The profile is now listed in the OpenAI-Compatible Providers settings card.
+5. **Review the import preview** — a dialog shows the profile's name, description, resolved hosts, credential inputs it will ask for, and any declared settings. This is your opportunity to confirm the profile matches what you expect before anything is trusted.
+6. If a resolved endpoint is plain HTTP on a non-localhost host, import is rejected outright — that's not a warning you can dismiss. Plain HTTP on `localhost`/`127.0.0.1` prompts for explicit confirmation instead.
+7. **Confirm** to import. The profile is now listed in the profile dropdown on the OpenAI-compatible card.
 
 #### Credential handling
 
-- **Template profiles** prompt for credentials at import time (or later when you first select a model from that profile). You supply the credentials via a dialog; ClawDEA encrypts and stores them in the IDE's native PasswordSafe. Credentials are **never written to settings files or disk** outside the PasswordSafe.
-- **Configured profiles** with declarative credential exchange flows (e.g., OAuth2 authorization_code) may require interactive steps (clicking a confirmation link, entering a one-time code). The credential exchange spec defines the HTTP flows; ClawDEA executes them at runtime and persists only the durable credential (e.g., refresh token) in PasswordSafe. Interactive secrets (e.g., authorization codes) are held in memory only and never persisted.
+- Click **Connect** on the OpenAI-compatible card to run the profile's credential flow: a dialog prompts for whatever the profile declares (a plain API key, or an account/password pair for a login-style exchange), then ClawDEA runs any declarative HTTP steps the profile defines and stores the resulting durable credential in the IDE's native PasswordSafe. Credentials are **never written to settings files or disk** outside the PasswordSafe, and secret inputs are zeroed in memory as soon as the flow finishes. If a step fails, the error dialog names the exact step and HTTP status so you can tell a bad credential from a server-side problem.
+- If Connect fails for a reason that isn't your credential (e.g. a server 500) and you already have a valid key some other way, use **Set API Key Manually…** to paste it directly into PasswordSafe, bypassing the flow entirely.
+- See [Credential flow](openai-compatible-profiles.md#credential-flow-getting-the-durable-credential) in the profile-building guide for exactly what a profile can declare here.
 - **HTTPS requirement**: by default, ClawDEA rejects plain-HTTP base URLs unless they point to `localhost` or `127.0.0.1`. This prevents accidental credential leakage over unencrypted connections. Plain-HTTP localhost is allowed for local testing with explicit confirmation.
 
 #### Exporting a profile
 
-Click **Export Profile** on the settings card to save the profile JSON. Exports come in two flavors:
+Two separate buttons on the settings card cover the two export shapes:
 
-- **Template export** — strips all credentials and user-specific configuration. Safe to share with teammates or commit to source control. Recipients must supply their own credentials.
-- **Configured export** — like a template, but with credential *schema* and *exchange flows* intact. Still NO secrets in the JSON; credentials remain in your PasswordSafe.
+- **Export Template** — strips all credentials and user-specific configuration. Safe to share with teammates or commit to source control. Recipients must supply their own credentials.
+- **Export Configured** — like a template, but with credential *schema* and *exchange flows* intact, plus any non-secret settings values you filled in. Still NO secrets in the JSON; credentials remain in your PasswordSafe.
 
 #### Using the provider
 
 1. Import and confirm the profile (see above).
-2. Select the profile from the **OpenAI-Compatible Provider** dropdown in Settings.
-3. Select a model from the **Model** dropdown. The dropdown lists models from the profile's catalog with their capabilities (agentic, completion-only, etc.).
-4. **Inline completions and intention actions** now route to the selected profile and model. The gateway sends requests to the profile's API base URL using the credentials from PasswordSafe.
+2. On the **Providers** tab, select the profile from the profile dropdown on the OpenAI-compatible card, then set **API Provider** to `OpenAI-compatible` if it isn't already.
+3. Click **Refresh Models** to fetch the catalog, then select a model in the Roles tab (or the Providers tab's model table). The catalog shows each model's resolved capability (agentic, completion-only, etc.).
+4. **Inline completions and intention actions** now route to the selected profile and model when the Completions role points at it. The gateway sends requests to the profile's API base URL using the credentials from PasswordSafe.
 5. **Model capability gating**: capability is resolved conservatively — an explicit user override wins, then the endpoint's declared capability, then the profile's model rules; anything unresolved defaults to **completion-only**. Only models resolved as **agentic** can start agentic chat. Unknown and completion-only models cannot.
 6. **Pricing**: per-model pricing estimates (cost per million input/output/cached/reasoning tokens) are defined in the profile. The cost panel shows usage based on these estimates; this is NOT billing data, just a configured rate card.
 
@@ -124,8 +165,9 @@ Verification is **always explicit** — it runs only when you click the button, 
 
 When the selected model is agentic-capable, the chat panel drives it as a full agent over the OpenAI-compatible Chat Completions API:
 
-- **Streamed text and reasoning** — assistant text streams live; a model's reasoning (when the provider emits it) appears in the collapsible **Thinking** block.
-- **Tools** — the model can call ClawDEA's MCP tools (index, debugger, edit review, primer, skills) plus a permission-gated host shell and reviewed file edits. Every tool call flows through the same approval card and diff review as Claude/Codex, and each completed tool call executes exactly once (resumed sessions never re-run a completed call).
+- **Streamed text and reasoning** — assistant text streams live; a model's reasoning (when the provider emits it) appears in the collapsible **Thinking** block, which is removed once the turn ends.
+- **Tools** — the model can call ClawDEA's MCP tools (index, debugger, edit review, primer, skills), a **Skill tool** to invoke discovered Claude Code skills (advertised when **Preload skill catalog into system prompt** is on and skills exist), an **Agent tool** to dispatch sub-agents, plus a permission-gated host shell and reviewed file edits. Every tool call flows through the same approval card and diff review as Claude/Codex, and each completed tool call executes exactly once (resumed sessions never re-run a completed call). Sub-agent steps render flat in the transcript rather than in the collapsible cards Claude/Codex sub-agents get — the parser doesn't track a parent tool-use ID for this backend.
+- **Context window management** — the effective context window is resolved from the profile's `contextWindows` map, then the model catalog entry, then a 128K default. Long turns checkpoint and compact once usage crosses the **Compact context at fraction of budget** threshold (Advanced tab), or after the configured tool-call-round/elapsed-minute limits.
 - **Cancel-and-continue steering** — send a message while the model is working. ClawDEA cancels the in-flight round, preserves the valid assistant text produced so far, discards any incomplete tool-call fragments, and continues the turn with your new guidance.
 - **Errors and retries** — a 401/403 triggers a single credential-renewal prompt; a 429 waits for the `Retry-After` window; a pre-output connection or 5xx failure retries with backoff; a failure *after* partial output asks you before retrying (completed tool calls are reused, not re-run).
 - **Sessions** — each conversation is written to a per-profile session ledger under your ClawDEA data directory (never the repo). It appears in `/resume` labeled by provider; resuming the same profile restores full tool state.
@@ -196,7 +238,7 @@ Independent of approval mode: the **Auto-accept Edits** toggle controls whether 
 
 ### Session resume
 
-Use `/resume` to pick up a previous session. Conversation history replays in the chat panel. The picker lists both Claude and Codex sessions, each labeled by its origin. Resuming a session that matches the active backend is a **native resume**; resuming a session from the other backend replays the prior conversation as **context** on your next message, so the thread continues seamlessly across backends.
+Use `/resume` to pick up a previous session. Conversation history replays in the chat panel. The picker lists sessions from all three backends — Claude, Codex, and OpenAI-compatible profiles — each labeled by its origin. Resuming a session that matches the active backend is a **native resume**; resuming a session from a different backend replays the prior conversation as **context** on your next message, so the thread continues seamlessly across backends. See [Explicit provider fallback](#explicit-provider-fallback) for how this confirmation works when the OpenAI-compatible backend is involved.
 
 ---
 
@@ -231,7 +273,7 @@ These expand an in-plugin prompt template and forward to the CLI, which drives t
 |---------|-------------|
 | `/learn` | Capture a learning from the current session into the project wiki |
 | `/seed-wiki` | Bootstrap the project wiki (`.clawdea/wiki/` by default) with an index and initial concept pages |
-| `/refresh-wiki [--status|--apply-low-risk]` | Review and refresh wiki drift via the bundled `wiki-author` subagent |
+| `/refresh-wiki [--status|--apply-low-risk]` | Review and refresh wiki drift via the bundled `wiki-author` agent (tiered by the Roles tab's Wiki provider) |
 | `/seed-workspace` | Create a `.clawdea-workspace.md` manifest for cross-repo navigation |
 
 ### CLI-forwarded commands
@@ -277,15 +319,17 @@ Select code and press **Alt+Enter** (or right-click → **ClawDEA**) to access:
 | **Ask Claude** | Open-ended question about the selection |
 | **Fix with Claude** | Fix a bug or issue in the selection |
 
+Works with Claude or a selected OpenAI-compatible provider profile; not available with Codex.
+
 ---
 
 ## Inline Completions
 
-Tab-completions powered by the Claude API appear as you type, using editor context (open files, imports, recent edits) gathered by the context engine.
+Tab-completions appear as you type, using editor context (open files, imports, recent edits) gathered by the context engine. They run against whichever provider the **Completions** role points at (Roles tab) — the Claude API, or an OpenAI-compatible provider profile once a profile and model are selected.
 
-Requires an **Anthropic API key** — set in Settings or via `ANTHROPIC_API_KEY` environment variable. Works alongside Claude subscription for chat.
+The Claude path requires an **Anthropic API key** — set in Settings or via `ANTHROPIC_API_KEY` environment variable. Works alongside Claude subscription for chat.
 
-Configure debounce delay and token budget in Settings.
+Configure debounce delay and token budget in the Advanced tab.
 
 ### Manual (hotkey) trigger
 
@@ -323,8 +367,9 @@ ClawDEA runs a local MCP server that gives Claude direct access to IntelliJ's in
 | Tool | What it does |
 |------|-------------|
 | `read_wiki_page` | Read a concept, source, or index page from the project wiki |
-| `search_wiki` | Search the project wiki (registered only when **Enable wiki librarian** is off — otherwise the librarian subagent owns wiki access). Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
-| `record_wiki_suggestion` | Allow-listed for the `wiki-librarian` subagent — records a `missingConcept` / `staleConcept` / `incompleteConcept` suggestion that surfaces at refresh time |
+| `ask_wiki_librarian` | Answer a project-design question via the librarian, tiered by the Wiki role's provider (registered when **Enable wiki librarian** is on). Exempt from the 60s MCP tool timeout. See [Wiki librarian](#wiki-librarian). |
+| `search_wiki` | Search the project wiki (registered only when **Enable wiki librarian** is off — otherwise `ask_wiki_librarian` owns wiki access). Accepts an optional `pathTokens` array (e.g. `["policies", "clientlibs"]`) matched against file names and headings. Low-hit probes are recorded for `/wiki-gap`. |
+| `record_wiki_suggestion` | Allow-listed for the librarian's Claude and OpenAI-compatible execution paths — records a `missingConcept` / `staleConcept` / `incompleteConcept` suggestion that surfaces at refresh time |
 | `list_workspace_repos` | List sibling repos from `.clawdea-workspace.md` |
 | `read_sibling_wiki` | Read a wiki page from a sibling repo |
 | `read_sibling_repo_state` | Read `REPO_STATE.md` from a sibling repo |
@@ -398,33 +443,44 @@ To revert: delete `.clawdea/config.json` (and optionally move the wiki back to `
 
 ClawDEA watches the project's git refs (commit, fetch, pull, branch switch). On any change, `CommitWikiDriftDetector` reads commits since the last drift rescan and flags any concept page (e.g. `concepts/*.md` under the wiki) whose mentioned files or class names appear in the touched paths. Each flagged page becomes a `CommitDrift` drift event.
 
-If **Auto-update wiki on drift** is enabled, ClawDEA invokes the bundled `wiki-author` subagent in a fresh `claude -p` subprocess to draft the page edits — `propose_write` / `propose_edit` calls open diff dialogs (or apply silently if **Auto-accept edits** is also enabled). A one-line note in any active chat reports the outcome.
+**Orphan-subsystem detection.** `CommitWikiDriftDetector` and the rename detector can only flag pages that already mention something — they're blind to a brand-new subsystem no page mentions at all (e.g. a batch of same-prefix classes dropped into an existing package). `OrphanCodeDetector` closes that gap: it clusters declared source types by their leading PascalCase word, and for any cluster of 3+ types where the wiki mentions neither a class name nor the shared prefix word (as a whole word, anywhere in prose), it emits an `OrphanSubsystem` drift event.
 
-If **Auto-update wiki on drift** is disabled, the drift banner shows the events; clicking `/refresh-wiki to review` hands the digest to the same `wiki-author` subagent inline (visible as a `Task` tool-use in the chat).
+If **Auto-update wiki on drift** is enabled, ClawDEA runs the bundled `wiki-author` agent to draft the page edits — `propose_write` / `propose_edit` calls open diff dialogs (or apply silently if **Auto-accept edits** is also enabled). A one-line note in any active chat reports the outcome. Like the librarian, `wiki-author` is tiered by the Roles tab's Wiki provider: a Claude-family Wiki role runs it as a `claude -p --agents` subprocess (unchanged from earlier releases); an OpenAI-compatible Wiki role runs it through the agentic tool loop instead (no `--agents`); a Codex Wiki role is not yet supported for authoring (read-only librarian Q&A only).
 
-**Drift event icons.** The drift banner and `wiki-author` digest mark each event with a per-kind icon so git-driven drift never visually conflates with broken-link drift:
+If **Auto-update wiki on drift** is disabled, the drift banner shows the events; clicking `/refresh-wiki to review` hands the digest to the same `wiki-author` agent inline (visible as a `Task` tool-use in the chat, on the Claude-family path).
+
+**Drift event icons.** The drift banner and `wiki-author` digest mark each event with a per-kind icon so different drift causes never visually conflate:
 
 - 🔗 stale link (broken file/symbol reference in a wiki page)
 - 📋 stale manifest (workspace manifest entry pointing at a missing repo)
 - ↻ code changed (commit-driven drift — a wiki page mentions paths touched in `lastSyncedCommit..HEAD`)
-- ✍ suggested update (proposed by the `wiki-librarian` while answering a question)
+- 🌱 undocumented subsystem (orphan-subsystem detection — a new area with no wiki mention at all)
+- ✍ suggested update (proposed by the wiki librarian while answering a question)
 
 Auto-applied fixes and `/refresh-wiki` summaries carry the same icons. Wiki MCP tool calls in chat also use distinct icons: 📚 for reads (`read_wiki_page`, `search_wiki`, `read_sibling_wiki`) and 📝 for writes (`record_wiki_suggestion`) and edits whose `file_path` resolves under the wiki directory.
 
 ### Wiki librarian
 
-For any non-trivial question about this project's design, ClawDEA's main chat delegates to a `wiki-librarian` Claude Code subagent rather than running a keyword search itself. The librarian reads the project wiki in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
+For any non-trivial question about this project's design, ClawDEA's main chat calls the `ask_wiki_librarian` MCP tool rather than running a keyword search itself. The librarian reads the project wiki in its own fresh LLM context every call, verifies claims against current source, and returns a synthesised answer with citations. Wiki content never enters the main chat's context, so it doesn't decay across long conversations.
 
-The agent definition is bundled with the plugin and injected per-session via the Claude Code CLI's `--agents` flag — there is no file to install or manage. Each new plugin release ships the current agent text; restart your IDE (or end the chat session) to pick up changes. The agent is project-scoped: it isn't registered globally on disk and doesn't appear in other projects' subagent lists.
+**Execution is tiered by the Roles tab's Wiki provider** (see [Per-role provider selection](#roles-tab-per-role-provider-selection)), not by whichever provider the chat itself is using:
 
-**When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool. Suggestions accumulate in the wiki's drift-state file alongside other drift events and surface through the existing flow:
+| Wiki role provider | How it runs |
+|---|---|
+| Claude-family (`anthropic` / `bedrock` / `vertex` / `subscription`) | A headless `claude -p` subprocess, authenticated as the Wiki role, read-only via an `--allowedTools` allowlist under `--permission-mode bypassPermissions` |
+| OpenAI-compatible | An in-process agentic tool loop on the Wiki role's profile, with a read-only tool allowlist |
+| Codex (`openai` / `openai-subscription`) | A `codex exec --json` subprocess under a `read-only` sandbox with approvals disabled and **no MCP server** — a real macOS sandbox blocks the loopback MCP socket, so this path reads the on-disk wiki and greps the tree with Codex's own shell instead. Trades away `record_wiki_suggestion` gap-logging and the IntelliJ index tools for that guarantee. |
+
+There is no `--agents` subagent injection for the main chat anymore — `ask_wiki_librarian` is the single entry point regardless of which backend the chat itself is on, which also sidesteps a real bug the old approach had on Windows (the injected agent definition could exceed `cmd.exe`'s command-line length cap). The tool is exempt from ClawDEA's normal 60-second MCP tool timeout, since a librarian answer can take longer.
+
+**When the librarian finds a wiki gap** while answering a question — a real subsystem with no page, a stale claim contradicted by current source, or a covered concept missing a relevant aspect — it logs a suggestion via the `record_wiki_suggestion` MCP tool (Claude and OpenAI-compatible paths only; unavailable on the Codex path). Suggestions accumulate in the wiki's drift-state file alongside other drift events and surface through the existing flow:
 
 - With **Auto-update wiki on drift** enabled, suggestions surface alongside other drift events when the commit-driven detector fires.
 - Without it, suggestions wait until `/refresh-wiki` is invoked.
 
-The librarian never writes wiki files directly. Authoring stays user-initiated: review the suggestion, decide yes/no, and either dismiss it or draft the wiki change through the main chat.
+The librarian never writes wiki files directly. Authoring stays user-initiated: review the suggestion, decide yes/no, and either dismiss it or draft the wiki change through the main chat. (Drafting itself — the `wiki-author` subagent behind `/refresh-wiki` and auto-apply — is a separate mechanism from the librarian; see [Commit-driven wiki maintenance](#commit-driven-wiki-maintenance).)
 
-**Opt out** by clearing **Enable wiki librarian** in plugin settings. This restores the legacy "search_wiki probe" directive in the primer, re-registers `search_wiki` as an MCP tool, and stops injecting the subagent via `--agents`.
+**Opt out** by clearing **Enable wiki librarian** in plugin settings. This restores the legacy "search_wiki probe" directive in the primer, re-registers `search_wiki` as an MCP tool, and stops registering `ask_wiki_librarian`.
 
 ### Personal notes (`.claude/notes/CURRENT.md`)
 
@@ -439,9 +495,9 @@ For multi-repo work, `/seed-workspace` creates a manifest listing sibling repos 
 **Settings → Tools → ClawDEA → Knowledge layer** exposes the knowledge, workspace, and drift controls:
 
 - **Enable knowledge layer** — main switch. When off, ClawDEA stops assembling MAP/wiki/notes/workspace into the primer and disables the related MCP tools.
-- **Enable wiki librarian** — on by default. The primer directs the main agent to delegate design questions to the `wiki-librarian` Claude Code subagent via `Task`, and `search_wiki` is not registered as an MCP tool. When off, the legacy "first call must be a `search_wiki` probe" directive is emitted and `search_wiki` returns. See [Wiki librarian](#wiki-librarian).
+- **Enable wiki librarian** — on by default. The primer and backend-specific system prompt direct the main agent to call the `ask_wiki_librarian` MCP tool for design questions, and `search_wiki` is not registered. When off, the legacy "first call must be a `search_wiki` probe" directive is emitted and `search_wiki` returns. See [Wiki librarian](#wiki-librarian).
 - **Enable workspace manifest** — read sibling repos from `.clawdea-workspace.md` and surface them via `list_workspace_repos` / `read_sibling_*`.
-- **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently and the commit-driven detector hands `CommitDrift` events to the `wiki-author` subagent for unattended drafting. When off, every change goes through diff review.
+- **Auto-update wiki on drift** — when on, high-confidence drift fixes (single-match code renames, manifest comment-outs) apply silently and the commit-driven detector hands `CommitDrift` events to `wiki-author` for unattended drafting (tiered by the Roles tab's Wiki provider — see [Wiki librarian](#wiki-librarian)). When off, every change goes through diff review.
 
 ---
 
@@ -568,13 +624,13 @@ Configure under **Settings → Tools → ClawDEA → Profiling**:
 ### Claude CLI not found
 
 ClawDEA auto-detects the `claude` binary from your shell PATH. If IntelliJ was launched from Finder/Dock (not terminal), PATH may not include npm global binaries. Fix by either:
-- Setting **CLI Path** in Settings to the full path (e.g., `/usr/local/bin/claude`)
-- Setting **CLI Env Script** to a script that sources your shell profile
+- Setting **Claude CLI path** on the **Providers** tab to the full path (e.g., `/usr/local/bin/claude`)
+- Setting **CLI env script** on the **Advanced** tab to a script that sources your shell profile
 - Launching IntelliJ from terminal: `open -a "IntelliJ IDEA"`
 
 ### OpenAI Codex CLI not found
 
-Same PATH caveat as above, for the `codex` binary. Install it with `npm install -g @openai/codex`, then set **Codex CLI Path** in Settings to the full path if auto-detection misses it. If chat still routes to Claude after selecting an OpenAI provider, confirm you're signed in — run `/login` (ChatGPT) or set an OpenAI API key.
+Same PATH caveat as above, for the `codex` binary. Install it with `npm install -g @openai/codex`, then set **Codex CLI path** on the **Providers** tab to the full path if auto-detection misses it. If chat still routes to Claude after selecting an OpenAI provider, confirm you're signed in — run `/login` (ChatGPT) or set an OpenAI API key.
 
 ### "Only one instance of IDEA can be run at a time"
 
@@ -585,11 +641,11 @@ This happens when building with `buildSearchableOptions` while IntelliJ is runni
 
 ### Edit diff dialog not appearing
 
-Ensure **Auto-accept Edits** is off in Settings. The diff dialog only opens when Claude uses `propose_edit`/`propose_write` MCP tools.
+Ensure **Auto-accept Edits** is off on the **Permissions** tab. The diff dialog only opens when Claude uses `propose_edit`/`propose_write` MCP tools.
 
 ### Inline completions not working
 
-Verify that an Anthropic API key is set — subscription auth alone doesn't cover completions. Check that **Completions Enabled** is on in Settings.
+If the Completions role (Roles tab) points at Claude, verify an Anthropic API key is set — subscription auth alone doesn't cover completions. If it points at an OpenAI-compatible profile, confirm that profile has a selected model. Either way, check **Enable inline completions** is on in the Advanced tab.
 
 ---
 

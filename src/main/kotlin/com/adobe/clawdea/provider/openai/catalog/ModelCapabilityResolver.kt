@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.provider.openai.catalog
 
+import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.openai.profile.ModelRule
 
 enum class ModelCapability {
@@ -36,6 +37,25 @@ object ModelCapabilityResolver {
         val matchingRule = findMatchingRule(modelId, profileRules)
         if (matchingRule != null) return parseCapability(matchingRule.capability)
         return ModelCapability.COMPLETION_ONLY
+    }
+
+    /**
+     * The empirically-verified capability persisted for [modelId] by "Refresh Models" (which probes
+     * each model and stores the verdict on its [ModelEntry.capability]). Feed the result into
+     * [resolve]'s `endpointCapability` slot so a verified-agentic model drives agentic chat even when
+     * no profile rule matches it.
+     *
+     * Returns only a DEFINITE verdict (AGENTIC / COMPLETION_ONLY); an `unknown` entry (probe failed
+     * or never run) or a model absent from [catalog] yields null so profile rules still decide — a
+     * transport failure must never override a user-authored agentic rule.
+     */
+    fun catalogCapability(modelId: String, catalog: List<ModelEntry>): ModelCapability? {
+        val entry = catalog.firstOrNull { it.id == modelId } ?: return null
+        return when (parseCapability(entry.capability)) {
+            ModelCapability.AGENTIC -> ModelCapability.AGENTIC
+            ModelCapability.COMPLETION_ONLY -> ModelCapability.COMPLETION_ONLY
+            ModelCapability.UNKNOWN -> null
+        }
     }
 
     private fun findMatchingRule(modelId: String, rules: List<ModelRule>): ModelRule? {
