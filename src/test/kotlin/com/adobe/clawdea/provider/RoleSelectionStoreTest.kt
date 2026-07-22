@@ -10,17 +10,40 @@
  * governing permissions and limitations under the License.
  */
 package com.adobe.clawdea.provider
+import com.adobe.clawdea.auth.AuthManager
+import com.adobe.clawdea.auth.AuthProvider
+import com.adobe.clawdea.auth.AuthValidation
+import com.adobe.clawdea.auth.ConnectionTestResult
 import com.adobe.clawdea.settings.ClawDEASettings
 import org.junit.Assert.*
 import org.junit.Test
 class RoleSelectionStoreTest {
     private fun settings() = ClawDEASettings() // plain instance; State is a POJO
+
+    /**
+     * An [AuthManager] that reports every provider as unauthenticated, forcing
+     * [RoleDefaults.compute] to return null so [RoleSelectionStore.applyDefaults] falls back to its
+     * legacy behavior. Without this, the real [AuthManager.getInstance] reads the actual machine's
+     * OS keychain/CLI auth state (e.g. a live Claude subscription), which lets the smart-default
+     * path win over the legacy fallback this test is verifying — flaky depending on the host.
+     */
+    private fun noAuthManager(): AuthManager {
+        val unconfigured = object : AuthProvider {
+            override val id = "anthropic"
+            override fun isConfigured() = false
+            override fun applyToEnvironment(env: MutableMap<String, String>) {}
+            override fun validate() = AuthValidation(valid = false, message = null)
+            override fun testConnection() = ConnectionTestResult(false, "not configured")
+        }
+        return AuthManager(providers = mapOf("anthropic" to unconfigured), configuredProviderId = { "anthropic" })
+    }
+
     @Test fun `migration seeds all roles from legacy apiProvider and selected model`() {
         val s = settings()
         s.state.apiProvider = "anthropic"
         s.state.selectedModels["anthropic|"] = "claude-opus-4-8" // key = providerId|workingDir(blank global)
         val store = RoleSelectionStore(s)
-        store.migrateFromLegacyIfNeeded()
+        store.migrateFromLegacyIfNeeded(noAuthManager())
         val chat = store.get(AgentRole.CHAT_DEFAULT)
         assertEquals("anthropic", chat.providerId)
         assertEquals(AgentSelection("anthropic", null, "claude-opus-4-8"), store.get(AgentRole.WIKI))

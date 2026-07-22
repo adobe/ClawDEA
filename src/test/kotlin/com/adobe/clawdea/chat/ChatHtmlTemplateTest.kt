@@ -135,16 +135,11 @@ class ChatHtmlTemplateTest {
         assertContains(html, "indicator.querySelector('.assistant-bubble')")
         assertContains(html, "bubble.insertBefore(content, bubble.firstChild);")
         assertContains(html, "content.scrollTop = content.scrollHeight;")
-        assertContains(
-            html,
-            """
-            function finalizeReasoning() {
-                var indicator = document.getElementById('thinking-indicator');
-            """.trimIndent(),
-        )
-        assertContains(html, "if (!content || !content.textContent.trim()) return;")
-        assertContains(html, "block.appendChild(content);")
-        assertContains(html, "if (messages) messages.appendChild(block);")
+        // Reasoning is transient: finalizeReasoning() is a deliberate no-op — the content is
+        // removed together with the indicator by hideThinkingIndicator() at turn end, leaving no
+        // collapsed history block behind.
+        assertContains(html, "function finalizeReasoning() {")
+        assertContains(html, "// Reasoning (\"Thinking\") is transient: it lives inside #thinking-indicator")
     }
 
     @Test

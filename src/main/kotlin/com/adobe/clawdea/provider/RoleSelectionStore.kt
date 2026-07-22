@@ -10,6 +10,7 @@
  * governing permissions and limitations under the License.
  */
 package com.adobe.clawdea.provider
+import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.google.gson.Gson
 class RoleSelectionStore(private val settings: ClawDEASettings) {
@@ -29,13 +30,18 @@ class RoleSelectionStore(private val settings: ClawDEASettings) {
         return AgentSelection(providerId, profileId, modelId)
     }
     fun set(role: String, sel: AgentSelection) { settings.state.roleSelections[role] = gson.toJson(sel) }
-    fun migrateFromLegacyIfNeeded() {
+    fun migrateFromLegacyIfNeeded(
+        // Test seam: inject the AuthManager so tests can control which providers appear
+        // authenticated without depending on the real machine's OS keychain/CLI auth state.
+        // Production reads the application-service singleton.
+        authManager: AuthManager = AuthManager.getInstance(),
+    ) {
         if (settings.state.roleSelectionsMigrated) return
         // Fresh install (or first load after upgrade): seed smart per-role defaults — a middle-tier
         // model for chat, a lower/cheaper one for wiki + completions — computed from whichever
         // provider is authenticated. Falls back to cloning the legacy pick across all three roles
         // when nothing is authenticated yet (no auth => resolver returns null).
-        applyDefaults()
+        applyDefaults(authManager)
         settings.state.roleSelectionsMigrated = true
     }
 
@@ -45,9 +51,9 @@ class RoleSelectionStore(private val settings: ClawDEASettings) {
      * returns null and we fall back to the legacy behavior (clone the computed CHAT_DEFAULT fallback
      * across all roles) so the roles are never left blank.
      */
-    fun applyDefaults() {
+    fun applyDefaults(authManager: AuthManager = AuthManager.getInstance()) {
         val smart = try {
-            RoleDefaults.compute(settings, com.adobe.clawdea.auth.AuthManager.getInstance())
+            RoleDefaults.compute(settings, authManager)
         } catch (_: Throwable) {
             null
         }
