@@ -136,4 +136,20 @@ class ModelCatalogMergerTest {
         assertEquals("model-b", result[1].id)
         assertEquals(true, result[1].enabled) // not carried over
     }
+
+    @Test
+    fun `merge preserves a user-set context window across a models refresh`() {
+        // The /models endpoint never reports a context window (fetched value is 0), so a value the
+        // user typed into the table must survive a refresh.
+        val existing = listOf(
+            ModelEntry(id = "qwen", displayName = "Qwen", userAdded = false, contextWindow = 128_000),
+        )
+        val fetched = listOf(
+            ModelEntry(id = "qwen", displayName = "Qwen (refreshed)", contextWindow = 0),
+        )
+        val result = ModelCatalogMerger.merge(existing, fetched)
+        assertEquals(1, result.size)
+        assertEquals(128_000, result[0].contextWindow)
+        assertEquals("Qwen (refreshed)", result[0].displayName) // other fields still refresh
+    }
 }

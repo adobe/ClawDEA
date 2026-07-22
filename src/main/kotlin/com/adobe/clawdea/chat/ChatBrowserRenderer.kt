@@ -344,9 +344,8 @@ class ChatBrowserRenderer(
     }
 
     /**
-     * Append a streamed chunk of model reasoning into the live "Thinking" block
-     * (created on first delta, open while streaming). Codex emits reasoning tokens
-     * the Claude stream drops; the block renders above the answer bubble.
+     * Append a streamed chunk of model reasoning into the shared live "Thinking"
+     * indicator (created on first delta and kept visible while streaming).
      */
     fun appendReasoningDelta(text: String) {
         if (!browserReady || text.isEmpty()) return

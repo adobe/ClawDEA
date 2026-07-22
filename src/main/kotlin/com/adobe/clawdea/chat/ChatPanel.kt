@@ -281,10 +281,8 @@ class ChatPanel(
 
     private lateinit var turnController: TurnController
     private val pendingPromptController = PendingPromptController()
-    private val backendRebuildCoordinator = BackendRebuildCoordinator()
 
     // Skill tracking
-    private var cliBridgeHandlesSkills: Boolean = true
     private var registeredSkillAliases: List<String> = emptyList()
     private var discoveredSkills: List<com.adobe.clawdea.skills.SkillInfo> = emptyList()
 
@@ -420,11 +418,10 @@ class ChatPanel(
             },
             onContextLabelUpdate = { updateContextLabel() },
             onSyncStreamingUi = { syncStreamingUi() },
-            onTurnBecameIdle = {
-                backendRebuildCoordinator.rebuildIfPending {
-                    rebuildSessionForBackendChange()
-                }
-            },
+            // A settings apply never rebuilds an open tab onto a different backend (it keeps its own
+            // per-tab provider/model), so there is no deferred backend rebuild to flush at the idle
+            // boundary. Return false so normal post-turn handling (edit feedback, queued prompt) runs.
+            onTurnBecameIdle = { false },
             onTurnCompleted = { flushQueuedPromptIfReady() },
             onTurnStartStalled = { recoverStalledPromptTurn() },
             onToolResultStalled = { recoverStalledToolTurn() },
@@ -722,39 +719,17 @@ class ChatPanel(
                 com.adobe.clawdea.settings.SettingsChangedListener.TOPIC,
                 object : com.adobe.clawdea.settings.SettingsChangedListener {
                     override fun onSettingsChanged() {
-                        // A provider switch that changes the exact backend kind can't be applied by
-                        // restarting this bridge: its process and label are fixed at construction.
-                        // Rebuild the tab's ChatSession on the correct backend and auto-resume so the
-                        // running process, its label, and the model dropdown all agree again.
-                        val newProviderId =
-                            com.adobe.clawdea.auth.AuthManager.getInstance().effectiveProviderId()
-                        val selectedKind =
-                            com.adobe.clawdea.provider.ProviderRegistry.require(newProviderId).backendKind
-                        when (
-                            backendRebuildCoordinator.onBackendSelection(
-                                bridge.backendKind,
-                                selectedKind,
-                                turnController.isStreaming,
-                            )
-                        ) {
-                            BackendRebuildAction.REBUILD_NOW -> {
-                                ApplicationManager.getApplication().invokeLater(
-                                    {
-                                        backendRebuildCoordinator.rebuildIfPending {
-                                            rebuildSessionForBackendChange()
-                                        }
-                                    },
-                                    com.intellij.openapi.application.ModalityState.any(),
-                                )
-                                return
-                            }
-                            BackendRebuildAction.DEFER,
-                            BackendRebuildAction.ALREADY_PENDING,
-                            -> return
-                            BackendRebuildAction.NONE -> Unit
-                        }
-                        if (bridge.isRunning && !turnController.isStreaming) {
-                            scope.launch {
+                        // A settings apply must NOT migrate an already-open tab to a different
+                        // provider/backend: this tab keeps its own per-tab AgentSelection (provider +
+                        // model), and only NEW chats adopt a changed global default. So we never
+                        // rebuild the session here (that would flip e.g. an open Opus tab onto the
+                        // global provider). We only restart the SAME bridge in place to pick up
+                        // non-provider settings (tool-approval mode, toggles, CLI path/args, wiki
+                        // model); CliProcess re-reads the tab's pinned model on restart, so the
+                        // provider and model are preserved.
+                        when (settingsApplyAction(bridge.isRunning, turnController.isStreaming)) {
+                            SettingsApplyAction.NONE -> return
+                            SettingsApplyAction.RESTART_IN_PLACE -> scope.launch {
                                 try {
                                     clearQueuedPrompt()
                                     withContext(Dispatchers.IO) {
@@ -1152,13 +1127,12 @@ class ChatPanel(
      * backend/label, the model dropdown already reflects the new provider, and auto-resume replays the
      * current conversation as context so the switch doesn't lose history. Must run on the EDT.
      *
-     * When [selection] is non-null (a per-tab dropdown pick), the new session/bridge is built on that
-     * exact [AgentSelection] so it uses the picked provider/profile/model. When null (a global
-     * provider change applied via Settings), the new session seeds CHAT_DEFAULT and the bridge resolves
-     * the effective provider — preserving the pre-per-tab behavior.
+     * [selection] is the per-tab dropdown pick that triggered the rebuild; the new session/bridge is
+     * built on that exact [AgentSelection] so it uses the picked provider/profile/model. (A settings
+     * apply never calls this — it only restarts the same bridge in place, keeping the tab's provider.)
      */
     private fun rebuildSessionForBackendChange(
-        selection: com.adobe.clawdea.provider.AgentSelection? = null,
+        selection: com.adobe.clawdea.provider.AgentSelection,
     ) {
         val toolWindow = ToolWindowManager.getInstance(project).getToolWindow("ClawDEA") ?: return
         val contentManager = toolWindow.contentManager
@@ -1485,6 +1459,21 @@ class ChatPanel(
             dispatchToBridge = { text ->
                 dispatchSendToBridge(text, renderInChat = false, knowledgeBucket = knowledgeBucket)
             },
+            runSeedWiki = { prompt ->
+                appendHtml(renderer.renderInfoMessage("Seeding wiki with the WIKI-role model…"))
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        project.getService(com.adobe.clawdea.knowledge.drift.DriftDetectionService::class.java)
+                            .runWikiPrompt(prompt)
+                    }
+                    val msg = if (result.ok) {
+                        "Wiki seeded. Review the created files in the diff / project view."
+                    } else {
+                        "Seed wiki failed: ${result.errorMessage}"
+                    }
+                    appendHtml(renderer.renderInfoMessage(msg))
+                }
+            },
         )
     }
 
@@ -1668,11 +1657,9 @@ class ChatPanel(
             """
             Bootstrap an initial wiki for this project at $wikiPathRel/.
 
-            **CRITICAL — TOOL CHOICE:** Use the **propose_write** MCP tool (registered as
-            `mcp__clawdea-intellij__propose_write`) for every file you create. The built-in `Write` tool is
-            DISABLED in this environment — calls to it are silently rejected and no file is created.
-            If a tool result reports "tool not allowed" or you see an "Unavailable" status, you used the
-            wrong tool; retry with propose_write.
+            **TOOL CHOICE:** Use the built-in **Write** tool to create each file and **Edit** to modify
+            an existing file. This bootstrap runs headless under the WIKI role, so file writes are applied
+            directly (no diff dialog).
 
             **Scope rule (avoid overlap with CLAUDE.md):** the wiki holds subsystem-specific knowledge —
             concept pages with invariants, resolution pipelines, source pointers, and anti-patterns specific
@@ -1687,7 +1674,7 @@ class ChatPanel(
             1. **Bootstrap `CLAUDE.md` if missing.** Check whether `CLAUDE.md` exists at the project
                root.
 
-               **If it does NOT exist**, create it via `propose_write` using the template below.
+               **If it does NOT exist**, create it via Write using the template below.
                Discover real values for each section from `package.json` scripts, `pom.xml` profiles,
                `build.gradle.kts` tasks, `Makefile` targets, and the project README; do not ship the
                italicised placeholder text.
@@ -1726,7 +1713,7 @@ class ChatPanel(
                **If `CLAUDE.md` already exists**, do NOT overwrite it. Check whether it already
                contains a markdown link whose target lives under the wiki root (i.e. a link to
                `$wikiPathRel/index.md`, or any other path beginning with `$wikiPathRel/`). If such a
-               link is missing, append a new section at the end of the file via `propose_edit`:
+               link is missing, append a new section at the end of the file via Edit:
 
                ```markdown
 
@@ -1763,14 +1750,14 @@ class ChatPanel(
             $navigationTemplate
             ----- END NAVIGATION TEMPLATE -----
 
-            5. Use propose_write (NOT Write) to create:
+            5. Use Write to create:
                - $wikiPathRel/index.md — a TOC with a short intro plus standard Markdown links to each
                  concept page, e.g. `[Title](concepts/<slug>.md)`.
                - $wikiPathRel/concepts/<kebab-case-name>.md — one file per concept, using the template
                  that matches the classification. For `pipeline` or `runtime-behavior` pages, produce
                  3–7 invariants, each citing the file that makes it true.
 
-            After I accept the diffs, $wikiPathRel/index.md will join every chat's primer automatically.
+            Once written, $wikiPathRel/index.md will join every chat's primer automatically.
             """.trimIndent()
         })
 
@@ -1867,7 +1854,6 @@ class ChatPanel(
 
     private sealed class RefreshWikiResult {
         data class Local(val message: String) : RefreshWikiResult()
-        data class ReviewPrompt(val prompt: String) : RefreshWikiResult()
     }
 
     private fun handleRefreshWiki(rawArgs: String) {
@@ -1891,7 +1877,6 @@ class ChatPanel(
             val result = withContext(Dispatchers.IO) { refreshWiki(args) }
             when (result) {
                 is RefreshWikiResult.Local -> appendHtml(renderer.renderInfoMessage(result.message))
-                is RefreshWikiResult.ReviewPrompt -> dispatchOrQueueRefreshPrompt(result.prompt)
             }
         }
     }
@@ -1912,22 +1897,22 @@ class ChatPanel(
             return RefreshWikiResult.Local("(no drift events detected)")
         }
 
-        val prompt = if (ClawDEASettings.getInstance().state.enableWikiLibrarian) {
-            val wikiDir = com.adobe.clawdea.knowledge.wiki.WikiLocator.getInstance(project).wikiDir()
-            com.adobe.clawdea.knowledge.drift.WikiAuthorDigestBuilder.build(events, wikiDir)
-        } else {
-            buildLegacyRefreshWikiPrompt(events)
+        if (!ClawDEASettings.getInstance().state.enableWikiLibrarian) {
+            // Wiki knowledge layer off: nothing to author. Surface the legacy prompt as text
+            // so the user still sees the drift, but do not dispatch it (no wiki-author available).
+            return RefreshWikiResult.Local(buildLegacyRefreshWikiPrompt(events))
         }
-        return RefreshWikiResult.ReviewPrompt(prompt)
-    }
 
-    private fun dispatchOrQueueRefreshPrompt(prompt: String) {
-        if (turnController.isStreaming) {
-            queueExplicitPrompt(prompt)
-            appendHtml(renderer.renderInfoMessage("Queued wiki drift review until the current Claude turn finishes."))
-            return
+        // Author out-of-band in a dedicated subprocess (its own --agents author def) rather than
+        // injecting a @wiki-author digest into the chat CLI turn — the chat CLI no longer carries
+        // the wiki --agents definitions.
+        val result = service.runAuthorNow(events)
+        val summary = when {
+            result.errorMessage != null -> "Wiki refresh failed: ${result.errorMessage}"
+            result.actedOnSignatures.isEmpty() -> "Wiki refresh ran; no pages needed changes."
+            else -> "Wiki refresh applied ${result.actedOnSignatures.size} change(s). Review them in the diff."
         }
-        dispatchSendToBridge(prompt, renderInChat = false, knowledgeBucket = com.adobe.clawdea.cost.KnowledgeBucket.WIKI_UPDATE)
+        return RefreshWikiResult.Local(summary)
     }
 
     private fun queueExplicitPrompt(prompt: String): Boolean {
@@ -2055,7 +2040,11 @@ class ChatPanel(
             val handler = SkillHandler(
                 skillInfo = skill,
                 sendToBridge = { text -> sendViaBridge(text) },
-                probeResult = { cliBridgeHandlesSkills },
+                // Only the Claude CLI subprocess resolves slash-command skills natively; every other
+                // backend (Codex app-server, OpenAI-compatible HTTP) receives plain user text, so it
+                // must get the skill's SKILL.md injected via SkillHandler's fallback branch. Read live
+                // so it stays correct across bridge rebuilds / provider switches.
+                probeResult = { bridge.backendKind == com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI },
             )
             for (alias in skill.aliases) {
                 commandRegistry.register(alias, handler)

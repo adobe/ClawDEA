@@ -26,9 +26,15 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.SimpleListCellRenderer
 import kotlinx.coroutines.*
+import java.awt.Container
+import java.awt.Dimension
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComboBox
 import javax.swing.JList
+import javax.swing.JPopupMenu
+import javax.swing.JScrollPane
+import javax.swing.event.PopupMenuEvent
+import javax.swing.event.PopupMenuListener
 
 /**
  * Manages the combined provider+model selector combo box: rendering, persistence, action
@@ -74,6 +80,7 @@ class ModelComboManager(
                 selected: Boolean,
                 hasFocus: Boolean,
             ) {
+                // Show the full "provider › model" label; the combo is sized to fit the longest one.
                 text = value?.label.orEmpty()
                 // Disabled (unauthenticated) rows render greyed and are non-selectable.
                 isEnabled = value?.enabled ?: true
@@ -83,6 +90,33 @@ class ModelComboManager(
             }
         }
         modelCombo.putClientProperty("JComponent.sizeVariant", "small")
+
+        // BasicComboPopup.show() hardcodes the popup width to the combo's own width, which includes
+        // the ~31px arrow button + insets the popup rows have no use for — leaving visible empty space
+        // to the right of every row (issue: model dropdown too wide). Swing ignores the popup's
+        // preferredSize here, so re-size the shown popup to its list content width instead.
+        modelCombo.addPopupMenuListener(object : PopupMenuListener {
+            override fun popupMenuWillBecomeVisible(e: PopupMenuEvent) {
+                val popup = modelCombo.ui.getAccessibleChild(modelCombo, 0) as? JPopupMenu ?: return
+                // Defer until after show() has laid the popup out; only then does the list exist and
+                // the (to-be-overridden) combo-driven width apply.
+                ApplicationManager.getApplication().invokeLater({
+                    val list = findList(popup) ?: return@invokeLater
+                    // List's own preferred width already accounts for renderer text + padding; add the
+                    // vertical scrollbar (when the row count overflows) and the popup's border insets.
+                    val scroll = findScrollPane(popup)
+                    val scrollbarW =
+                        scroll?.verticalScrollBar?.takeIf { it.isVisible }?.width ?: 0
+                    val borderW = popup.insets.left + popup.insets.right
+                    val width = list.preferredSize.width + scrollbarW + borderW
+                    if (width in 1 until popup.width) {
+                        popup.setPopupSize(width, popup.height)
+                    }
+                }, ModalityState.any())
+            }
+            override fun popupMenuWillBecomeInvisible(e: PopupMenuEvent) = Unit
+            override fun popupMenuCanceled(e: PopupMenuEvent) = Unit
+        })
 
         modelCombo.addActionListener {
             if (suppressEvents) return@addActionListener
@@ -108,6 +142,13 @@ class ModelComboManager(
         connection.subscribe(
             SubscriptionAuthEventListener.TOPIC,
             object : SubscriptionAuthEventListener {
+                // The subscription status probe is async and cache-backed: the first render on a cold
+                // start sees a stale Unknown/NotSignedIn and greys the rows. Re-refresh when the probe
+                // resolves so a now-signed-in provider becomes selectable without opening a new tab.
+                override fun onStatusChanged(status: com.adobe.clawdea.auth.AuthStatus) {
+                    ApplicationManager.getApplication().invokeLater({ refresh() }, ModalityState.any())
+                }
+
                 override fun onAuthFailed(reason: String) {
                     ApplicationManager.getApplication().invokeLater(
                         {
@@ -126,6 +167,14 @@ class ModelComboManager(
         connection.subscribe(
             CodexSubscriptionAuthEventListener.TOPIC,
             object : CodexSubscriptionAuthEventListener {
+                // Codex sign-in status is probed asynchronously (codex login status) and cached. On the
+                // first chat opened right after IDE start the probe hasn't resolved yet, so refresh()
+                // sees a stale "not signed in" and greys every Codex row. Re-refresh when the probe
+                // resolves so the rows become selectable without opening a second tab.
+                override fun onStatusChanged(status: com.adobe.clawdea.auth.AuthStatus) {
+                    ApplicationManager.getApplication().invokeLater({ refresh() }, ModalityState.any())
+                }
+
                 override fun onAuthFailed(reason: String) {
                     ApplicationManager.getApplication().invokeLater(
                         {
@@ -204,6 +253,25 @@ class ModelComboManager(
         }
     }
 
+    /** Breadth-first search for the first descendant of [root] matching [predicate], or null. */
+    private fun findDescendant(root: Container, predicate: (java.awt.Component) -> Boolean): java.awt.Component? {
+        val queue = ArrayDeque<java.awt.Component>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node !== root && predicate(node)) return node
+            if (node is Container) {
+                for (i in 0 until node.componentCount) queue.add(node.getComponent(i))
+            }
+        }
+        return null
+    }
+
+    private fun findList(popup: JPopupMenu): JList<*>? = findDescendant(popup) { it is JList<*> } as? JList<*>
+
+    private fun findScrollPane(popup: JPopupMenu): JScrollPane? =
+        findDescendant(popup) { it is JScrollPane } as? JScrollPane
+
     private fun reselectCurrent() {
         val current = currentSelection()
         val model = modelCombo.model
@@ -240,6 +308,28 @@ class ModelComboManager(
         suppressEvents = true
         try {
             modelCombo.model = DefaultComboBoxModel(options.toTypedArray())
+            // Size the collapsed combo to just fit the widest label a user can actually select.
+            // Two things otherwise over-size it: (1) the cell renderer adds ~50px of internal padding
+            // that flows into the combo's preferred width, and (2) the widest label is often a
+            // signed-out third-party row (its "(sign in)" suffix + long name) the user never sees
+            // selected. So measure only enabled rows (the collapsed box renders the full label, so
+            // measure the full label to avoid clipping), and pin the width to text + arrow + insets +
+            // a small margin (issue: dropdown too wide).
+            val metrics = modelCombo.getFontMetrics(modelCombo.font)
+            val widestTextW = options
+                .filter { it.enabled }
+                .maxOfOrNull { metrics.stringWidth(it.label) }
+                ?: options.maxOfOrNull { metrics.stringWidth(it.label) }
+                ?: 0
+            val arrowW = (0 until modelCombo.componentCount)
+                .map { modelCombo.getComponent(it) }
+                .filterIsInstance<javax.swing.JButton>()
+                .firstOrNull()?.preferredSize?.width ?: 0
+            val ins = modelCombo.insets
+            val targetW = widestTextW + arrowW + ins.left + ins.right + COMBO_TEXT_MARGIN
+            val h = modelCombo.preferredSize.height
+            modelCombo.preferredSize = Dimension(targetW, h)
+            modelCombo.maximumSize = Dimension(targetW, h)
             // Re-select the row matching the current tab selection; otherwise first enabled row.
             val idx = options.indexOfFirst { it.selection == current }
                 .let { if (it >= 0) it else options.indexOfFirst { o -> o.enabled } }
@@ -298,6 +388,9 @@ class ModelComboManager(
     }
 
     companion object {
+
+        /** Small breathing space (px) between the widest label and the arrow button. */
+        private const val COMBO_TEXT_MARGIN = 12
 
         /**
          * Effect of switching the tab's [AgentSelection] from [current] to [picked]:

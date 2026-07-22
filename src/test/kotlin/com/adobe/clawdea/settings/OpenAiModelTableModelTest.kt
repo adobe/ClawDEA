@@ -20,9 +20,9 @@ import org.junit.Test
 class OpenAiModelTableModelTest {
 
     @Test
-    fun `table has 8 columns`() {
+    fun `table has 9 columns`() {
         val model = OpenAiModelTableModel()
-        assertEquals(8, model.columnCount)
+        assertEquals(9, model.columnCount)
     }
 
     @Test
@@ -36,6 +36,29 @@ class OpenAiModelTableModelTest {
         assertEquals("Output/M", model.getColumnName(5))
         assertEquals("Cached/M", model.getColumnName(6))
         assertEquals("Reasoning/M", model.getColumnName(7))
+        assertEquals("Context window", model.getColumnName(8))
+    }
+
+    @Test
+    fun `context window column is Integer editable and parses string input`() {
+        val model = OpenAiModelTableModel()
+        model.rows.add(ModelEntry(id = "test", displayName = "Test", contextWindow = 128_000))
+
+        assertEquals(Integer::class.java, model.getColumnClass(8))
+        assertTrue(model.isCellEditable(0, 8))
+        assertEquals(128_000, model.getValueAt(0, 8))
+
+        // Int input
+        model.setValueAt(32_768, 0, 8)
+        assertEquals(32_768, model.rows[0].contextWindow)
+
+        // String input (JBTable may hand back the edited text) is parsed
+        model.setValueAt("65536", 0, 8)
+        assertEquals(65_536, model.rows[0].contextWindow)
+
+        // Non-numeric input falls back to 0 rather than throwing
+        model.setValueAt("not-a-number", 0, 8)
+        assertEquals(0, model.rows[0].contextWindow)
     }
 
     @Test

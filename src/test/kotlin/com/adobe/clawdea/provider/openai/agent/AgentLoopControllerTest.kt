@@ -246,6 +246,123 @@ class AgentLoopControllerTest {
         assertTrue(events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.Result>()
             .any { it.text.contains("Context budget exceeded") })
     }
+    @Test
+    fun `repeated identical failing tool call is loop-broken and the turn ends cleanly`() = runBlocking {
+        // The model keeps issuing the SAME call with the SAME args, which keeps erroring — the
+        // degeneration loop we saw with Qwen. The guard must break it: stop re-executing and end
+        // the turn without an error Result.
+        val executor = object : AgentToolExecutor {
+            var invocations = 0
+            override fun execute(toolCall: AgentToolCall): ToolExecutionResult {
+                invocations++
+                return ToolExecutionResult(toolCall.id, "no such page", isError = true)
+            }
+        }
+        // The client ALWAYS asks for the same failing tool call (never gives up on its own). Each
+        // round re-sends the same tool name + args but a fresh call id (so completedToolCallIds
+        // doesn't short-circuit it).
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            flowOf(
+                AgentStreamEvent.ToolFragment(0, "call-$round", "read_wiki_page", """{"name":"missing"}"""),
+                AgentStreamEvent.Finished("tool_calls"),
+            )
+        }
+
+        val loop = AgentLoopController(
+            client = client,
+            executor = executor,
+            state = ConversationState(),
+            maxToolRounds = 100, // high enough that the loop-breaker (not the round cap) ends it
+            maxElapsedMs = 600_000,
+            maxContextChars = 1_000_000,
+        )
+
+        val events = mutableListOf<com.adobe.clawdea.cli.CliEvent>()
+        val result = loop.runTurn("go") { events.add(it) }
+
+        // It stopped without erroring the turn, and did NOT execute unboundedly (guard capped it).
+        assertFalse(result.isError)
+        assertTrue("guard must cap executions well below the round limit", executor.invocations <= 6)
+        val results = events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.Result>()
+        assertEquals(1, results.size)
+    }
+
+    @Test
+    fun `Agent tool call routes to the subAgentRunner, not the executor`() = runBlocking {
+        val executor = CountingToolExecutor()
+        val runner = RecordingSubAgentRunner(reportText = "sub-agent report")
+
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            if (round == 1) flowOf(
+                AgentStreamEvent.ToolFragment(0, "call-agent", "Agent", """{"description":"do it","prompt":"go"}"""),
+                AgentStreamEvent.Finished("tool_calls"),
+            ) else flowOf(
+                AgentStreamEvent.Text("done"),
+                AgentStreamEvent.Finished("stop"),
+            )
+        }
+
+        val loop = AgentLoopController(
+            client = client,
+            executor = executor,
+            state = ConversationState(),
+            maxToolRounds = 10,
+            maxElapsedMs = 600_000,
+            maxContextChars = 1_000_000,
+            subAgentRunner = runner,
+        )
+
+        val events = mutableListOf<com.adobe.clawdea.cli.CliEvent>()
+        loop.runTurn("please dispatch") { events.add(it) }
+
+        // Runner handled the Agent call; the synchronous executor never saw it.
+        assertEquals(1, runner.calls.size)
+        assertEquals("call-agent", runner.calls.single().id)
+        assertEquals(0, executor.invocations)
+
+        // The runner's report becomes the Agent tool's ToolResult (parent=null → finalizes the card).
+        val agentResult = events.filterIsInstance<com.adobe.clawdea.cli.CliEvent.ToolResult>()
+            .single { it.toolUseId == "call-agent" }
+        assertEquals("sub-agent report", agentResult.content)
+        assertFalse(agentResult.isError)
+    }
+
+    @Test
+    fun `non-Agent tool calls still go to the executor even when a runner is present`() = runBlocking {
+        val executor = CountingToolExecutor()
+        val runner = RecordingSubAgentRunner(reportText = "unused")
+
+        var round = 0
+        val client = FakeAgentClient {
+            round++
+            if (round == 1) flowOf(
+                AgentStreamEvent.ToolFragment(0, "call-1", "some_tool", "{}"),
+                AgentStreamEvent.Finished("tool_calls"),
+            ) else flowOf(
+                AgentStreamEvent.Text("done"),
+                AgentStreamEvent.Finished("stop"),
+            )
+        }
+
+        val loop = AgentLoopController(
+            client = client,
+            executor = executor,
+            state = ConversationState(),
+            maxToolRounds = 10,
+            maxElapsedMs = 600_000,
+            maxContextChars = 1_000_000,
+            subAgentRunner = runner,
+        )
+
+        loop.runTurn("go") { }
+
+        assertEquals(1, executor.invocations)
+        assertTrue(runner.calls.isEmpty())
+    }
 }
 
 /**
@@ -261,6 +378,24 @@ class CountingToolExecutor : AgentToolExecutor {
             content = "executed",
             isError = false
         )
+    }
+}
+
+/**
+ * Fake sub-agent runner that records dispatches and returns a canned report.
+ */
+class RecordingSubAgentRunner(
+    private val reportText: String,
+    override val toolName: String = "Agent",
+) : SubAgentRunner {
+    val calls = mutableListOf<AgentToolCall>()
+
+    override suspend fun run(
+        toolCall: AgentToolCall,
+        emit: (com.adobe.clawdea.cli.CliEvent) -> Unit,
+    ): ToolExecutionResult {
+        calls.add(toolCall)
+        return ToolExecutionResult(toolCall.id, reportText, isError = false)
     }
 }
 

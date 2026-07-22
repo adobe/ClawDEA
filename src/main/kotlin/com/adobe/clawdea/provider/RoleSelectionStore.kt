@@ -31,8 +31,31 @@ class RoleSelectionStore(private val settings: ClawDEASettings) {
     fun set(role: String, sel: AgentSelection) { settings.state.roleSelections[role] = gson.toJson(sel) }
     fun migrateFromLegacyIfNeeded() {
         if (settings.state.roleSelectionsMigrated) return
+        // Fresh install (or first load after upgrade): seed smart per-role defaults — a middle-tier
+        // model for chat, a lower/cheaper one for wiki + completions — computed from whichever
+        // provider is authenticated. Falls back to cloning the legacy pick across all three roles
+        // when nothing is authenticated yet (no auth => resolver returns null).
+        applyDefaults()
+        settings.state.roleSelectionsMigrated = true
+    }
+
+    /**
+     * Overwrite all three roles with the current smart defaults. Backs the Settings "Reset defaults"
+     * action; also the fresh-install seed. When no provider is authenticated, [RoleDefaults.compute]
+     * returns null and we fall back to the legacy behavior (clone the computed CHAT_DEFAULT fallback
+     * across all roles) so the roles are never left blank.
+     */
+    fun applyDefaults() {
+        val smart = try {
+            RoleDefaults.compute(settings, com.adobe.clawdea.auth.AuthManager.getInstance())
+        } catch (_: Throwable) {
+            null
+        }
+        if (smart != null) {
+            smart.forEach { (role, sel) -> set(role, sel) }
+            return
+        }
         val seed = get(AgentRole.CHAT_DEFAULT) // computes from legacy
         listOf(AgentRole.CHAT_DEFAULT, AgentRole.WIKI, AgentRole.COMPLETIONS).forEach { set(it, seed) }
-        settings.state.roleSelectionsMigrated = true
     }
 }

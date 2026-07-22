@@ -37,6 +37,12 @@ class CliProcess(
     // the SELECTION's provider id so a per-tab CLAUDE tab reads the Claude-pinned model, not the
     // global provider's (which may be a Codex/OpenAI model → "invalid model" failure).
     private val providerIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
+    // The model id pinned by THIS tab's AgentSelection. When non-blank it is the authoritative
+    // `--model` value: the same selection drives both the dropdown label and the CLI, so a fresh
+    // chat whose default was set via the Roles tab (roleSelections, never written to the
+    // selectedModels map) still launches the CLI on the shown model instead of the CLI's own
+    // default. Blank means "no pin" → fall back to the settings-map read (subscription default, etc.).
+    private val pinnedModelId: String = "",
 ) : AgentProcess {
 
     private val log = Logger.getInstance(CliProcess::class.java)
@@ -54,13 +60,28 @@ class CliProcess(
         get() = process?.isAlive == true
 
     /**
-     * Resolves the `--model` value for the CLI from the provider this process was built for
-     * (via [providerIdProvider]) rather than the global effective provider. A per-tab Claude tab
-     * therefore reads the Claude-pinned model even when the global default is a Codex/OpenAI
-     * provider. Internal for headless testing of the selection→model routing.
+     * Resolves the `--model` value for the CLI, in precedence order:
+     *
+     * 1. **Explicit dropdown selection** — the model the user picked for this provider is persisted
+     *    to [ClawDEASettings.selectedModels] and read here first. This MUST win over [pinnedModelId]:
+     *    a model-only change on a Claude tab triggers an in-place bridge RESTART that reuses this same
+     *    [CliProcess] instance (so the pin, frozen at construction, is stale), and [resolveCliModel]
+     *    re-runs on each `start()` — reading the fresh pick is what makes the dropdown actually apply.
+     * 2. **[pinnedModelId]** — the tab's original AgentSelection model. Covers a fresh chat seeded
+     *    from the Roles tab (its model lives in `roleSelections`, never written to `selectedModels`)
+     *    so the CLI launches on the shown model instead of the CLI's own default.
+     * 3. **Provider default** — [ClawDEASettings.getCliModelId] (e.g. the subscription first entry).
+     *
+     * The provider is the one this process was BUILT for (via [providerIdProvider]), not the global
+     * effective provider — so a per-tab Claude tab reads the Claude model even when the global default
+     * is a Codex/OpenAI provider. Internal for headless testing of the selection→model routing.
      */
-    internal fun resolveCliModel(settings: ClawDEASettings): String =
-        settings.getCliModelId(workingDirectory, providerIdProvider())
+    internal fun resolveCliModel(settings: ClawDEASettings): String {
+        val explicit = settings.getSelectedModelId(workingDirectory, providerIdProvider())
+        if (explicit.isNotBlank()) return explicit
+        if (pinnedModelId.isNotBlank()) return pinnedModelId
+        return settings.getCliModelId(workingDirectory, providerIdProvider())
+    }
 
     override fun start(resumeSessionId: String?, skills: List<SkillInfo>) {
         if (isAlive) return
@@ -134,25 +155,10 @@ class CliProcess(
 
             command.addAll(listOf("--mcp-config", tmpFile.absolutePath))
 
-            if (settings.enableWikiLibrarian) {
-                try {
-                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-                    val mode = com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)
-                    val agentsJson = when (mode) {
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson(wikiSel.modelId)
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT_FALLBACK ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildJson("")
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL ->
-                            com.adobe.clawdea.knowledge.wiki.WikiAgentsArg.buildAuthorOnlyJson()
-                    }
-                    command.addAll(listOf("--agents", agentsJson))
-                    log.info("Injected wiki subagents via --agents (mode=$mode, ${agentsJson.length} chars)")
-                } catch (e: Throwable) {
-                    log.warn("Failed to build wiki agents --agents arg; skipping injection", e)
-                }
-            }
+            // No `--agents` injection: the in-chat wiki-librarian is reached via the
+            // `ask_wiki_librarian` MCP tool (McpWikiTools), and wiki-author runs out-of-band
+            // via WikiAuthorInvoker. Injecting the ~14KB agents JSON here blew past Windows'
+            // cmd.exe 8191-char command-line cap ("The command line is too long.").
 
             val disallowed = buildDisallowedTools(mcpAvailable = true)
             if (disallowed != null) {
@@ -161,13 +167,9 @@ class CliProcess(
 
             val systemPrompt = buildString {
                 if (settings.enableWikiLibrarian) {
-                    val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                        .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-                    val librarianPrompt = when (com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)) {
-                        com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL -> WIKI_LIBRARIAN_TOOL_PROMPT
-                        else -> WIKI_LIBRARIAN_PROMPT
-                    }
-                    append(librarianPrompt)
+                    // Always the tool prompt: the librarian is reached via `ask_wiki_librarian`
+                    // for every chat backend now that `--agents` is gone.
+                    append(WIKI_LIBRARIAN_TOOL_PROMPT)
                     append("\n\n")
                 }
                 append(MCP_SYSTEM_PROMPT)
@@ -590,9 +592,7 @@ When a skill matches the user's task, suggest invoking it with /<skill-name>.
 
         private val MCP_SYSTEM_PROMPT = loadStaticPrompt("mcp-system-prompt")
 
-        private val WIKI_LIBRARIAN_PROMPT = loadStaticPrompt("wiki-librarian-prompt")
-
-        private val WIKI_LIBRARIAN_TOOL_PROMPT = loadStaticPrompt("wiki-librarian-tool-prompt")
+        internal val WIKI_LIBRARIAN_TOOL_PROMPT = loadStaticPrompt("wiki-librarian-tool-prompt")
 
         private val EDIT_REVIEW_PROMPT = loadStaticPrompt("edit-review-prompt")
 

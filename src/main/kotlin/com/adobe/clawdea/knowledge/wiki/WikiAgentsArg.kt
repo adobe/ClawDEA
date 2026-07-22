@@ -39,13 +39,6 @@ object WikiAgentsArg {
     private const val LIBRARIAN_PATH = "/agents/wiki-librarian.md"
     private const val AUTHOR_PATH = "/agents/wiki-author.md"
 
-    fun buildJson(librarianModelId: String = ""): String {
-        val root = JsonObject()
-        addAgentTo(root, LIBRARIAN_PATH, modelId = librarianModelId)
-        addAgentTo(root, AUTHOR_PATH)
-        return root.toString()
-    }
-
     fun buildAuthorOnlyJson(): String {
         val root = JsonObject()
         addAgentTo(root, AUTHOR_PATH)

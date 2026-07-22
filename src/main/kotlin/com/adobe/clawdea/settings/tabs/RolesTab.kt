@@ -49,6 +49,12 @@ class RolesTab : SettingsTab {
         isVisible = false
     }
 
+    private val resetButton = javax.swing.JButton("Reset defaults").apply {
+        toolTipText = "Recompute Chat / Wiki / Completions from the authenticated provider " +
+            "(latest Opus for chat, latest Haiku for wiki + completions on Claude)."
+        addActionListener { resetToDefaults() }
+    }
+
     override val component: JComponent by lazy {
         setupCombos()
         FormBuilder.createFormBuilder()
@@ -56,6 +62,7 @@ class RolesTab : SettingsTab {
             .addLabeledComponent("Wiki:", wikiCombo)
             .addComponent(wikiWarning)
             .addLabeledComponent("Completions:", completionsCombo)
+            .addComponent(resetButton)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -134,6 +141,39 @@ class RolesTab : SettingsTab {
         val idx = options.indexOfFirst { it.selection == selection }
             .let { if (it >= 0) it else options.indexOfFirst { o -> o.enabled } }
         if (idx >= 0) combo.selectedIndex = idx
+    }
+
+    /**
+     * Point the three combos at the smart per-role defaults for the authenticated provider. Updates
+     * the UI only — the user still clicks Apply/OK to persist (so it participates in the normal
+     * modified/apply flow). No-op with a status when nothing is authenticated (defaults need a
+     * provider to resolve a concrete model).
+     */
+    private fun resetToDefaults() {
+        val defaults = com.adobe.clawdea.provider.RoleDefaults.compute(
+            ClawDEASettings.getInstance(),
+            AuthManager.getInstance(),
+        )
+        if (defaults == null) {
+            wikiWarning.text = "⚠ Sign in to a provider first — defaults need an authenticated provider."
+            wikiWarning.isVisible = true
+            return
+        }
+        selectInCombo(chatCombo, defaults[AgentRole.CHAT_DEFAULT])
+        selectInCombo(wikiCombo, defaults[AgentRole.WIKI])
+        selectInCombo(completionsCombo, defaults[AgentRole.COMPLETIONS])
+        updateWikiWarning()
+    }
+
+    private fun selectInCombo(combo: ComboBox<ProviderModelOption>, selection: AgentSelection?) {
+        selection ?: return
+        val model = combo.model
+        for (i in 0 until model.size) {
+            if (model.getElementAt(i).selection == selection) {
+                combo.selectedIndex = i
+                return
+            }
+        }
     }
 
     private fun updateWikiWarning() {

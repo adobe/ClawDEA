@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.provider.openai.agent
 
+import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.openai.profile.OpenAiCompatibleProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -33,5 +34,35 @@ class ContextWindowsTest {
     fun `returns null for non-positive window`() {
         val profile = OpenAiCompatibleProfile(contextWindows = mapOf("bad" to 0))
         assertNull(ContextWindows.forModel(profile, "bad"))
+    }
+
+    // --- resolve(): catalog column > profile map > conservative default ---
+
+    @Test
+    fun `resolve prefers the catalog context window column`() {
+        val profile = OpenAiCompatibleProfile(contextWindows = mapOf("qwen" to 32768))
+        val catalog = listOf(ModelEntry(id = "qwen", contextWindow = 128_000))
+        assertEquals(128_000, ContextWindows.resolve(profile, "qwen", catalog))
+    }
+
+    @Test
+    fun `resolve falls back to the profile map when catalog value is unset`() {
+        val profile = OpenAiCompatibleProfile(contextWindows = mapOf("qwen" to 32768))
+        val catalog = listOf(ModelEntry(id = "qwen", contextWindow = 0))
+        assertEquals(32768, ContextWindows.resolve(profile, "qwen", catalog))
+    }
+
+    @Test
+    fun `resolve falls back to the conservative default when nothing is configured`() {
+        val profile = OpenAiCompatibleProfile()
+        assertEquals(ContextWindows.DEFAULT_CONTEXT_WINDOW_TOKENS, ContextWindows.resolve(profile, "qwen", emptyList()))
+        assertEquals(131_072, ContextWindows.DEFAULT_CONTEXT_WINDOW_TOKENS)
+    }
+
+    @Test
+    fun `resolve ignores a catalog entry for a different model id`() {
+        val profile = OpenAiCompatibleProfile()
+        val catalog = listOf(ModelEntry(id = "other", contextWindow = 8000))
+        assertEquals(ContextWindows.DEFAULT_CONTEXT_WINDOW_TOKENS, ContextWindows.resolve(profile, "qwen", catalog))
     }
 }

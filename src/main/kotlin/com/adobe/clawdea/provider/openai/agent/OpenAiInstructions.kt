@@ -36,6 +36,9 @@ object OpenAiInstructions {
     fun build(project: Project?, skills: List<SkillInfo>): String {
         val settings = ClawDEASettings.getInstance().state
 
+        val librarian =
+            if (settings.enableWikiLibrarian) CliProcess.WIKI_LIBRARIAN_TOOL_PROMPT else ""
+
         val tooling = try {
             PromptResource.load("openai-tooling-prompt").trim()
         } catch (e: Exception) {
@@ -57,7 +60,7 @@ object OpenAiInstructions {
                 }
             } else ""
 
-        return compose(tooling, skillCatalog, primer)
+        return compose(librarian, tooling, skillCatalog, primer)
     }
 
     internal fun compose(vararg blocks: String): String =

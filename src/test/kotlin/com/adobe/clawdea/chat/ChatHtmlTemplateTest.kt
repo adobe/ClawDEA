@@ -117,46 +117,34 @@ class ChatHtmlTemplateTest {
     }
 
     @Test
-    fun `live reasoning stays in the pinned slot until finalized into message history`() {
+    fun `live reasoning shares the thinking indicator with its animated dots`() {
         val template = ChatHtmlTemplate()
         val html = template.buildPage()
 
         assertContains(
             html,
             """
-            #thinking-slot > #reasoning-live .reasoning-content {
+            #thinking-indicator .reasoning-content {
                 max-height: 30vh;
                 overflow-y: auto;
             }
             """.trimIndent(),
         )
-        assertContains(
-            html,
-            """
-            function appendReasoning(text) {
-            """.trimIndent(),
-        )
-        assertContains(html, "slot.insertBefore(block, slot.firstChild);")
+        assertContains(html, "function appendReasoning(text)")
+        assertContains(html, "showThinking();")
+        assertContains(html, "indicator.querySelector('.assistant-bubble')")
+        assertContains(html, "bubble.insertBefore(content, bubble.firstChild);")
         assertContains(html, "content.scrollTop = content.scrollHeight;")
         assertContains(
             html,
             """
             function finalizeReasoning() {
-                var block = document.getElementById('reasoning-live');
-                if (!block) return;
-                block.removeAttribute('open');
-                block.removeAttribute('id');
+                var indicator = document.getElementById('thinking-indicator');
             """.trimIndent(),
         )
-        assertContains(
-            html,
-            """
-                var messages = document.getElementById('messages');
-                if (messages) messages.appendChild(block);
-            }
-            function toggleSubAgentStep(row) {
-            """.trimIndent(),
-        )
+        assertContains(html, "if (!content || !content.textContent.trim()) return;")
+        assertContains(html, "block.appendChild(content);")
+        assertContains(html, "if (messages) messages.appendChild(block);")
     }
 
     @Test

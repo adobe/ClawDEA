@@ -98,6 +98,28 @@ class SettingsTabRoundTripTest {
     }
 
     @Test
+    fun `permissions tab round-trips every field`() {
+        val state = ClawDEASettings.State().apply {
+            toolApprovalMode = "allow-all"
+            autoAcceptEdits = true
+        }
+
+        val tab = PermissionsTab()
+        tab.loadFrom(state)
+        assertFalse(tab.isModifiedFrom(state))
+
+        val out = ClawDEASettings.State()
+        tab.applyTo(out)
+        assertEquals("allow-all", out.toolApprovalMode)
+        assertTrue(out.autoAcceptEdits)
+
+        val reloaded = PermissionsTab()
+        reloaded.loadFrom(out)
+        assertFalse(reloaded.isModifiedFrom(out))
+        assertTrue(reloaded.isModifiedFrom(ClawDEASettings.State()))
+    }
+
+    @Test
     fun `advanced tab round-trips every field`() {
         val state = ClawDEASettings.State().apply {
             completionTokenBudget = 999

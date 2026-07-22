@@ -20,12 +20,10 @@ import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.settings.OpenAiCompatibleSettingsCard
 import com.adobe.clawdea.settings.OpenAiSubscriptionCardPanel
 import com.adobe.clawdea.settings.SubscriptionCardPanel
-import com.adobe.clawdea.settings.ToolApprovalModeUi
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.ToolbarDecorator
-import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextField
@@ -164,24 +162,13 @@ class ProvidersTab : SettingsTab {
 
     // Common fields
     val cliPathField = JBTextField("claude", 30)
+    private val cliPathLabel = JBLabel("Claude CLI path:")
     val codexCliPathField = JBTextField("codex", 30)
+    private val codexCliPathLabel = JBLabel("Codex CLI path:")
     private val codexCliPathHint = JBLabel("Path to the OpenAI codex CLI (used by the OpenAI ChatGPT subscription provider).").apply {
         foreground = java.awt.Color(166, 173, 200)
         font = font.deriveFont(11f)
     }
-    val completionsEnabledCheckbox = JBCheckBox("Enable inline completions", true)
-    private val COMPLETION_MODELS = arrayOf("Sonnet", "Haiku")
-    private val COMPLETION_MODEL_KEYS = arrayOf("sonnet", "haiku")
-    val completionsModelCombo = ComboBox(DefaultComboBoxModel(COMPLETION_MODELS))
-    val completionsDebounceField = JBTextField("300", 6)
-    val completionsManualOnlyCheckbox = JBCheckBox("Only request completions on hotkey (Trigger Inline Completion, default Alt+\\)", false).apply {
-        toolTipText = "When on, completions never fire automatically as you type — they are requested only when you invoke the \"Trigger Inline Completion\" action. Rebind the hotkey in Settings → Keymap."
-    }
-    val toolApprovalCombo = ComboBox(ToolApprovalModeUi.comboBoxModel()).apply {
-        toolTipText = ToolApprovalModeUi.TOOLTIP_TEXT
-        ToolApprovalModeUi.installRenderer(this)
-    }
-    val autoAcceptEditsCheckbox = JBCheckBox("Auto-accept file edits (still reversible from the chat diff link)", false)
 
     private val cliPathWarning = JBLabel("").apply {
         foreground = java.awt.Color(243, 139, 168) // red
@@ -210,16 +197,10 @@ class ProvidersTab : SettingsTab {
         .addLabeledComponent(JBLabel("API Provider:"), apiProviderCombo, 1, false)
         .addComponent(providerCards, 1)
         .addComponent(connectionRow, 1)
-        .addLabeledComponent(JBLabel("Claude CLI path:"), cliPathField, 1, false)
+        .addLabeledComponent(cliPathLabel, cliPathField, 1, false)
         .addComponent(cliPathWarning, 2)
-        .addLabeledComponent(JBLabel("Codex CLI path:"), codexCliPathField, 1, false)
+        .addLabeledComponent(codexCliPathLabel, codexCliPathField, 1, false)
         .addComponent(codexCliPathHint, 2)
-        .addComponent(completionsEnabledCheckbox, 1)
-        .addLabeledComponent(JBLabel("Completions model:"), completionsModelCombo, 1, false)
-        .addLabeledComponent(JBLabel("Completions debounce (ms):"), completionsDebounceField, 1, false)
-        .addComponent(completionsManualOnlyCheckbox, 1)
-        .addLabeledComponent(JBLabel("Tool approval:"), toolApprovalCombo, 1, false)
-        .addComponent(autoAcceptEditsCheckbox, 1)
         .addSeparator()
         .addLabeledComponent(modelsSectionLabel, JPanel(), 0, false)
         .addComponent(modelsSection, 1)
@@ -332,12 +313,18 @@ class ProvidersTab : SettingsTab {
         layout.show(providerCards, selectedProviderKey())
         refreshSubscriptionDetectionHint()
 
-        // Hide Claude/Codex CLI path fields when OpenAI-compatible provider is selected
-        val hideCliPaths = selectedProviderKey() == "openai-compatible"
-        cliPathField.isVisible = !hideCliPaths
-        cliPathWarning.isVisible = !hideCliPaths
-        codexCliPathField.isVisible = !hideCliPaths
-        codexCliPathHint.isVisible = !hideCliPaths
+        val backendKind = com.adobe.clawdea.provider.ProviderRegistry.require(selectedProviderKey()).backendKind
+        // Claude CLI path: only visible for providers whose backend spawns the `claude` binary.
+        val showCliPath = backendKind == com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI
+        cliPathLabel.isVisible = showCliPath
+        cliPathField.isVisible = showCliPath
+        cliPathWarning.isVisible = showCliPath
+
+        // Codex CLI path: only visible for providers whose backend spawns the `codex` binary.
+        val showCodexPath = backendKind == com.adobe.clawdea.provider.BackendKind.CODEX_APP_SERVER
+        codexCliPathLabel.isVisible = showCodexPath
+        codexCliPathField.isVisible = showCodexPath
+        codexCliPathHint.isVisible = showCodexPath
     }
 
     private fun refreshSubscriptionDetectionHint() {
@@ -408,12 +395,6 @@ class ProvidersTab : SettingsTab {
         openAiApiKeyField.text = settings.getOpenAIApiKey()
         cliPathField.text = state.cliPath
         codexCliPathField.text = state.codexCliPath
-        completionsEnabledCheckbox.isSelected = state.completionsEnabled
-        selectCompletionsModel(state.completionsModel)
-        completionsDebounceField.text = state.completionsDebounceMs.toString()
-        completionsManualOnlyCheckbox.isSelected = state.completionsManualOnly
-        toolApprovalCombo.selectedIndex = ToolApprovalModeUi.indexForKey(state.toolApprovalMode)
-        autoAcceptEditsCheckbox.isSelected = state.autoAcceptEdits
         bedrockRegionField.text = state.bedrockRegion
         bedrockBearerTokenField.text = settings.getBedrockBearerToken()
         vertexRegionField.text = state.vertexRegion
@@ -431,12 +412,6 @@ class ProvidersTab : SettingsTab {
         settings.setOpenAIApiKey(String(openAiApiKeyField.password))
         state.cliPath = cliPathField.text
         state.codexCliPath = codexCliPathField.text
-        state.completionsEnabled = completionsEnabledCheckbox.isSelected
-        state.completionsModel = selectedCompletionsModelKey()
-        state.completionsDebounceMs = completionsDebounceField.text.toIntOrNull() ?: 300
-        state.completionsManualOnly = completionsManualOnlyCheckbox.isSelected
-        state.toolApprovalMode = ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex)
-        state.autoAcceptEdits = autoAcceptEditsCheckbox.isSelected
         state.bedrockRegion = bedrockRegionField.text
         settings.setBedrockBearerToken(String(bedrockBearerTokenField.password))
         state.vertexRegion = vertexRegionField.text
@@ -452,12 +427,6 @@ class ProvidersTab : SettingsTab {
             String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
             cliPathField.text != state.cliPath ||
             codexCliPathField.text != state.codexCliPath ||
-            completionsEnabledCheckbox.isSelected != state.completionsEnabled ||
-            selectedCompletionsModelKey() != state.completionsModel ||
-            completionsDebounceField.text != state.completionsDebounceMs.toString() ||
-            completionsManualOnlyCheckbox.isSelected != state.completionsManualOnly ||
-            ToolApprovalModeUi.keyForIndex(toolApprovalCombo.selectedIndex) != state.toolApprovalMode ||
-            autoAcceptEditsCheckbox.isSelected != state.autoAcceptEdits ||
             bedrockRegionField.text != state.bedrockRegion ||
             String(bedrockBearerTokenField.password) != settings.getBedrockBearerToken() ||
             vertexRegionField.text != state.vertexRegion ||
@@ -541,16 +510,6 @@ class ProvidersTab : SettingsTab {
         }
 
         return out
-    }
-
-    private fun selectedCompletionsModelKey(): String {
-        val idx = completionsModelCombo.selectedIndex
-        return if (idx >= 0) COMPLETION_MODEL_KEYS[idx] else "sonnet"
-    }
-
-    private fun selectCompletionsModel(key: String) {
-        val idx = COMPLETION_MODEL_KEYS.indexOf(key)
-        completionsModelCombo.selectedIndex = if (idx >= 0) idx else 0
     }
 
     private fun flushCurrentTableToTransient() {

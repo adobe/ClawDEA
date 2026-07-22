@@ -147,6 +147,54 @@ class OpenAiToolCatalog(
             ),
         )
 
+        /**
+         * OpenAI function-tool schema for the [SkillTool] the [ProductionToolExecutor] dispatches
+         * directly. Advertised only when skills are available (see the backend's tool assembly), so
+         * agentic models can load a skill's instructions mid-turn by name.
+         */
+        fun skillToolDefinition(): OpenAiToolDefinition = OpenAiToolDefinition(
+            type = "function",
+            function = OpenAiFunctionDefinition(
+                name = "Skill",
+                description = "Load and follow a ClawDEA skill by its slash-command name. Returns the " +
+                    "skill's full instructions; follow them to complete the task. Use the exact skill " +
+                    "name from the available-skills list (with or without a leading slash).",
+                parameters = objectSchema(
+                    properties = listOf(
+                        Triple("name", "string", "The skill to invoke, by its name (e.g. \"superpowers:brainstorming\")."),
+                        Triple("args", "string", "Optional arguments/context to pass to the skill."),
+                    ),
+                    required = listOf("name"),
+                ),
+            ),
+        )
+
+        /**
+         * OpenAI function-tool schema for the `Agent` tool the [AgentLoopController] routes to a
+         * nested sub-agent turn. Field names match what the chat's sub-agent card reads
+         * (`subagent_type`, `description`); `prompt` is the task the sub-agent runs. Advertised only
+         * when sub-agents are enabled and the model is tool-capable (see the backend's tool assembly).
+         * Sub-agents are NOT themselves given this tool, so dispatch is depth-1 (no recursion).
+         */
+        fun agentToolDefinition(): OpenAiToolDefinition = OpenAiToolDefinition(
+            type = "function",
+            function = OpenAiFunctionDefinition(
+                name = "Agent",
+                description = "Dispatch a sub-agent to independently carry out a well-scoped task and " +
+                    "return its final report. The sub-agent runs its own tool loop (search, read, " +
+                    "edit) and cannot dispatch further sub-agents. Use for parallelizable or " +
+                    "self-contained work; give it everything it needs in the prompt.",
+                parameters = objectSchema(
+                    properties = listOf(
+                        Triple("description", "string", "A short (3-5 word) description of the sub-agent's task."),
+                        Triple("prompt", "string", "The full task for the sub-agent to perform."),
+                        Triple("subagent_type", "string", "Optional label for the kind of agent (e.g. \"general-purpose\")."),
+                    ),
+                    required = listOf("description", "prompt"),
+                ),
+            ),
+        )
+
         private fun objectSchema(
             properties: List<Triple<String, String, String>>,
             required: List<String>,

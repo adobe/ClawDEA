@@ -30,35 +30,20 @@ class WikiIndexSource : PrimerSource {
         // When the librarian is on, ship a one-line anchor sitting right next to
         // the TOC so the routing reminder is co-located with the content the
         // model actually scans when answering. The full routing rules are in
-        // WIKI_LIBRARIAN_PROMPT (CliProcess); this is the in-context nudge.
+        // WIKI_LIBRARIAN_TOOL_PROMPT (CliProcess); this is the in-context nudge.
         if (state.enableWikiLibrarian) {
-            val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(ClawDEASettings.getInstance())
-                .get(com.adobe.clawdea.provider.AgentRole.WIKI)
-            val mode = com.adobe.clawdea.knowledge.wiki.chooseLibrarianMode(wikiSel)
-            return buildLibrarianAnchor(mode) + "\n\n" + index
+            return buildLibrarianAnchor() + "\n\n" + index
         }
         return buildLegacyDirective(wikiDir.toString(), state.autoUpdateWiki) + "\n\n" + index
     }
 
     companion object {
         internal fun buildLibrarianAnchor(): String =
-            buildLibrarianAnchor(com.adobe.clawdea.knowledge.wiki.LibrarianMode.CLAUDE_SUBAGENT)
-
-        internal fun buildLibrarianAnchor(mode: com.adobe.clawdea.knowledge.wiki.LibrarianMode): String =
-            when (mode) {
-                com.adobe.clawdea.knowledge.wiki.LibrarianMode.AGENTIC_MCP_TOOL ->
-                    "**For any question about this project, your first tool call is the " +
-                        "`ask_wiki_librarian` tool (pass the user's question).** " +
-                        "This includes change-safety / validation questions like " +
-                        "\"is this safe?\" or \"will this regress X?\". " +
-                        "The TOC below is what the librarian sees too."
-                else ->
-                    "**For any question about this project, your first tool call is " +
-                        "`Agent(subagent_type=\"wiki-librarian\", prompt=<question>)`. " +
-                        "This includes change-safety / validation questions like " +
-                        "\"is this safe?\" or \"will this regress X?\". " +
-                        "The TOC below is what the librarian sees too."
-            }
+            "**For any question about how THIS project works, your first move must be to " +
+                "consult the project wiki librarian — see the wiki-knowledge routing rules in your " +
+                "instructions for exactly which tool to call. This includes change-safety questions " +
+                "like \"is this safe?\" or \"will this regress X?\". The TOC below is what the " +
+                "librarian sees too.**"
 
         // History: sessions 9b36ff6b (#139), 537c8342 (#141), 1afd97af (#24),
         // and 2d41a87f (#86) all skipped the wiki under successively softer

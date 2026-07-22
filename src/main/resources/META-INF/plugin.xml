@@ -120,6 +120,16 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>3.0.0</h3>
+<h4>Skills &amp; sub-agents for OpenAI-compatible models</h4>
+<ul>
+  <li><b>Skills that dispatch sub-agents now work.</b> An agentic OpenAI-compatible model can call an <b>Agent</b> tool to run a focused sub-agent, whose steps stream into the same collapsible sub-agent card you see with Claude. Skills like plan-then-implement no longer stall when they ask for parallel work.</li>
+  <li><b>Cleaner skill invocation.</b> Running a skill on a non-Claude model now shows a compact &ldquo;Using skill&rdquo; chip instead of pasting the whole skill document into the chat &mdash; the model still receives the full instructions.</li>
+  <li><b>Edits report the truth.</b> A proposed file write that can&rsquo;t actually land on disk now reports a clear error instead of a false &ldquo;accepted&rdquo;, and relative file paths resolve against the project root so writes go where you expect.</li>
+  <li><b>Context-window management.</b> The OpenAI-compatible models table has a new <b>Context window</b> column. The agent loop uses it to compact the conversation before a model overflows its window &mdash; with a conservative default when unset &mdash; so smaller models (e.g. 128K) stay coherent instead of degrading on long turns.</li>
+  <li><b>Loop-breaker.</b> If a model gets stuck repeating the same failing tool call, ClawDEA now nudges it to change approach and stops the turn cleanly rather than spinning.</li>
+</ul>
+
 <h3>2.2.0</h3>
 <h4>Chat with any OpenAI-compatible provider</h4>
 <ul>
@@ -388,6 +398,12 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
     <depends>Git4Idea</depends>
+    <!-- JCEF (embedded Chromium) lives in a separate platform module. The chat UI (ChatPanel,
+         JBCefJSQuery/JBCefJSQuery.Response) needs its classes on our plugin classloader; without
+         this dependency the jcef module is absent from the classloader parents and instantiating
+         ChatPanel throws NoClassDefFoundError: JBCefJSQuery$Response on installs where JCEF is not
+         already on the shared classpath. -->
+    <depends>com.intellij.modules.jcef</depends>
 
     <!-- Optional integration: clawdea-scala.xml loads only when the
          org.intellij.scala plugin is installed. -->

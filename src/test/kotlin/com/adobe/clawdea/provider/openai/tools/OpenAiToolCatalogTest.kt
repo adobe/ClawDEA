@@ -127,4 +127,27 @@ class OpenAiToolCatalogTest {
         val patchRequired = patch!!.function.parameters.getAsJsonArray("required").map { it.asString }.toSet()
         assertEquals(setOf("file_path", "original_content", "proposed_content"), patchRequired)
     }
+
+    @Test
+    fun `skill tool definition advertises name with required name param`() {
+        val def = OpenAiToolCatalog.skillToolDefinition()
+        assertEquals("Skill", def.function.name)
+        val required = def.function.parameters.getAsJsonArray("required").map { it.asString }
+        assertEquals(listOf("name"), required)
+        // optional 'args' is present in properties but not required
+        assertTrue(def.function.parameters.getAsJsonObject("properties").has("args"))
+    }
+
+    @Test
+    fun `agent tool definition advertises Agent with description and prompt required`() {
+        val def = OpenAiToolCatalog.agentToolDefinition()
+        assertEquals("Agent", def.function.name)
+        val required = def.function.parameters.getAsJsonArray("required").map { it.asString }.toSet()
+        assertEquals(setOf("description", "prompt"), required)
+        val props = def.function.parameters.getAsJsonObject("properties")
+        // subagent_type is offered (the chat card reads it) but optional
+        assertTrue(props.has("subagent_type"))
+        assertTrue(props.has("description"))
+        assertTrue(props.has("prompt"))
+    }
 }

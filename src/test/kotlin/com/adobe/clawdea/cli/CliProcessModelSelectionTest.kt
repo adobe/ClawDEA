@@ -54,4 +54,40 @@ class CliProcessModelSelectionTest {
         val process = CliProcess(workingDirectory = dir, providerIdProvider = { settings.state.apiProvider })
         assertEquals("claude-sonnet-4-6", process.resolveCliModel(settings))
     }
+
+    @Test
+    fun `pinned model from the tab selection wins over the settings map`() {
+        val settings = ClawDEASettings()
+        val dir = "/tmp/project-cli-model-pinned"
+
+        // The settings map is EMPTY for anthropic — this is the regression scenario: a fresh chat
+        // whose model was chosen via the Roles tab (roleSelections), never written to selectedModels.
+        settings.state.apiProvider = "anthropic"
+
+        // The tab's AgentSelection carries the concrete pinned model shown in the dropdown ("Opus").
+        val process = CliProcess(
+            workingDirectory = dir,
+            providerIdProvider = { "anthropic" },
+            pinnedModelId = "claude-opus-4-8",
+        )
+        // Must run `claude --model claude-opus-4-8`, NOT fall back to the CLI's own default (Haiku).
+        assertEquals("claude-opus-4-8", process.resolveCliModel(settings))
+    }
+
+    @Test
+    fun `blank pinned model falls back to the settings map`() {
+        val settings = ClawDEASettings()
+        val dir = "/tmp/project-cli-model-blank-pin"
+
+        settings.state.apiProvider = "anthropic"
+        settings.setSelectedModelId(dir, "claude-sonnet-4-6", providerId = "anthropic")
+
+        // A blank pin (the CLI-picks-its-own-default case) preserves the existing settings-based read.
+        val process = CliProcess(
+            workingDirectory = dir,
+            providerIdProvider = { "anthropic" },
+            pinnedModelId = "",
+        )
+        assertEquals("claude-sonnet-4-6", process.resolveCliModel(settings))
+    }
 }

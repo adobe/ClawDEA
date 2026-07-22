@@ -71,10 +71,16 @@ class AgenticLibrarian(
             if (event is CliEvent.Result && event.isError) terminalError = event.text
         }
         return when {
-            terminalError != null -> LibrarianAnswer(terminalError, isError = true)
-            turn.streamFailed -> LibrarianAnswer(turn.finalText.ifBlank { "request failed" }, isError = true)
-            turn.isError -> LibrarianAnswer(turn.finalText.ifBlank { "librarian turn error" }, isError = true)
+            terminalError != null -> LibrarianAnswer(errorText(terminalError!!), isError = true)
+            turn.streamFailed -> LibrarianAnswer(errorText(turn.finalText.ifBlank { "request failed" }), isError = true)
+            turn.isError -> LibrarianAnswer(errorText(turn.finalText.ifBlank { "librarian turn error" }), isError = true)
             else -> LibrarianAnswer(turn.finalText, isError = false)
         }
+    }
+
+    /** Names the failing model so the surfaced error is diagnosable (e.g. an unsupported-model 400). */
+    private fun errorText(detail: String): String {
+        val model = modelId.ifBlank { "default model" }
+        return "Wiki librarian using '$model' encountered: $detail"
     }
 }

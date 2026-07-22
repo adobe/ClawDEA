@@ -195,25 +195,9 @@ em { color: var(--subtext0); }
     font-size: 11px;
     font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
 }
-/* Collapsible model reasoning ("Thinking") block — codex streams reasoning tokens
-   that Claude's stream drops. Open while streaming, auto-collapsed on turn end. */
-.reasoning-block {
-    margin: 8px 0;
-    background: rgba(137, 180, 250, 0.05);
-    border-left: 2px solid rgba(137, 180, 250, 0.35);
-    border-radius: 6px;
-    padding: 2px 0;
-}
-.reasoning-summary {
-    cursor: pointer;
-    user-select: none;
-    color: var(--overlay0);
-    font-size: 11px;
-    font-style: italic;
-    padding: 4px 10px;
-    list-style: none;
-}
-.reasoning-summary::-webkit-details-marker { display: none; }
+/* Model reasoning ("Thinking") text — codex and OpenAI-compatible backends stream
+   reasoning tokens that Claude's stream drops. Shown live inside the pinned
+   activity indicator, then removed with the indicator at turn end. */
 .reasoning-content {
     color: var(--overlay0);
     font-size: 12px;
@@ -501,9 +485,8 @@ em { color: var(--subtext0); }
 #active-agents > .subagent-block { margin: 4px 0; flex-shrink: 0; }
 #active-agents > .subagent-block:first-child { margin-top: 0; }
 
-/* Keep long live reasoning visible without letting it consume the viewport.
-   Once finalized, the block moves to #messages and this cap no longer applies. */
-#thinking-slot > #reasoning-live .reasoning-content {
+/* Live reasoning shares the thinking indicator with its animated dots. */
+#thinking-indicator .reasoning-content {
     max-height: 30vh;
     overflow-y: auto;
 }
@@ -1149,41 +1132,34 @@ function toggleSubAgent(header) {
     var block = header.closest('.subagent-block');
     if (block) block.classList.toggle('expanded');
 }
-// Streamed model reasoning ("Thinking"). While live, the block stays in the pinned
-// bottom dock above the activity indicator. finalizeReasoning collapses and moves it
-// into message history before the answer is appended. Text is always a text node.
+// Streamed model reasoning ("Thinking") is displayed inside the same pinned
+// activity indicator used by every backend. It is transient: on turn end the
+// indicator (and the reasoning with it) is removed, leaving no history block.
+// Text is always a text node.
 function appendReasoning(text) {
-    var block = document.getElementById('reasoning-live');
-    if (!block) {
-        var slot = document.getElementById('thinking-slot');
-        if (!slot) return;
-        block = document.createElement('details');
-        block.id = 'reasoning-live';
-        block.className = 'reasoning-block';
-        block.open = true;
-        block.innerHTML = '<summary class="reasoning-summary">Thinking…</summary>' +
-            '<div class="reasoning-content"></div>';
-        slot.insertBefore(block, slot.firstChild);
+    showThinking();
+    var indicator = document.getElementById('thinking-indicator');
+    if (!indicator) return;
+    var content = indicator.querySelector('.reasoning-content');
+    if (!content) {
+        content = document.createElement('div');
+        content.className = 'reasoning-content';
+        var bubble = indicator.querySelector('.assistant-bubble');
+        if (!bubble) return;
+        bubble.insertBefore(content, bubble.firstChild);
     }
-    var content = block.querySelector('.reasoning-content');
-    if (content) {
-        content.appendChild(document.createTextNode(text));
-        content.scrollTop = content.scrollHeight;
-    }
+    content.appendChild(document.createTextNode(text));
+    content.scrollTop = content.scrollHeight;
     // Instant (not smooth) scroll: reasoning deltas are already coalesced/throttled on the
     // Kotlin side, and a queued smooth animation per flush thrashes layout during long
-    // reasoning bursts. A plain scroll keeps the block pinned to the bottom cheaply.
+    // reasoning bursts. A plain scroll keeps the shared indicator pinned cheaply.
     window.scrollTo(0, document.body.scrollHeight);
 }
 function finalizeReasoning() {
-    var block = document.getElementById('reasoning-live');
-    if (!block) return;
-    block.removeAttribute('open');
-    block.removeAttribute('id');
-    var s = block.querySelector('.reasoning-summary');
-    if (s) s.textContent = 'Thinking';
-    var messages = document.getElementById('messages');
-    if (messages) messages.appendChild(block);
+    // Reasoning ("Thinking") is transient: it lives inside #thinking-indicator
+    // and is removed together with the indicator by the hideThinkingIndicator()
+    // call that immediately follows at turn end. Nothing to move — leaving the
+    // content in place means no collapsed history panel lingers in the chat.
 }
 function toggleSubAgentStep(row) {
     var step = row.closest('.subagent-step');

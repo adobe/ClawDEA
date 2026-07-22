@@ -209,6 +209,58 @@ class McpWikiTools(private val project: Project) {
         val settings = ClawDEASettings.getInstance()
         val wikiSel = com.adobe.clawdea.provider.RoleSelectionStore(settings)
             .get(com.adobe.clawdea.provider.AgentRole.WIKI)
+        return when (com.adobe.clawdea.knowledge.wiki.chooseLibrarianExecution(wikiSel)) {
+            com.adobe.clawdea.knowledge.wiki.LibrarianExecution.CLAUDE_SUBPROCESS ->
+                askViaClaudeSubprocess(question, wikiSel, settings)
+            com.adobe.clawdea.knowledge.wiki.LibrarianExecution.AGENTIC_LOOP ->
+                askViaAgenticLoop(question, wikiSel, settings)
+            com.adobe.clawdea.knowledge.wiki.LibrarianExecution.CODEX_SUBPROCESS ->
+                askViaCodexSubprocess(question, wikiSel, settings)
+        }
+    }
+
+    private fun askViaCodexSubprocess(
+        question: String,
+        wikiSel: com.adobe.clawdea.provider.AgentSelection,
+        settings: ClawDEASettings,
+    ): McpToolRouter.ToolResult {
+        val basePath = project.basePath
+            ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
+        val cliPath = com.adobe.clawdea.cli.resolveCodexCliPath(settings.state.codexCliPath)
+        // Read-only by construction — no MCP wiring — so the WIKI provider's Codex auth is safe here.
+        val librarian = com.adobe.clawdea.knowledge.wiki.CodexExecLibrarian(
+            codexCliPath = cliPath,
+            projectRoot = java.nio.file.Paths.get(basePath),
+            selection = wikiSel,
+        )
+        val answer = librarian.ask(question)
+        return McpToolRouter.ToolResult(answer.text, isError = answer.isError)
+    }
+
+    private fun askViaClaudeSubprocess(
+        question: String,
+        wikiSel: com.adobe.clawdea.provider.AgentSelection,
+        settings: ClawDEASettings,
+    ): McpToolRouter.ToolResult {
+        val basePath = project.basePath
+            ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
+        val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
+        val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+        val librarian = com.adobe.clawdea.knowledge.wiki.ClaudeSubprocessLibrarian(
+            claudeCliPath = cliPath,
+            projectRoot = java.nio.file.Paths.get(basePath),
+            mcpPort = mcpPort,
+            selection = wikiSel,
+        )
+        val answer = librarian.ask(question)
+        return McpToolRouter.ToolResult(answer.text, isError = answer.isError)
+    }
+
+    private fun askViaAgenticLoop(
+        question: String,
+        wikiSel: com.adobe.clawdea.provider.AgentSelection,
+        settings: ClawDEASettings,
+    ): McpToolRouter.ToolResult {
         val profileId = wikiSel.profileId ?: ""
         val profileStore = com.adobe.clawdea.provider.openai.profile.ProfileStore(settings)
         val resolved = profileStore.resolve(profileId, System.getenv())
@@ -220,10 +272,8 @@ class McpWikiTools(private val project: Project) {
                 "Credential not configured for profile '$profileId'", isError = true)
         }
         val capability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
-            modelId = wikiSel.modelId,
-            endpointCapability = null,
-            profileRules = resolved.profile.modelRules,
-            userOverride = null,
+            modelId = wikiSel.modelId, endpointCapability = null,
+            profileRules = resolved.profile.modelRules, userOverride = null,
         )
         val mcpDefs = com.adobe.clawdea.mcp.McpServer.getInstance(project).toolDefinitions()
         val approvalGate = com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate(

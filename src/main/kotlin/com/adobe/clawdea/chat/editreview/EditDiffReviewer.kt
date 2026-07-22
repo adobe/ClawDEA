@@ -115,7 +115,25 @@ class EditDiffReviewer(private val project: Project) {
     }
 
     /**
-     * Apply content to a file on disk.
+     * Resolve [filePath] to an absolute file. A relative path is resolved against the
+     * project base dir (mirrors [com.adobe.clawdea.mcp.PsiUtils]) — NOT the JVM working
+     * directory, which for an IDE launched from Finder/Dock is typically `/`. Non-Claude
+     * agent backends (OpenAI-compatible, Codex) sometimes emit relative `file_path`
+     * arguments despite the tool schema asking for absolute; without this a write would
+     * silently land off-project (or fail `mkdirs` under `/`).
+     */
+    private fun resolveFile(filePath: String): File {
+        if (filePath.startsWith("/")) return File(filePath)
+        val base = project.basePath ?: return File(filePath)
+        return File(base, filePath)
+    }
+
+    /**
+     * Apply content to a file on disk. Returns true if the write landed, false if it did
+     * not (e.g. parent directory could not be created). Callers that surface a success
+     * message to the model MUST check this — reporting "ACCEPTED" for a write that never
+     * happened silently loses the user's/model's work (observed with relative paths that
+     * resolved under an unwritable CWD).
      *
      * Document-backed paths go through WriteCommandAction so the write runs in
      * a write-safe transactional context regardless of the caller's modality.
@@ -123,17 +141,21 @@ class EditDiffReviewer(private val project: Project) {
      * ModalityState.defaultModalityState() resolves to NON_MODAL, which
      * TransactionGuard rejects for document mutations.
      */
-    fun applyContent(filePath: String, content: String) {
-        val file = File(filePath)
+    fun applyContent(filePath: String, content: String): Boolean {
+        val file = resolveFile(filePath)
+        val absolutePath = file.path
         // Create parent dirs on demand. Previously this method bailed when the parent
         // didn't exist, which silently swallowed writes for new files in new subdirs
         // (e.g. .claude/wiki/concepts/<name>.md when /seed-wiki proposes a fresh wiki).
         val parent = file.parentFile
-        if (parent != null && !parent.exists() && !parent.mkdirs()) return
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            log.warn("applyContent: could not create parent dir for $absolutePath; write skipped")
+            return false
+        }
 
         val lfs = LocalFileSystem.getInstance()
         val docManager = FileDocumentManager.getInstance()
-        val preExistingVFile = lfs.findFileByPath(filePath)
+        val preExistingVFile = lfs.findFileByPath(absolutePath)
         val openDoc = preExistingVFile?.let { docManager.getCachedDocument(it) }
 
         if (openDoc != null) {
@@ -146,11 +168,12 @@ class EditDiffReviewer(private val project: Project) {
                 WriteAction.runAndWait<Exception> {
                     file.writeText(content)
                 }
-                lfs.refreshAndFindFileByPath(filePath)?.refresh(false, false)
+                lfs.refreshAndFindFileByPath(absolutePath)?.refresh(false, false)
             }, ModalityState.nonModal())
         }
 
-        project.getService(FilesystemRefreshCoordinator::class.java).onEditApplied(filePath)
+        project.getService(FilesystemRefreshCoordinator::class.java).onEditApplied(absolutePath)
+        return true
     }
 
     /**

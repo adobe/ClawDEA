@@ -198,7 +198,9 @@ class DefaultWikiAuthorInvoker(
             val pb = ProcessBuilder(command)
                 .directory(projectRoot.toFile())
                 .redirectErrorStream(false)
-                .redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
+                // `claude -p` blocks on an open stdin pipe until EOF; the null device gives it
+                // immediate EOF. Portable across OSes (`NUL` on Windows, `/dev/null` elsewhere).
+                .redirectInput(com.adobe.clawdea.util.NullDevice.inputRedirect())
             val merged = mutableMapOf<String, String>()
             com.adobe.clawdea.cli.CliEnvironment.applyTo(merged)
             for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)

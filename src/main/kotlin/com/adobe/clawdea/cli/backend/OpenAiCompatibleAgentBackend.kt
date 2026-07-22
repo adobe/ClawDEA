@@ -38,6 +38,7 @@ import com.adobe.clawdea.provider.openai.tools.MissingRouteBehavior
 import com.adobe.clawdea.provider.openai.tools.OpenAiToolCatalog
 import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
+import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -90,10 +91,16 @@ class OpenAiCompatibleAgentBackend(
     private val clientFactory: (ResolvedProviderProfile, String) -> AgentClient =
         { p, cred -> HttpAgentClient(OpenAiCompatibleClient(), p, cred) },
     // Test seam: construct the tool executor. Production default dispatches to MCP + host tools.
-    private val executorFactory: () -> AgentToolExecutor = { defaultExecutor(project, mcpDefs, approvalGate, autoAcceptEdits) },
+    // The default doesn't capture currentSkills (can't access instance fields); init{} upgrades it.
+    executorFactory: (() -> AgentToolExecutor)? = null,
     // Test seam: renew the profile credential (real path prompts on the EDT + runs the flow).
     // Returns true if a fresh credential was persisted. Default runs the EDT renewal flow.
     private val credentialRenewer: (() -> Boolean)? = null,
+    // Test seam: resolve the settings snapshot the turn loop reads its limits from. Production reads
+    // the application @Service; headless turn tests inject a plain instance so the pooled turn
+    // coroutine does not depend on an IntelliJ Application (whose absence would kill the turn before
+    // it emits a terminal Result — a blocking-queue reader would then hang forever).
+    private val settingsProvider: () -> ClawDEASettings = { ClawDEASettings.getInstance() },
 ) : AgentBackend {
 
     private val log = Logger.getInstance(OpenAiCompatibleAgentBackend::class.java)
@@ -127,8 +134,23 @@ class OpenAiCompatibleAgentBackend(
     // the last known id if the provider ever returns blank (should not happen post readiness gate).
     @Volatile
     private var currentModelId: String = ""
+    // Skills discovered for this session, captured from [start]'s `skills` arg (mirrors how
+    // currentModelId is resolved fresh per start). Feeds the Skill-tool advertisement + executor.
+    @Volatile
+    private var currentSkills: List<SkillInfo> = emptyList()
     private val errors = mutableListOf<String>()
     private lateinit var sessionId: String
+
+    // Resolved in init: either the test-injected factory, or the production default (which reads
+    // currentSkills at call time, so must be constructed after the instance is initialized).
+    private val executorFactory: () -> AgentToolExecutor
+
+    init {
+        // Upgrade the executor factory to capture currentSkills. Tests inject their own factory
+        // (non-null), so respect that; otherwise build the production default.
+        this.executorFactory = executorFactory
+            ?: { defaultExecutor(project, mcpDefs, approvalGate, currentSkills, autoAcceptEdits) }
+    }
 
     // Dynamic: the chat chrome ("… is thinking", composer placeholder, assistant name) shows the
     // selected model's trimmed name. Computed from [currentModelId] (resolved fresh on every [start]
@@ -187,6 +209,8 @@ class OpenAiCompatibleAgentBackend(
         } else {
             log.warn("modelIdProvider returned blank at start; keeping last known model '$currentModelId'")
         }
+
+        currentSkills = skills
 
         // Build standing instructions. Degrade to empty when the platform Application is
         // unavailable (headless/unit-test contexts) — instructions are non-essential to the
@@ -425,7 +449,8 @@ class OpenAiCompatibleAgentBackend(
         }
 
         while (true) {
-            val settings = com.adobe.clawdea.settings.ClawDEASettings.getInstance().state
+            val settings = settingsProvider().state
+            val advertiseAgent = settings.enableOpenAiSubagents
             val loop = AgentLoopController(
                 client = clientFactory(profile, currentCredential!!),
                 executor = executorFactory(),
@@ -434,19 +459,20 @@ class OpenAiCompatibleAgentBackend(
                 maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
                 maxContextChars = 1_000_000,
                 modelId = currentModelId,
-                tools = agentToolDefinitions(mcpDefs),
+                tools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog, advertiseAgent),
                 stream = profile.profile.streaming,
                 onSoftLimit = { reason, count -> promptSoftLimit(reason, count) },
                 compactor = com.adobe.clawdea.provider.openai.agent.ConversationCompactor(
                     summarize = buildSummarizer(),
                 ),
-                contextWindowTokens = com.adobe.clawdea.provider.openai.agent.ContextWindows.forModel(
-                    profile.profile, currentModelId,
+                contextWindowTokens = com.adobe.clawdea.provider.openai.agent.ContextWindows.resolve(
+                    profile.profile, currentModelId, activeModelCatalog(settings),
                 ),
                 compactionThreshold = settings.agentContextCompactionThreshold,
                 onCompacted = { n ->
                     queue.put(CliEvent.TextDelta("\n_Compacted context — summarized $n earlier messages._\n"))
                 },
+                subAgentRunner = if (advertiseAgent) buildSubAgentRunner(settings) else null,
             )
 
             val result = runOneRound(loop, text, append)
@@ -622,6 +648,53 @@ class OpenAiCompatibleAgentBackend(
             }
             sb.toString().ifBlank { "[summary unavailable]" }
         }
+
+    /**
+     * The user-editable model catalog for this backend's profile (the models table rows, including
+     * the "Context window" column). Empty when none is stored. Feeds context-window resolution.
+     */
+    private fun activeModelCatalog(
+        settings: com.adobe.clawdea.settings.ClawDEASettings.State,
+    ): List<com.adobe.clawdea.gateway.ModelEntry> {
+        val catalogKey = com.adobe.clawdea.provider.ProviderRegistry.catalogKey(
+            com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID,
+            profile.profile.id,
+        )
+        return settings.modelCatalogs[catalogKey] ?: emptyList()
+    }
+
+    /**
+     * Build the sub-agent runner for the `Agent` tool. The sub-agent shares the client + executor
+     * but is given the tool set MINUS the Agent tool (depth-1, no recursion) and its own system
+     * prompt. Skill/Bash/apply_patch remain available so a sub-agent can still do real work.
+     */
+    private fun buildSubAgentRunner(
+        settings: com.adobe.clawdea.settings.ClawDEASettings.State,
+    ): com.adobe.clawdea.provider.openai.agent.SubAgentRunner {
+        // Same tools as the parent turn, but without the Agent tool itself.
+        val subTools = agentToolDefinitions(mcpDefs, currentSkills, settings.preloadSkillCatalog, advertiseAgentTool = false)
+        val subPrompt = try {
+            OpenAiInstructions.build(project, currentSkills)
+        } catch (e: Exception) {
+            log.warn("Failed to build sub-agent instructions; continuing without them", e)
+            ""
+        }.let { base ->
+            val hint = "\n\nYou are a dispatched sub-agent. Complete the task described in the user " +
+                "message independently and return your final report as your last message. You cannot " +
+                "dispatch further sub-agents."
+            (base + hint).trim()
+        }
+        return com.adobe.clawdea.provider.openai.agent.SubAgentDispatcher(
+            client = clientFactory(profile, currentCredential!!),
+            executor = executorFactory(),
+            tools = subTools,
+            modelId = currentModelId,
+            systemPrompt = subPrompt,
+            streaming = profile.profile.streaming,
+            maxToolRounds = settings.agentMaxToolRounds,
+            maxElapsedMs = settings.agentMaxElapsedMinutes.toLong() * 60_000L,
+        )
+    }
 
     /**
      * Blocking Continue/Stop checkpoint for a non-zero soft limit. Waits indefinitely (no timeout,
@@ -823,22 +896,45 @@ class OpenAiCompatibleAgentBackend(
  * dispatches directly. Must stay in lockstep with what the executor can route, or the model will
  * emit tool calls the backend cannot fulfil.
  */
-internal fun agentToolDefinitions(mcpDefs: List<McpToolRouter.ToolDef>): List<OpenAiToolDefinition> =
-    OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+internal fun agentToolDefinitions(
+    mcpDefs: List<McpToolRouter.ToolDef>,
+    skills: List<SkillInfo> = emptyList(),
+    advertiseSkillTool: Boolean = false,
+    advertiseAgentTool: Boolean = false,
+): List<OpenAiToolDefinition> {
+    var defs = OpenAiToolCatalog(mcpDefs, emptyList()).definitions() + OpenAiToolCatalog.hostToolDefinitions()
+    if (advertiseSkillTool && skills.isNotEmpty()) defs = defs + OpenAiToolCatalog.skillToolDefinition()
+    if (advertiseAgentTool) defs = defs + OpenAiToolCatalog.agentToolDefinition()
+    return defs
+}
 
 /**
  * Build the production tool executor: dispatches to MCP tools + host shell/patch tools.
  * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
+ * Overload without skills for compatibility with existing callers.
  */
 internal fun defaultExecutor(
     project: Project?,
     mcpDefs: List<McpToolRouter.ToolDef>,
     approvalGate: SharedToolApprovalGate,
     autoAcceptEdits: () -> Boolean,
+): AgentToolExecutor = defaultExecutor(project, mcpDefs, approvalGate, emptyList(), autoAcceptEdits)
+
+/**
+ * Build the production tool executor: dispatches to MCP tools + host shell/patch tools + skill tool.
+ * Extracted to a top-level function so the backend's `executorFactory` default can reference it.
+ */
+internal fun defaultExecutor(
+    project: Project?,
+    mcpDefs: List<McpToolRouter.ToolDef>,
+    approvalGate: SharedToolApprovalGate,
+    skills: List<SkillInfo>,
+    autoAcceptEdits: () -> Boolean,
 ): AgentToolExecutor = ProductionToolExecutor(
     catalog = OpenAiToolCatalog(mcpDefs, emptyList()),
     shellTool = if (project != null) HostShellTool(project, approvalGate, missingRouteBehavior = MissingRouteBehavior.DENY) else null,
     patchTool = if (project != null) HostPatchTool(project, autoAcceptEdits, approvalGate) else null,
+    skillTool = com.adobe.clawdea.provider.openai.tools.SkillTool(skills),
 )
 
 /**
@@ -861,6 +957,7 @@ private class ProductionToolExecutor(
     private val catalog: OpenAiToolCatalog,
     private val shellTool: HostShellTool?,
     private val patchTool: HostPatchTool?,
+    private val skillTool: com.adobe.clawdea.provider.openai.tools.SkillTool,
 ) : AgentToolExecutor {
     private val gson = com.google.gson.Gson()
 
@@ -888,6 +985,21 @@ private class ProductionToolExecutor(
                 }
                 tool.execute(input, toolCall.id)
             } ?: ToolExecutionResult(toolCall.id, "Patch tool not available", true)
+            "Skill" -> {
+                val (name, args) = try {
+                    val obj = com.google.gson.JsonParser.parseString(toolCall.argumentsJson).asJsonObject
+                    val nameEl = obj.get("name")
+                    if (nameEl == null || nameEl.isJsonNull || !nameEl.isJsonPrimitive) {
+                        return ToolExecutionResult(toolCall.id, "missing required parameter: name", true)
+                    }
+                    val argsEl = obj.get("args")
+                    val argsStr = if (argsEl != null && argsEl.isJsonPrimitive) argsEl.asString else null
+                    nameEl.asString to argsStr
+                } catch (e: Exception) {
+                    return ToolExecutionResult(toolCall.id, "Malformed Skill arguments: ${e.message}", true)
+                }
+                skillTool.execute(name, args, toolCall.id)
+            }
             else -> catalog.dispatch(toolCall.id, toolCall.name, toolCall.argumentsJson)
         }
     }

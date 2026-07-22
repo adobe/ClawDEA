@@ -12,7 +12,6 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.gateway.ModelEntry
-import com.adobe.clawdea.provider.AgentSelection
 import com.adobe.clawdea.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -85,6 +84,45 @@ class ChatModelOptionsTest {
         assertEquals(1, options.size)
         assertEquals("Claude › Opus 4.8 (sign in)", options[0].label)
         assertFalse(options[0].enabled)
+    }
+
+    @Test
+    fun `label drops Anthropic when model name also contains Claude`() {
+        val source = ProviderModelSource(
+            providerId = "anthropic",
+            profileId = null,
+            displayLabel = "Claude",
+            authenticated = true,
+            models = listOf(
+                ModelEntry(id = "claude-sonnet-4-6", displayName = "Anthropic Claude Sonnet 4.6", enabled = true),
+            )
+        )
+
+        val options = buildChatOptions(listOf(source))
+
+        assertEquals("Claude › Claude Sonnet 4.6", options.single().label)
+    }
+
+    @Test
+    fun `model label excludes its provider prefix`() {
+        val option = ProviderModelOption(
+            selection = com.adobe.clawdea.provider.AgentSelection("anthropic", null, "claude-sonnet-4-6"),
+            label = "Claude › Claude Sonnet 4.6",
+            enabled = true,
+        )
+
+        assertEquals("Claude Sonnet 4.6", option.modelLabel)
+    }
+
+    @Test
+    fun `model label retains sign in suffix`() {
+        val option = ProviderModelOption(
+            selection = com.adobe.clawdea.provider.AgentSelection("anthropic", null, "claude-sonnet-4-6"),
+            label = "Claude › Claude Sonnet 4.6 (sign in)",
+            enabled = false,
+        )
+
+        assertEquals("Claude Sonnet 4.6 (sign in)", option.modelLabel)
     }
 
     @Test

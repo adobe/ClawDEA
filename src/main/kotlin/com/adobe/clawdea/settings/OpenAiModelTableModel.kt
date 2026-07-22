@@ -20,7 +20,7 @@ class OpenAiModelTableModel(
 
     override fun getRowCount(): Int = rows.size
 
-    override fun getColumnCount(): Int = 8
+    override fun getColumnCount(): Int = 9
 
     override fun getColumnName(column: Int): String = when (column) {
         0 -> "Enabled"
@@ -31,6 +31,7 @@ class OpenAiModelTableModel(
         5 -> "Output/M"
         6 -> "Cached/M"
         7 -> "Reasoning/M"
+        8 -> "Context window"
         else -> ""
     }
 
@@ -38,6 +39,7 @@ class OpenAiModelTableModel(
         0 -> Boolean::class.java
         1, 2, 3 -> String::class.java
         4, 5, 6, 7 -> Double::class.java
+        8 -> Integer::class.java
         else -> Any::class.java
     }
 
@@ -52,6 +54,7 @@ class OpenAiModelTableModel(
         5 -> rows[rowIndex].outputPerM
         6 -> rows[rowIndex].cachedInputPerM
         7 -> rows[rowIndex].reasoningPerM
+        8 -> rows[rowIndex].contextWindow
         else -> ""
     }
 
@@ -66,6 +69,11 @@ class OpenAiModelTableModel(
             5 -> entry.outputPerM = (aValue as? Double) ?: 0.0
             6 -> entry.cachedInputPerM = (aValue as? Double) ?: 0.0
             7 -> entry.reasoningPerM = (aValue as? Double) ?: 0.0
+            8 -> entry.contextWindow = when (aValue) {
+                is Int -> aValue
+                is Number -> aValue.toInt()
+                else -> aValue?.toString()?.trim()?.toIntOrNull() ?: 0
+            }
         }
         entry.userAdded = true
         fireTableRowsUpdated(rowIndex, rowIndex)

@@ -152,6 +152,22 @@ class McpEditReviewTools(private val project: Project) {
         }
     }
 
+    /**
+     * The user accepted (or auto-accept was on) but [EditDiffReviewer.applyContent] reported the
+     * write did not land. Surface a truthful error so the model does not believe the file exists.
+     * See the observed relative-path failure: a "docs/…" path resolved off-project, mkdirs failed,
+     * yet the old code still returned "ACCEPTED".
+     */
+    private fun writeFailed(filePath: String): McpToolRouter.ToolResult {
+        log.warn("reviewAndRespond: write reported as not applied for $filePath")
+        EditReviewOutcomes.put(filePath, "REJECTED")
+        return McpToolRouter.ToolResult(
+            "Failed to write $filePath: the file could not be created on disk. " +
+                "Pass an absolute path inside the project and verify the directory is writable.",
+            isError = true,
+        )
+    }
+
     private fun reviewAndRespond(
         filePath: String,
         originalContent: String,
@@ -165,7 +181,9 @@ class McpEditReviewTools(private val project: Project) {
         // edits auto-applied even with autoAcceptEdits=false.
         if (McpServer.getInstance(project).activeAutoAcceptEdits) {
             log.info("reviewAndRespond: auto-accepting edit for $filePath")
-            reviewer.applyContent(filePath, proposedContent)
+            if (!reviewer.applyContent(filePath, proposedContent)) {
+                return writeFailed(filePath)
+            }
             EditReviewOutcomes.put(filePath, "AUTO-ACCEPTED")
             return McpToolRouter.ToolResult(formatResult("ACCEPTED", filePath, null))
         }
@@ -176,13 +194,13 @@ class McpEditReviewTools(private val project: Project) {
 
         val outcome = when (result.outcome) {
             EditOutcome.ACCEPTED -> {
-                reviewer.applyContent(filePath, proposedContent)
+                if (!reviewer.applyContent(filePath, proposedContent)) return writeFailed(filePath)
                 "ACCEPTED"
             }
             EditOutcome.REJECTED -> "REJECTED"
             EditOutcome.MODIFIED -> {
                 if (result.modifiedContent != null) {
-                    reviewer.applyContent(filePath, result.modifiedContent)
+                    if (!reviewer.applyContent(filePath, result.modifiedContent)) return writeFailed(filePath)
                 }
                 "MODIFIED"
             }

@@ -51,6 +51,9 @@ object ModelCatalogMerge {
                     existingEntry.outputPerM != freshEntry.outputPerM ||
                     existingEntry.cachedInputPerM != freshEntry.cachedInputPerM ||
                     existingEntry.reasoningPerM != freshEntry.reasoningPerM
+                // A user-set context window must survive a /models refresh (the endpoint never
+                // reports it, so freshEntry.contextWindow is always 0). Preserve any non-zero value.
+                val userContextWindow = existingEntry.contextWindow.takeIf { it > 0 } ?: freshEntry.contextWindow
 
                 val merged = if (userModifiedPricing) {
                     // Keep user pricing, but refresh other fields (displayName, capability); keep enabled.
@@ -60,10 +63,11 @@ object ModelCatalogMerge {
                         cachedInputPerM = existingEntry.cachedInputPerM,
                         reasoningPerM = existingEntry.reasoningPerM,
                         enabled = existingEntry.enabled,
+                        contextWindow = userContextWindow,
                     )
                 } else {
-                    // No user override; use fresh entry entirely, but preserve enabled.
-                    freshEntry.copy(enabled = existingEntry.enabled)
+                    // No user override; use fresh entry entirely, but preserve enabled + context window.
+                    freshEntry.copy(enabled = existingEntry.enabled, contextWindow = userContextWindow)
                 }
                 result.add(merged)
                 emitted.add(existingEntry.id)

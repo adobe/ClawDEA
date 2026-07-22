@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.cost
 
+import com.adobe.clawdea.util.ClaudeProjectDir
 import java.io.File
 
 /**
@@ -29,7 +30,7 @@ object TranscriptCostReader {
     data class ResumeCost(val totalUsd: Double, val lastModel: String?)
 
     fun sessionTranscriptFile(projectBasePath: String, sessionId: String): File {
-        val encodedPath = "-" + projectBasePath.trimStart('/').replace("/", "-")
+        val encodedPath = ClaudeProjectDir.encode(projectBasePath)
         return File(System.getProperty("user.home") + "/.claude/projects/" + encodedPath + "/$sessionId.jsonl")
     }
 

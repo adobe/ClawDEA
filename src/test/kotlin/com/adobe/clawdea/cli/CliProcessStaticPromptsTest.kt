@@ -26,14 +26,6 @@ class CliProcessStaticPromptsTest {
     }
 
     @Test
-    fun `wiki-librarian-prompt resource loads with expected sentinels`() {
-        val text = PromptResource.load("wiki-librarian-prompt")
-        assertTrue(text.contains("Wiki-knowledge routing:"))
-        assertTrue(text.contains("subagent_type=\"wiki-librarian\""))
-        assertTrue(text.contains("No exceptions beyond the two above."))
-    }
-
-    @Test
     fun `edit-review-prompt resource loads with expected sentinels`() {
         val text = PromptResource.load("edit-review-prompt")
         assertTrue(text.contains("File-edit routing:"))

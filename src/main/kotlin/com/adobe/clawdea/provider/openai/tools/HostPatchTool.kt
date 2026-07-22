@@ -80,7 +80,17 @@ class HostPatchTool(
      * Execute a patch with approval + validation + review. Returns structured result.
      * Blocks on approval + review — call off-EDT.
      */
-    fun execute(input: HostPatchInput, toolUseId: String): ToolExecutionResult {
+    fun execute(rawInput: HostPatchInput, toolUseId: String): ToolExecutionResult {
+        // 0. Normalize a relative file_path against the project base. Non-Claude backends
+        // sometimes emit relative paths despite the schema asking for absolute; File(relative)
+        // resolves against the JVM CWD (typically `/` for a Finder-launched IDE), which would
+        // wrongly fail the path-inside-project check below.
+        val input = if (rawInput.filePath.startsWith("/")) {
+            rawInput
+        } else {
+            rawInput.copy(filePath = File(projectBasePath, rawInput.filePath).path)
+        }
+
         // 1. Validate path is within project
         val canonicalPath = try {
             File(input.filePath).canonicalPath
@@ -165,7 +175,7 @@ class HostPatchTool(
                     )
                 }
                 EditOutcome.ACCEPTED -> {
-                    reviewer.applyContent(input.filePath, input.proposedContent)
+                    if (!reviewer.applyContent(input.filePath, input.proposedContent)) return writeFailed(toolUseId, input.filePath)
                 }
                 EditOutcome.MODIFIED -> {
                     val modifiedContent = reviewResult.modifiedContent
@@ -174,12 +184,12 @@ class HostPatchTool(
                             content = "Internal error: MODIFIED outcome without modifiedContent",
                             isError = true,
                         )
-                    reviewer.applyContent(input.filePath, modifiedContent)
+                    if (!reviewer.applyContent(input.filePath, modifiedContent)) return writeFailed(toolUseId, input.filePath)
                 }
             }
         } else {
             // Auto-accept: apply directly
-            reviewer.applyContent(input.filePath, input.proposedContent)
+            if (!reviewer.applyContent(input.filePath, input.proposedContent)) return writeFailed(toolUseId, input.filePath)
         }
 
         // 5. Notify filesystem refresh
@@ -193,11 +203,23 @@ class HostPatchTool(
     }
 
     /**
+     * The user accepted but [EditReviewer.applyContent] reported the write did not land.
+     * Surface a truthful error instead of "Patch applied".
+     */
+    private fun writeFailed(toolUseId: String, filePath: String): ToolExecutionResult =
+        ToolExecutionResult(
+            toolCallId = toolUseId,
+            content = "Failed to write $filePath: the file could not be created on disk.",
+            isError = true,
+        )
+
+    /**
      * Injectable edit reviewer for testing.
      */
     interface EditReviewer {
         fun review(filePath: String, originalContent: String, proposedContent: String): EditDiffReviewer.ReviewResult
-        fun applyContent(filePath: String, content: String)
+        /** Returns true if the write landed on disk, false if it was skipped (e.g. mkdirs failed). */
+        fun applyContent(filePath: String, content: String): Boolean
     }
 
     /**
@@ -218,8 +240,8 @@ class HostPatchTool(
             return editDiffReviewer.review(filePath, originalContent, proposedContent)
         }
 
-        override fun applyContent(filePath: String, content: String) {
-            editDiffReviewer.applyContent(filePath, content)
+        override fun applyContent(filePath: String, content: String): Boolean {
+            return editDiffReviewer.applyContent(filePath, content)
         }
     }
 

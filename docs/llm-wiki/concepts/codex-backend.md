@@ -83,3 +83,13 @@ Anything else is a deliberately-ignored `Unknown` with a **blank** `rawJson` so 
 - [Cost tracking and session model](cost-tracking.md) — per-turn spend accounting the rate-limit mapper feeds
 - [Turn state machine](turn-state-machine.md) — Idle/Streaming/Paused, and the steer/interrupt path
 - [Subagents](subagents.md) — card grouping keys on `parentToolUseId`, which this backend's parser never sets, so subagent inner steps render flat in the main chat
+
+## Reaching the wiki librarian from a Codex chat
+
+A Codex chat has no `--agents` / subagent mechanism, so it cannot spawn `Agent(subagent_type="wiki-librarian")`. Its only path to the librarian is the `ask_wiki_librarian` MCP tool, which `CodexInstructions.build` advertises via `CliProcess.WIKI_LIBRARIAN_TOOL_PROMPT`. The tool's handler (`McpWikiTools.askWikiLibrarian`) then runs the librarian on whatever the **WIKI role** resolves to (`chooseLibrarianExecution`, in [LibrarianMode.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/wiki/LibrarianMode.kt)):
+
+- **Claude WIKI role** → a `claude -p` subprocess ([ClaudeSubprocessLibrarian.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/wiki/ClaudeSubprocessLibrarian.kt)), read-only via an `--allowedTools` allowlist over the ClawDEA MCP tools.
+- **openai-compatible WIKI role** → the in-process `AgenticLibrarian` HTTP loop.
+- **Codex WIKI role** → `codex exec --json` ([CodexExecLibrarian.kt](../../../src/main/kotlin/com/adobe/clawdea/knowledge/wiki/CodexExecLibrarian.kt)).
+
+**Why the Codex librarian forgoes ClawDEA's MCP tools.** The `codex exec` spike (`docs/superpowers/specs/2026-07-14-codex-interface-findings.md`) established that MCP `tools/call` only executes under `-s danger-full-access`; any real sandbox (`read-only`/`workspace-write`) blocks the loopback MCP socket on macOS Seatbelt. Wiring the MCP server would therefore force `danger-full-access` and leave codex's own shell ungated — the opposite of a read-only librarian. So `CodexExecLibrarian` runs `-s read-only -c approval_policy="never"` with **no MCP server**: codex reads the on-disk wiki (`docs/llm-wiki/…`) and greps the tree with its built-in shell (read commands need no escalation; a write escalation just fails under `never`, never executing and never hanging). The tradeoff vs. the Claude/agentic paths is no `record_wiki_suggestion` gap-logging and no IntelliJ index tools — acceptable for read-only Q&A. Unlike the app-server chat backend, this parses the **`codex exec --json`** stream (`thread.started` / `item.completed` `agent_message` / `turn.completed`), not the app-server notification stream.
