@@ -28,13 +28,37 @@ dependencies {
 
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     // Provides kotlinx.coroutines.test.runTest for suspend-function unit tests (steering primitives,
-    // cancel-and-continue integration). Version matches the platform-bundled coroutines runtime.
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    // cancel-and-continue integration). Pinned to 1.10.2 — NOT the latest — to match the coroutines
+    // runtime the target platform (2026.1) bundles; see the note below for why this must track the
+    // platform, not upstream latest.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     // Required when running LightJavaCodeInsightFixtureTestCase fixtures from the
     // IDE's JUnit runner — UsefulTestCase references opentest4j AssertionFailedError
     // in method signatures, and the IntelliJ Platform test framework no longer
     // brings it in transitively as of 2026.1.
     testImplementation("org.opentest4j:opentest4j:1.3.0")
+}
+
+// The IntelliJ Platform test sandbox puts the platform's OWN fork of coroutines-core
+// (intellij.libraries.kotlinx.coroutines.core.jar, version "1.10.2-intellij-1" — adds
+// BuildersKt.runBlockingWithParallelismCompensation for ComponentManagerImpl's service init) on the
+// test classpath. kotlinx-coroutines-test transitively pulls in the plain upstream
+// kotlinx-coroutines-core-jvm artifact of whatever version it declares. With both present, the flat
+// PathClassLoader binds kotlinx.coroutines.BuildersKt to whichever jar's copy loads first —
+// nondeterministic across full-suite runs — so ANY second copy on the classpath is a latent bug,
+// even a same-version one. Two things are required together, not either alone:
+//   1. kotlinx-coroutines-test is pinned to 1.10.2 (above), matching the platform fork's base
+//      version, so its calls (plain runBlocking$default) are satisfiable by the platform's fork —
+//      1.11.x's TestBuildersJvmKt needs runBlockingK, which only exists upstream, never in the
+//      platform fork, so pinning the version is NOT optional even with the exclude below.
+//   2. The transitive vanilla kotlinx-coroutines-core-jvm is excluded here so the platform's fork is
+//      the ONLY BuildersKt on the classpath — removing the load-order race entirely, rather than
+//      hoping the compatible copy wins. Excluded at the configuration level (not per-dependency)
+//      because the artifact is published with an `available-at` variant redirect to the separate
+//      kotlinx-coroutines-test-jvm module, which a per-dependency exclude() doesn't reliably reach.
+configurations.matching { it.name.startsWith("test") }.configureEach {
+    exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+    exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core-jvm")
 }
 
 intellijPlatform {

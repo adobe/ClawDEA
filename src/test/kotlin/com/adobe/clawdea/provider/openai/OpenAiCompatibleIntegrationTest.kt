@@ -87,10 +87,12 @@ class OpenAiCompatibleIntegrationTest {
 
         // Regression guard for the "tools never advertised" defect: the outgoing request MUST carry
         // a tools array naming the MCP tool PLUS the host Bash/apply_patch tools the executor can
-        // dispatch. Before tools were wired into the request this assertion would have failed even
-        // though the (unconditional) fixture still emitted tool_calls.
+        // dispatch, plus the Agent sub-agent-dispatch tool (advertised by default via
+        // ClawDEASettings.enableOpenAiSubagents). Before tools were wired into the request this
+        // assertion would have failed even though the (unconditional) fixture still emitted
+        // tool_calls.
         val advertised = advertisedToolNames(fixture.requestBodies.first())
-        assertEquals(setOf("find_files", "Bash", "apply_patch"), advertised)
+        assertEquals(setOf("find_files", "Bash", "apply_patch", "Agent"), advertised)
 
         val sessions = OpenAiSessionScanner.scan(projectPath)
         assertEquals(1, sessions.size)

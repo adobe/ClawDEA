@@ -22,6 +22,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class SeedWikiHandlerTest {
 
@@ -216,9 +218,10 @@ class SeedWikiHandlerTest {
 
     @Test
     fun `execute on shareable Submit (Application-less) writes config and dispatches the path-aware expansion`() {
-        // No IntelliJ Application is registered in this unit test, so the
-        // handler's `executeOnPooledThread` fallback runs the heavy block
-        // synchronously. That makes `dispatch` observable inline.
+        // The heavy block runs via `executeOnPooledThread`, which is genuinely asynchronous whenever
+        // an IntelliJ Application is registered (true under the Platform test harness that runs this
+        // suite) — only a headless/Application-less caller gets the synchronous fallback. Wait on the
+        // dispatch latch rather than assuming either path so this observes the real completion.
         val tmp = Files.createTempDirectory("seed-wiki-shareable").toAbsolutePath()
         try {
             val seenPath = mutableListOf<String>()
@@ -227,6 +230,7 @@ class SeedWikiHandlerTest {
                 "PROMPT($wikiPathRel)"
             }
             var dispatched: String? = null
+            val done = CountDownLatch(1)
             handler.execute("", CommandContext(
                 appendHtml = {},
                 showNotification = {},
@@ -236,8 +240,9 @@ class SeedWikiHandlerTest {
                         freeforms = mapOf("q" to "docs/llm-wiki"),
                     ))
                 },
-                runSeedWiki = { dispatched = it },
+                runSeedWiki = { dispatched = it; done.countDown() },
             ))
+            assertTrue("dispatch did not complete in time", done.await(10, TimeUnit.SECONDS))
             assertEquals(listOf("docs/llm-wiki"), seenPath)
             assertEquals("PROMPT(docs/llm-wiki)", dispatched)
             // Team-mode side effects:
