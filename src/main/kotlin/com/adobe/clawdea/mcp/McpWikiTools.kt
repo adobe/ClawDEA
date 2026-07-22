@@ -271,8 +271,11 @@ class McpWikiTools(private val project: Project) {
             return McpToolRouter.ToolResult(
                 "Credential not configured for profile '$profileId'", isError = true)
         }
+        val catalog = settings.state.modelCatalogs[wikiSel.catalogKey()] ?: emptyList()
         val capability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
-            modelId = wikiSel.modelId, endpointCapability = null,
+            modelId = wikiSel.modelId,
+            endpointCapability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver
+                .catalogCapability(wikiSel.modelId, catalog),
             profileRules = resolved.profile.modelRules, userOverride = null,
         )
         val mcpDefs = com.adobe.clawdea.mcp.McpServer.getInstance(project).toolDefinitions()

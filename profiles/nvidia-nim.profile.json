@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "nvidia-nim",
+  "name": "NVIDIA NIM",
+  "description": "NVIDIA API Catalog (build.nvidia.com) — OpenAI-compatible serverless inference. Free developer tier (~40 rpm). Create an API key (nvapi-…) at https://build.nvidia.com/settings/api-keys.",
+  "baseUrl": "https://integrate.api.nvidia.com",
+  "endpoints": {
+    "models": "/v1/models",
+    "chatCompletions": "/v1/chat/completions"
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "settings": [],
+  "credentialFlow": {
+    "inputs": [
+      {
+        "id": "apiKey",
+        "label": "NVIDIA API key (nvapi-…)",
+        "secret": true
+      }
+    ],
+    "steps": [],
+    "durableCredential": "${input:apiKey}"
+  },
+  "modelMapping": {
+    "arrayPath": "$.data",
+    "idPath": "$.id",
+    "displayNamePath": "$.id"
+  },
+  "modelRules": [
+    {
+      "pattern": "z-ai/glm-5.2",
+      "capability": "agentic"
+    }
+  ],
+  "contextWindows": {
+    "z-ai/glm-5.2": 1000000
+  },
+  "streaming": true,
+  "pricing": {
+    "z-ai/glm-5.2": {
+      "inputPerM": 0.0,
+      "outputPerM": 0.0,
+      "cachedInputPerM": 0.0,
+      "reasoningPerM": 0.0
+    }
+  }
+}

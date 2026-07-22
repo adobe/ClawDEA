@@ -198,9 +198,11 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
         val profileId = wikiSelection.profileId ?: ""
         val profile = profileStore.resolve(profileId, System.getenv())
         val capability = if (profile != null) {
+            val catalog = settings.state.modelCatalogs[wikiSelection.catalogKey()] ?: emptyList()
             com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
                 modelId = wikiSelection.modelId,
-                endpointCapability = null,
+                endpointCapability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver
+                    .catalogCapability(wikiSelection.modelId, catalog),
                 profileRules = profile.profile.modelRules,
                 userOverride = null,
             )
@@ -364,9 +366,11 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
         val profile = profileStore.resolve(profileId, System.getenv())
         // Resolve capability so the guard can refuse tool-less models.
         val capability = if (profile != null) {
+            val catalog = settings.state.modelCatalogs[wikiSelection.catalogKey()] ?: emptyList()
             com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver.resolve(
                 modelId = wikiSelection.modelId,
-                endpointCapability = null,
+                endpointCapability = com.adobe.clawdea.provider.openai.catalog.ModelCapabilityResolver
+                    .catalogCapability(wikiSelection.modelId, catalog),
                 profileRules = profile.profile.modelRules,
                 userOverride = null,
             )
