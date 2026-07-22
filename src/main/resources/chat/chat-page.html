@@ -195,25 +195,9 @@ em { color: var(--subtext0); }
     font-size: 11px;
     font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
 }
-/* Collapsible model reasoning ("Thinking") block — codex streams reasoning tokens
-   that Claude's stream drops. Open while streaming, auto-collapsed on turn end. */
-.reasoning-block {
-    margin: 8px 0;
-    background: rgba(137, 180, 250, 0.05);
-    border-left: 2px solid rgba(137, 180, 250, 0.35);
-    border-radius: 6px;
-    padding: 2px 0;
-}
-.reasoning-summary {
-    cursor: pointer;
-    user-select: none;
-    color: var(--overlay0);
-    font-size: 11px;
-    font-style: italic;
-    padding: 4px 10px;
-    list-style: none;
-}
-.reasoning-summary::-webkit-details-marker { display: none; }
+/* Model reasoning ("Thinking") text — codex and OpenAI-compatible backends stream
+   reasoning tokens that Claude's stream drops. Shown live inside the pinned
+   activity indicator, then removed with the indicator at turn end. */
 .reasoning-content {
     color: var(--overlay0);
     font-size: 12px;
@@ -1149,8 +1133,9 @@ function toggleSubAgent(header) {
     if (block) block.classList.toggle('expanded');
 }
 // Streamed model reasoning ("Thinking") is displayed inside the same pinned
-// activity indicator used by every backend. On completion its text is moved into a
-// collapsed history block before the indicator is removed. Text is always a text node.
+// activity indicator used by every backend. It is transient: on turn end the
+// indicator (and the reasoning with it) is removed, leaving no history block.
+// Text is always a text node.
 function appendReasoning(text) {
     showThinking();
     var indicator = document.getElementById('thinking-indicator');
@@ -1171,19 +1156,10 @@ function appendReasoning(text) {
     window.scrollTo(0, document.body.scrollHeight);
 }
 function finalizeReasoning() {
-    var indicator = document.getElementById('thinking-indicator');
-    if (!indicator) return;
-    var content = indicator.querySelector('.reasoning-content');
-    if (!content || !content.textContent.trim()) return;
-    var block = document.createElement('details');
-    block.className = 'reasoning-block';
-    var summary = document.createElement('summary');
-    summary.className = 'reasoning-summary';
-    summary.textContent = 'Thinking';
-    block.appendChild(summary);
-    block.appendChild(content);
-    var messages = document.getElementById('messages');
-    if (messages) messages.appendChild(block);
+    // Reasoning ("Thinking") is transient: it lives inside #thinking-indicator
+    // and is removed together with the indicator by the hideThinkingIndicator()
+    // call that immediately follows at turn end. Nothing to move — leaving the
+    // content in place means no collapsed history panel lingers in the chat.
 }
 function toggleSubAgentStep(row) {
     var step = row.closest('.subagent-step');
