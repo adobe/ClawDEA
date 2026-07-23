@@ -4,11 +4,19 @@
     <name>ClawDEA</name>
     <vendor url="https://github.com/adobe/ClawDEA" email="spopescu@adobe.com">ClawDEA</vendor>
     <description><![CDATA[
-<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> and
-<a href="https://developers.openai.com/codex/">OpenAI Codex</a> a self-maintaining understanding of your
-project.</b> Its standout capability is a project wiki that stays in sync with your code, ships an
-orientation primer with every turn, and is ready to share across a team via git &mdash; so your AI
-assistant starts every conversation already knowing how your codebase works.</p>
+<p><b>ClawDEA gives <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a>,
+<a href="https://developers.openai.com/codex/">OpenAI Codex</a>, and any OpenAI-compatible model a
+self-maintaining understanding of your project.</b> Its standout capability is a project wiki that stays
+in sync with your code, ships an orientation primer with every turn, and is ready to share across a team
+via git &mdash; so your AI assistant starts every conversation already knowing how your codebase works.</p>
+
+<p><b>Bring your own model.</b> Beyond Claude and Codex, ClawDEA can drive <b>any OpenAI-compatible
+provider</b> &mdash; a self-hosted model server, an internal gateway, or a third-party API &mdash; via an
+importable JSON profile (no plugin update needed). A tool-capable model gets the same full agentic chat as
+Claude and Codex: the whole MCP toolset, a Skill tool and an Agent tool for sub-agent dispatch, diff-gated
+edit review, and permission-gated shell access. The new <b>Roles</b> tab lets Chat, Wiki upkeep, and
+Completions each run on an independently chosen provider &mdash; run chat on Claude, wiki upkeep on a cheap
+OpenAI-compatible model, and completions on a third.</p>
 
 <p>Most Claude plugins wrap the CLI in a chat window. ClawDEA goes further: a living knowledge layer plus
 JVM profiling as a diagnostic loop, on top of IDE-grade code navigation, edit review, and debugging.
@@ -24,10 +32,12 @@ variables, and mutating runtime state to verify hypotheses.</p>
 <ul>
   <li><b>A self-maintaining project wiki.</b> A project-local wiki under <code>.claude/wiki/</code> plus an
   auto-generated <code>REPO_STATE.md</code>. A commit-driven drift detector notices when a page's claims go
-  stale and a bundled <code>wiki-author</code> subagent drafts the fix &mdash; with auto-update enabled it
-  lands edits unattended. The primer ships with every turn so Claude starts each conversation oriented
-  &mdash; no "let me explore the codebase first". A <code>wiki-librarian</code> subagent answers design
-  questions in its own fresh context, citing pages and verifying against current source.</li>
+  stale, an orphan-subsystem detector flags whole new areas no page mentions at all, and a bundled
+  <code>wiki-author</code> agent drafts the fix &mdash; with auto-update enabled it lands edits unattended.
+  The primer ships with every turn so Claude starts each conversation oriented &mdash; no "let me explore
+  the codebase first". The <code>ask_wiki_librarian</code> tool answers design questions in its own fresh
+  context, citing pages and verifying against current source &mdash; and works no matter which provider
+  you chat with, running on whichever backend the Wiki role (Roles tab) points at.</li>
 
   <li><b>Team-ready knowledge sharing.</b> Run <code>/wiki-relocate docs/llm-wiki</code> to commit the wiki
   path to <code>.clawdea/config.json</code>; teammates auto-discover the shared wiki on clone, with per-user
@@ -56,17 +66,23 @@ variables, and mutating runtime state to verify hypotheses.</p>
   A fallback coordinator catches built-in Edit/Write calls that bypass MCP and adds inline buttons with
   file revert, so Claude cannot silently overwrite your work.</li>
 
-  <li><b>Inline completions.</b> Tab-completions powered by the Claude API with editor context from the
-  context engine. Falls back to <code>claude -p</code> when no API key is configured.</li>
+  <li><b>Inline completions.</b> Tab-completions powered by the Claude API, or an OpenAI-compatible
+  profile once one is imported and a model selected, using editor context from the context engine.</li>
 
   <li><b>Intention actions (Alt+Enter).</b> Explain, Optimize, Generate Test, Security Check, Add
-  Documentation, Refactor with Instructions, Ask Claude, Fix with Claude.</li>
+  Documentation, Refactor with Instructions, Ask Claude, Fix with Claude. Works with Claude or a selected
+  OpenAI-compatible provider.</li>
 
   <li><b>Chat panel.</b> Streams responses with Markdown, tool-use cards, and clickable code references
   that navigate to source. Supports Auto, Plan, and Ask modes. <code>@</code>-mention for inline file and
   symbol picking, backed by IntelliJ's filename and short-name caches. <b>Choose your backend:</b> Claude
-  Code or OpenAI Codex &mdash; Codex runs through the same MCP toolset (index, debugger, edit review,
-  primer, skills).</li>
+  Code, OpenAI Codex, or a verified-agentic OpenAI-compatible provider profile &mdash; all three run
+  through the same MCP toolset (index, debugger, edit review, primer, skills), and the OpenAI-compatible
+  agent loop additionally gets a Skill tool and an Agent tool for sub-agent dispatch.</li>
+
+  <li><b>Per-role providers (Roles tab).</b> Chat, Wiki upkeep, and Completions each get an independent
+  provider + model picker &mdash; point wiki authoring or completions at a different (e.g. cheaper) model
+  than the one you chat with, without switching your whole setup.</li>
 
   <li><b>Tool-call permissions.</b> Three modes (Confirm all / Allow safe / Allow all), with honoring of
   Claude Code's <code>permissions.allow</code> / <code>permissions.deny</code> rules. Permission cards
@@ -80,7 +96,9 @@ variables, and mutating runtime state to verify hypotheses.</p>
   <li><b>Session resume.</b> Pick up a previous session with conversation history replayed in the chat panel.</li>
 
   <li><b>Auth flexibility.</b> Claude via Anthropic API key, Claude subscription sign-in, AWS Bedrock, or
-  Google Vertex; OpenAI via ChatGPT subscription sign-in or an OpenAI API key.</li>
+  Google Vertex; OpenAI via ChatGPT subscription sign-in or an OpenAI API key; any OpenAI-compatible
+  provider via whatever credentials its imported profile declares &mdash; secrets live only in the IDE's
+  PasswordSafe, never in a settings file or an exported profile.</li>
 </ul>
 
 <h2>Staying in sync with Claude Code</h2>
@@ -95,8 +113,9 @@ CI, not by users.</p>
 <ol>
   <li>Install the CLI: <code>npm install -g @anthropic-ai/claude-code</code></li>
   <li>Install this plugin.</li>
-  <li>Open <b>Settings &rarr; Tools &rarr; ClawDEA</b> and configure an Anthropic API key, sign in with a
-  Claude subscription, or configure AWS Bedrock / Google Vertex credentials.</li>
+  <li>Open <b>Settings &rarr; Tools &rarr; ClawDEA</b> (Providers tab) and configure an Anthropic API key,
+  sign in with a Claude subscription, configure AWS Bedrock / Google Vertex credentials, or import an
+  OpenAI-compatible provider profile.</li>
   <li>Open the chat panel (<b>Tools &rarr; Toggle ClawDEA Chat</b>) and start coding.</li>
 </ol>
 
@@ -105,9 +124,10 @@ CI, not by users.</p>
 <ul>
   <li>IntelliJ IDEA 2026.1+</li>
   <li>Java 21 on the IDE's JBR (bundled)</li>
-  <li>Claude Code CLI installed (and/or the OpenAI Codex CLI to chat with Codex)</li>
+  <li>Claude Code CLI installed (and/or the OpenAI Codex CLI to chat with Codex; an OpenAI-compatible
+  provider needs no CLI at all &mdash; just an imported profile)</li>
   <li>Claude auth (Anthropic API key, subscription, AWS Bedrock, or Google Vertex) and/or OpenAI auth
-  (ChatGPT subscription or OpenAI API key)</li>
+  (ChatGPT subscription or OpenAI API key) and/or an OpenAI-compatible profile's own credentials</li>
 </ul>
 
 <p><a href="https://github.com/adobe/ClawDEA">GitHub</a>
@@ -121,13 +141,81 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
 
     <change-notes><![CDATA[
 <h3>3.0.0</h3>
-<h4>Skills &amp; sub-agents for OpenAI-compatible models</h4>
+<h4>Bring your own model: full agentic chat on any OpenAI-compatible provider</h4>
+<p>The headline feature of this release: ClawDEA can now drive <b>any OpenAI-compatible API</b> &mdash; a
+self-hosted model server, an internal gateway, or a third-party provider &mdash; as a full agentic chat
+backend, on equal footing with Claude Code and OpenAI Codex.</p>
 <ul>
-  <li><b>Skills that dispatch sub-agents now work.</b> An agentic OpenAI-compatible model can call an <b>Agent</b> tool to run a focused sub-agent, whose steps stream into the same collapsible sub-agent card you see with Claude. Skills like plan-then-implement no longer stall when they ask for parallel work.</li>
-  <li><b>Cleaner skill invocation.</b> Running a skill on a non-Claude model now shows a compact &ldquo;Using skill&rdquo; chip instead of pasting the whole skill document into the chat &mdash; the model still receives the full instructions.</li>
-  <li><b>Edits report the truth.</b> A proposed file write that can&rsquo;t actually land on disk now reports a clear error instead of a false &ldquo;accepted&rdquo;, and relative file paths resolve against the project root so writes go where you expect.</li>
-  <li><b>Context-window management.</b> The OpenAI-compatible models table has a new <b>Context window</b> column. The agent loop uses it to compact the conversation before a model overflows its window &mdash; with a conservative default when unset &mdash; so smaller models (e.g. 128K) stay coherent instead of degrading on long turns.</li>
-  <li><b>Loop-breaker.</b> If a model gets stuck repeating the same failing tool call, ClawDEA now nudges it to change approach and stops the turn cleanly rather than spinning.</li>
+  <li><b>Import a provider via a JSON profile &mdash; no plugin update needed.</b> A profile declares the
+  endpoint, model catalog, credential flow, and pricing for an OpenAI-compatible API. Preview and confirm
+  before it&rsquo;s trusted; plain HTTP is rejected outside localhost by default.</li>
+  <li><b>Full agentic chat, not just completions.</b> A tool-capable model gets the whole MCP toolset
+  (index, debugger, diff-gated edit review, primer, skills), a permission-gated shell, streamed reasoning
+  in the collapsible <b>Thinking</b> block, and cancel-and-continue steering &mdash; the same experience as
+  Claude and Codex.</li>
+  <li><b>Skill tool.</b> An agentic OpenAI-compatible model can now invoke your Claude Code skills directly,
+  shown as a compact &ldquo;Using skill&rdquo; chip instead of pasting the whole skill document into the
+  chat.</li>
+  <li><b>Agent tool for sub-agent dispatch.</b> The model can call an <b>Agent</b> tool to run a focused
+  sub-agent, whose steps stream into the same collapsible sub-agent card you see with Claude. Skills that
+  fan out into parallel work no longer stall on this backend.</li>
+  <li><b>Verify Tool Support.</b> One click sends a harmless no-op probe function and reports whether a
+  model can actually call tools &mdash; a real signal, never a guess, and never spends tokens unless you
+  ask it to.</li>
+  <li><b>Context-window management.</b> Configure a per-model context window in the profile; the agent
+  loop compacts the conversation before a model overflows its window &mdash; with a conservative default
+  when unset &mdash; so smaller models (e.g. 128K) stay coherent on long turns instead of degrading.</li>
+  <li><b>Loop-breaker.</b> If a model gets stuck repeating the same failing tool call, ClawDEA now nudges it
+  to change approach and stops the turn cleanly rather than spinning.</li>
+  <li><b>Credentials never leave PasswordSafe.</b> A profile describes how to authenticate, never the
+  credential itself; exported profiles come as a secrets-free template or a configured export that still
+  carries zero secret values.</li>
+  <li>See the <a href="https://github.com/adobe/ClawDEA/blob/main/docs/user-guide.md#openai-compatible-provider-profiles">User Guide</a>
+  to use a profile, or the new
+  <a href="https://github.com/adobe/ClawDEA/blob/main/docs/openai-compatible-profiles.md">profile-building guide</a>
+  to add a provider that isn&rsquo;t supported yet.</li>
+</ul>
+<h4>Per-role providers &mdash; a tabbed Settings UI</h4>
+<ul>
+  <li><b>Point Chat, Wiki, and Completions at different providers.</b> The new <b>Roles</b> tab lets each of
+  the three roles run on an independently chosen provider and model &mdash; chat on Claude, wiki upkeep on
+  a cheap OpenAI-compatible model, completions on a third. A <b>Reset defaults</b> button recomputes smart
+  defaults from whichever provider you&rsquo;re authenticated with.</li>
+  <li><b>Settings is now tabbed:</b> Providers / Roles / Permissions / Knowledge Layer / Profiling /
+  Advanced, replacing the old flat panel.</li>
+  <li><b>The wiki-librarian works no matter which provider you chat with.</b> Design questions now route
+  through an <code>ask_wiki_librarian</code> tool that runs on whichever provider the Wiki role points at
+  &mdash; Claude, Codex, or an OpenAI-compatible profile &mdash; instead of a Claude-only mechanism. This
+  also fixes a Windows-only crash where the old mechanism could exceed a command-line length limit.</li>
+</ul>
+<h4>Wiki: orphan-subsystem detection</h4>
+<ul>
+  <li><b>Catches whole new subsystems the wiki has never mentioned.</b> The existing drift detectors only
+  flag a page whose claims are contradicted by a change &mdash; they&rsquo;re blind to a brand-new area
+  dropped in with no page at all. A new detector clusters related classes and flags any cluster the wiki
+  never mentions, closing that gap.</li>
+</ul>
+<h4>Fixes</h4>
+<ul>
+  <li><b>A fresh chat now launches on your pinned model, not a fallback.</b> Setting a default model on
+  the Roles tab previously showed the right model in the dropdown but the CLI silently launched on its own
+  default until you re-picked it manually.</li>
+  <li><b>Fixed a JCEF-related crash on some machines.</b> A missing platform module declaration could
+  crash the chat panel with <code>NoClassDefFoundError</code> the moment it opened, on IDEs where JCEF
+  wasn&rsquo;t already loaded by another plugin.</li>
+  <li><b>Settings apply no longer knocks an open chat onto a different provider.</b> Changing any setting
+  (even an unrelated one) could silently rebuild an open chat tab onto the global default provider. An open
+  tab now always keeps its own provider and model; only new chats pick up a changed default.</li>
+  <li><b>Per-turn cost no longer over-reports.</b> The cost chip summed the CLI&rsquo;s cumulative
+  session total on every turn instead of each turn&rsquo;s marginal cost, inflating the running total.</li>
+  <li><b>A verified-agentic model is honored everywhere, not just in chat.</b> Wiki authoring and drift
+  detection previously ignored a model&rsquo;s <b>Verify Tool Support</b> result and could refuse to start
+  even after you&rsquo;d confirmed the model could call tools.</li>
+  <li><b>Sub-agent panels stay readable during parallel work.</b> Fixed a layout bug where a tall,
+  actively-running sub-agent panel showed no scrollbar and clipped its own steps, and fixed parallel
+  sub-agents leaking their steps into the main chat instead of staying in their own cards.</li>
+  <li><b>A stale code index no longer crashes symbol search.</b> <code>find_symbol</code> now skips a
+  momentarily-outdated index entry (e.g. right after an edit) instead of failing the whole lookup.</li>
 </ul>
 
 <h3>2.2.0</h3>
