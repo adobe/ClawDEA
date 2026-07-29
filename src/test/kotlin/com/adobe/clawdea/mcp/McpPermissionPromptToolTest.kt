@@ -384,4 +384,76 @@ class McpPermissionPromptToolTest {
         assertTrue("expected pass-through input, got: ${result.text}",
             result.text.contains(""""command":"ls""""))
     }
+
+    @Test
+    fun `a settings deny rule outranks the trusted tool list`() {
+        assertEquals(
+            McpPermissionPromptTool.Stage.SETTINGS_DENY,
+            McpPermissionPromptTool.resolveStage(
+                toolName = "Read",
+                policyDecision = PermissionPolicy.Decision.DENY,
+                toolApprovalMode = "confirm-all",
+            ),
+        )
+        assertEquals(
+            McpPermissionPromptTool.Stage.SETTINGS_DENY,
+            McpPermissionPromptTool.resolveStage(
+                toolName = "mcp__clawdea-intellij__search_text",
+                policyDecision = PermissionPolicy.Decision.DENY,
+                toolApprovalMode = "allow-all",
+            ),
+        )
+    }
+
+    @Test
+    fun `trusted tools skip the prompt when no deny rule matches`() {
+        for (tool in listOf("Read", "Glob", "Grep", "mcp__clawdea-intellij__find_symbol")) {
+            assertEquals(
+                "trusted tool $tool must auto-allow",
+                McpPermissionPromptTool.Stage.TRUSTED_ALLOW,
+                McpPermissionPromptTool.resolveStage(tool, PermissionPolicy.Decision.ASK, "confirm-all"),
+            )
+            assertEquals(
+                "trusted tool $tool must auto-allow with no policy at all",
+                McpPermissionPromptTool.Stage.TRUSTED_ALLOW,
+                McpPermissionPromptTool.resolveStage(tool, null, "confirm-all"),
+            )
+        }
+    }
+
+    @Test
+    fun `a settings allow rule short-circuits an untrusted tool`() {
+        assertEquals(
+            McpPermissionPromptTool.Stage.SETTINGS_ALLOW,
+            McpPermissionPromptTool.resolveStage("Bash", PermissionPolicy.Decision.ALLOW, "confirm-all"),
+        )
+    }
+
+    @Test
+    fun `allow-all silently approves untrusted tools but never AskUserQuestion`() {
+        assertEquals(
+            McpPermissionPromptTool.Stage.SILENT_ALLOW,
+            McpPermissionPromptTool.resolveStage("Bash", PermissionPolicy.Decision.ASK, "allow-all"),
+        )
+        assertEquals(
+            McpPermissionPromptTool.Stage.PROMPT,
+            McpPermissionPromptTool.resolveStage(
+                McpPermissionPromptTool.ASK_USER_QUESTION,
+                PermissionPolicy.Decision.ASK,
+                "allow-all",
+            ),
+        )
+    }
+
+    @Test
+    fun `everything else prompts`() {
+        assertEquals(
+            McpPermissionPromptTool.Stage.PROMPT,
+            McpPermissionPromptTool.resolveStage("Bash", PermissionPolicy.Decision.ASK, "confirm-all"),
+        )
+        assertEquals(
+            McpPermissionPromptTool.Stage.PROMPT,
+            McpPermissionPromptTool.resolveStage("Write", null, "allow-safe"),
+        )
+    }
 }

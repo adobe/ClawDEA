@@ -43,10 +43,11 @@ fun interface AutoAllowNotifier {
  *   {"behavior":"deny","message":"..."}              -> block, feed message back to the model
  *
  * Decision order:
- *   1. Trusted tools (our own MCP + Read/Glob/Grep) — always allowed, no UI.
- *   2. Claude settings policy deny/allow — mirrors persisted Claude Code permissions.
- *   3. "allow-all" toolApprovalMode — silent-approved, UI shows a compact notice.
- *   4. Everything else — blocked on an interactive prompt card.
+ *   1. Claude settings policy DENY — the user's explicit veto, above everything else.
+ *   2. Trusted tools (our own MCP + Read/Glob/Grep) — allowed, no UI.
+ *   3. Claude settings policy ALLOW — mirrors persisted Claude Code permissions.
+ *   4. "allow-all" toolApprovalMode — silent-approved, UI shows a compact notice.
+ *   5. Everything else — blocked on an interactive prompt card.
  */
 class McpPermissionPromptTool(
     private val dispatcherResolver: (toolName: String, inputJson: String, toolUseId: String) -> PermissionRouterRegistry.Routed?,
@@ -77,22 +78,34 @@ class McpPermissionPromptTool(
         val inputJson = args["input"].orEmpty()
         val toolUseId = args["tool_use_id"].orEmpty()
 
-        if (isAutoAllowed(toolName)) {
-            logDecision("trusted-auto-allow", toolName, inputJson)
-            return McpToolRouter.ToolResult(buildAllowJson(inputJson))
-        }
+        // One policy evaluation, consulted at two rungs of the ladder (deny above the trusted
+        // list, allow below it). See [resolveStage] for why the order is what it is.
+        // PermissionPolicy.evaluate already degrades an unreadable settings file to ASK, so no
+        // extra guard is needed here.
+        val policyDecision = permissionPolicySupplier()?.evaluate(toolName, inputJson)?.decision
 
-        policyResponse(toolName, inputJson)?.let {
-            return it
-        }
-
-        // AskUserQuestion always requires the user to answer — auto-allow would
-        // pass through with empty answers and the CLI tool returns a useless
-        // "answer came through empty" result (see issue #141).
-        if (shouldSilentlyAllow(toolName)) {
-            logDecision("allow-all", toolName, inputJson)
-            autoAllowNotifier.notify(toolName, inputJson, toolUseId)
-            return McpToolRouter.ToolResult(buildAllowJson(inputJson))
+        when (resolveStage(toolName, policyDecision, toolApprovalModeSupplier())) {
+            Stage.SETTINGS_DENY -> {
+                logDecision("settings-deny", toolName, inputJson)
+                return McpToolRouter.ToolResult(buildDenyJson("Denied by Claude settings"))
+            }
+            Stage.TRUSTED_ALLOW -> {
+                logDecision("trusted-auto-allow", toolName, inputJson)
+                return McpToolRouter.ToolResult(buildAllowJson(inputJson))
+            }
+            Stage.SETTINGS_ALLOW -> {
+                logDecision("settings-allow", toolName, inputJson)
+                return McpToolRouter.ToolResult(buildAllowJson(inputJson))
+            }
+            // AskUserQuestion always requires the user to answer — auto-allow would pass
+            // through with empty answers and the CLI tool returns a useless "answer came
+            // through empty" result (see issue #141).
+            Stage.SILENT_ALLOW -> {
+                logDecision("allow-all", toolName, inputJson)
+                autoAllowNotifier.notify(toolName, inputJson, toolUseId)
+                return McpToolRouter.ToolResult(buildAllowJson(inputJson))
+            }
+            Stage.PROMPT -> Unit // fall through to the dispatcher below
         }
 
         val routed = dispatcherResolver(toolName, inputJson, toolUseId)
@@ -119,22 +132,6 @@ class McpPermissionPromptTool(
         )
     }
 
-    private fun policyResponse(toolName: String, inputJson: String): McpToolRouter.ToolResult? =
-        when (permissionPolicySupplier()?.evaluate(toolName, inputJson)?.decision) {
-            PermissionPolicy.Decision.DENY -> {
-                logDecision("settings-deny", toolName, inputJson)
-                McpToolRouter.ToolResult(buildDenyJson("Denied by Claude settings"))
-            }
-            PermissionPolicy.Decision.ALLOW -> {
-                logDecision("settings-allow", toolName, inputJson)
-                McpToolRouter.ToolResult(buildAllowJson(inputJson))
-            }
-            PermissionPolicy.Decision.ASK, null -> null
-        }
-
-    private fun shouldSilentlyAllow(toolName: String): Boolean =
-        toolApprovalModeSupplier() == "allow-all" && toolName != ASK_USER_QUESTION
-
     private fun logDecision(decision: String, toolName: String, inputJson: String) {
         val specifier = PermissionToolInput.extractSpecifier(toolName, inputJson).orEmpty()
         log.info(
@@ -143,8 +140,30 @@ class McpPermissionPromptTool(
         )
     }
 
+    /** Which rung of the decision ladder handles a request. See companion [resolveStage]. */
+    internal enum class Stage { SETTINGS_DENY, TRUSTED_ALLOW, SETTINGS_ALLOW, SILENT_ALLOW, PROMPT }
+
     companion object {
         const val ASK_USER_QUESTION = "AskUserQuestion"
+
+        /**
+         * The decision ladder, as a pure function of the request.
+         *
+         * A user's explicit deny outranks everything — including the trusted list, which covers
+         * Read/Glob/Grep and our own MCP tools. Those are read-only but not harmless: a
+         * `deny: ["Read(**​/.env)"]` rule exists precisely to keep them out of secrets.
+         */
+        internal fun resolveStage(
+            toolName: String,
+            policyDecision: PermissionPolicy.Decision?,
+            toolApprovalMode: String,
+        ): Stage = when {
+            policyDecision == PermissionPolicy.Decision.DENY -> Stage.SETTINGS_DENY
+            isAutoAllowed(toolName) -> Stage.TRUSTED_ALLOW
+            policyDecision == PermissionPolicy.Decision.ALLOW -> Stage.SETTINGS_ALLOW
+            toolApprovalMode == "allow-all" && toolName != ASK_USER_QUESTION -> Stage.SILENT_ALLOW
+            else -> Stage.PROMPT
+        }
 
         fun buildAllowJson(inputJson: String): String {
             // The Claude Code --permission-prompt-tool contract requires updatedInput
