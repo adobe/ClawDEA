@@ -14,6 +14,9 @@ package com.adobe.clawdea.debug
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class BreakpointTrackerTest {
 
@@ -110,5 +113,143 @@ class BreakpointTrackerTest {
         assertTrue(result.claudeBreakpointsToRemove.isEmpty())
         assertTrue(result.userBreakpointsToReEnable.isEmpty())
         assertTrue(result.borrowedToReDisable.isEmpty())
+    }
+
+    @Test
+    fun `cleanup does not throw while other threads mutate concurrently`() {
+        val tracker = BreakpointTracker()
+        val threads = 4
+        val perThread = 500
+        val errors = ConcurrentLinkedQueue<Throwable>()
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(threads + 1)
+
+        val mutators = (0 until threads).map { threadIndex ->
+            Thread {
+                try {
+                    start.await()
+                    for (i in 0 until perThread) {
+                        val id = BreakpointId("File$threadIndex.kt", i)
+                        tracker.trackClaudeBreakpoint(id)
+                        tracker.trackDisabledUserBreakpoint(id)
+                        tracker.trackBorrowedBreakpoint(id, wasDisabled = i % 2 == 0)
+                        tracker.isClaudeOwned(id)
+                        tracker.isBorrowed(id)
+                        tracker.disabledUserBreakpoints
+                        tracker.untrackBorrowedBreakpoint(id)
+                    }
+                } catch (e: Throwable) {
+                    errors.add(e)
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+        val cleaner = Thread {
+            try {
+                start.await()
+                repeat(200) { tracker.cleanup() }
+            } catch (e: Throwable) {
+                errors.add(e)
+            } finally {
+                done.countDown()
+            }
+        }
+
+        (mutators + cleaner).forEach { it.start() }
+        start.countDown()
+        assertTrue("threads did not finish in 30s", done.await(30, TimeUnit.SECONDS))
+        assertTrue("concurrent access threw: ${errors.map { it.toString() }}", errors.isEmpty())
+    }
+
+    @Test
+    fun `cleanup empties every set so a later cleanup reports nothing`() {
+        val tracker = BreakpointTracker()
+        val id = BreakpointId("A.kt", 10)
+        tracker.trackClaudeBreakpoint(id)
+        tracker.trackDisabledUserBreakpoint(id)
+        tracker.trackBorrowedBreakpoint(id, wasDisabled = true)
+
+        val first = tracker.cleanup()
+        assertEquals(setOf(id), first.claudeBreakpointsToRemove)
+        assertEquals(setOf(id), first.userBreakpointsToReEnable)
+        assertEquals(setOf(id), first.borrowedToReDisable)
+
+        val second = tracker.cleanup()
+        assertTrue(second.claudeBreakpointsToRemove.isEmpty())
+        assertTrue(second.userBreakpointsToReEnable.isEmpty())
+        assertTrue(second.borrowedToReDisable.isEmpty())
+        assertFalse(tracker.isClaudeOwned(id))
+        assertFalse(tracker.isBorrowed(id))
+    }
+
+    @Test
+    fun `concurrent adds and cleanups preserve conservation - every id is reported exactly once`() {
+        val tracker = BreakpointTracker()
+        val threads = 4
+        val perThread = 500
+        val errors = ConcurrentLinkedQueue<Throwable>()
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(threads + 1)
+        val allCleanupResults = ConcurrentLinkedQueue<CleanupResult>()
+
+        val adders = (0 until threads).map { threadIndex ->
+            Thread {
+                try {
+                    start.await()
+                    for (i in 0 until perThread) {
+                        val id = BreakpointId("File$threadIndex.kt", i)
+                        tracker.trackClaudeBreakpoint(id)
+                        tracker.trackDisabledUserBreakpoint(id)
+                    }
+                } catch (e: Throwable) {
+                    errors.add(e)
+                } finally {
+                    done.countDown()
+                }
+            }
+        }
+        val cleaner = Thread {
+            try {
+                start.await()
+                repeat(50) {
+                    allCleanupResults.add(tracker.cleanup())
+                    Thread.sleep(1)
+                }
+            } catch (e: Throwable) {
+                errors.add(e)
+            } finally {
+                done.countDown()
+            }
+        }
+
+        (adders + cleaner).forEach { it.start() }
+        start.countDown()
+        assertTrue("threads did not finish in 30s", done.await(30, TimeUnit.SECONDS))
+        assertTrue("concurrent access threw: ${errors.map { it.toString() }}", errors.isEmpty())
+
+        // Conservation: every id tracked is reported by exactly one cleanup (or still in tracker at end)
+        val allTrackedIds = (0 until threads).flatMap { t ->
+            (0 until perThread).map { i -> BreakpointId("File$t.kt", i) }
+        }.toSet()
+
+        val reportedClaudeIds = allCleanupResults.flatMap { it.claudeBreakpointsToRemove }.toSet()
+        val reportedDisabledIds = allCleanupResults.flatMap { it.userBreakpointsToReEnable }.toSet()
+
+        // Final cleanup to capture anything still in tracker
+        val finalCleanup = tracker.cleanup()
+        val finalClaudeIds = reportedClaudeIds + finalCleanup.claudeBreakpointsToRemove
+        val finalDisabledIds = reportedDisabledIds + finalCleanup.userBreakpointsToReEnable
+
+        assertEquals("Every tracked Claude breakpoint must appear in cleanup results exactly once",
+            allTrackedIds, finalClaudeIds)
+        assertEquals("Every tracked disabled breakpoint must appear in cleanup results exactly once",
+            allTrackedIds, finalDisabledIds)
+
+        // Verify no id appeared in multiple cleanup calls (no double-reporting)
+        val allClaudeReports = allCleanupResults.flatMap { it.claudeBreakpointsToRemove } + finalCleanup.claudeBreakpointsToRemove
+        val allDisabledReports = allCleanupResults.flatMap { it.userBreakpointsToReEnable } + finalCleanup.userBreakpointsToReEnable
+        assertEquals("Claude breakpoints must not be reported twice", allClaudeReports.size, allClaudeReports.toSet().size)
+        assertEquals("Disabled breakpoints must not be reported twice", allDisabledReports.size, allDisabledReports.toSet().size)
     }
 }
