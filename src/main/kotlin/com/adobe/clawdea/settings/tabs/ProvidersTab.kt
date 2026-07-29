@@ -102,6 +102,13 @@ class ProvidersTab : SettingsTab {
         font = font.deriveFont(11f)
     }
 
+    // What loadFrom last put into each credential field. Apply persists a secret only when the
+    // field differs from this, so an untouched field can never overwrite (and thus delete) a
+    // stored key that a cold-cache EDT read reported as blank.
+    private var loadedApiKey: String = ""
+    private var loadedOpenAiApiKey: String = ""
+    private var loadedBedrockBearerToken: String = ""
+
     // Subscription card
     private val subscriptionCard = SubscriptionCardPanel()
 
@@ -390,13 +397,16 @@ class ProvidersTab : SettingsTab {
     override fun loadFrom(state: ClawDEASettings.State) {
         val settings = ClawDEASettings.getInstance()
         selectProviderByKey(state.apiProvider)
-        apiKeyField.text = settings.getApiKey()
-        subscriptionCard.apiKeyField.text = settings.getApiKey()
-        openAiApiKeyField.text = settings.getOpenAIApiKey()
+        loadedApiKey = settings.getApiKey()
+        loadedOpenAiApiKey = settings.getOpenAIApiKey()
+        loadedBedrockBearerToken = settings.getBedrockBearerToken()
+        apiKeyField.text = loadedApiKey
+        subscriptionCard.apiKeyField.text = loadedApiKey
+        openAiApiKeyField.text = loadedOpenAiApiKey
         cliPathField.text = state.cliPath
         codexCliPathField.text = state.codexCliPath
         bedrockRegionField.text = state.bedrockRegion
-        bedrockBearerTokenField.text = settings.getBedrockBearerToken()
+        bedrockBearerTokenField.text = loadedBedrockBearerToken
         vertexRegionField.text = state.vertexRegion
         vertexProjectIdField.text = state.vertexProjectId
         showProviderCard()
@@ -408,12 +418,24 @@ class ProvidersTab : SettingsTab {
     override fun applyTo(state: ClawDEASettings.State) {
         val settings = ClawDEASettings.getInstance()
         state.apiProvider = selectedProviderKey()
-        settings.setApiKey(effectiveApiKey())
-        settings.setOpenAIApiKey(String(openAiApiKeyField.password))
+        val apiKey = effectiveApiKey()
+        if (shouldPersistSecret(apiKey, loadedApiKey)) {
+            settings.setApiKey(apiKey)
+            loadedApiKey = apiKey
+        }
+        val openAiKey = String(openAiApiKeyField.password)
+        if (shouldPersistSecret(openAiKey, loadedOpenAiApiKey)) {
+            settings.setOpenAIApiKey(openAiKey)
+            loadedOpenAiApiKey = openAiKey
+        }
+        val bedrockToken = String(bedrockBearerTokenField.password)
+        if (shouldPersistSecret(bedrockToken, loadedBedrockBearerToken)) {
+            settings.setBedrockBearerToken(bedrockToken)
+            loadedBedrockBearerToken = bedrockToken
+        }
         state.cliPath = cliPathField.text
         state.codexCliPath = codexCliPathField.text
         state.bedrockRegion = bedrockRegionField.text
-        settings.setBedrockBearerToken(String(bedrockBearerTokenField.password))
         state.vertexRegion = vertexRegionField.text
         state.vertexProjectId = vertexProjectIdField.text
         openAiCompatibleCard.apply(state)
@@ -421,14 +443,13 @@ class ProvidersTab : SettingsTab {
     }
 
     override fun isModifiedFrom(state: ClawDEASettings.State): Boolean {
-        val settings = ClawDEASettings.getInstance()
         return selectedProviderKey() != state.apiProvider ||
-            effectiveApiKey() != settings.getApiKey() ||
-            String(openAiApiKeyField.password) != settings.getOpenAIApiKey() ||
+            shouldPersistSecret(effectiveApiKey(), loadedApiKey) ||
+            shouldPersistSecret(String(openAiApiKeyField.password), loadedOpenAiApiKey) ||
             cliPathField.text != state.cliPath ||
             codexCliPathField.text != state.codexCliPath ||
             bedrockRegionField.text != state.bedrockRegion ||
-            String(bedrockBearerTokenField.password) != settings.getBedrockBearerToken() ||
+            shouldPersistSecret(String(bedrockBearerTokenField.password), loadedBedrockBearerToken) ||
             vertexRegionField.text != state.vertexRegion ||
             vertexProjectIdField.text != state.vertexProjectId ||
             openAiCompatibleCard.isModified(state) ||
@@ -589,5 +610,16 @@ class ProvidersTab : SettingsTab {
         fun isGenericCatalogKey(key: String): Boolean =
             key != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
                 !key.startsWith("${com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
+
+        /**
+         * Whether a credential field should be written back to PasswordSafe on Apply.
+         *
+         * [loadedValue] is what `loadFrom` actually put in the field. A field equal to it is
+         * untouched and must NOT be written: ClawDEASettings.getSecret returns "" on a cold-cache
+         * EDT read, and setSecret maps blank to a delete — so writing an untouched field can wipe
+         * a working key. A field that differs is the user's intent, including a deliberate clear.
+         */
+        internal fun shouldPersistSecret(fieldValue: String, loadedValue: String): Boolean =
+            fieldValue != loadedValue
     }
 }
