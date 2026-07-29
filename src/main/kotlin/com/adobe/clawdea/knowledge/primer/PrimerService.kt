@@ -93,7 +93,7 @@ class PrimerService(private val project: Project) {
             }
             parts[source.id] = body
         }
-        val payload = PrimerAssembler.assemble(parts)
+        val payload = nextCachedPayload(PrimerAssembler.assemble(parts), cached.get())
         cached.set(payload)
         return payload
     }
@@ -101,5 +101,13 @@ class PrimerService(private val project: Project) {
     companion object {
         fun getInstance(project: Project): PrimerService =
             project.getService(PrimerService::class.java)
+
+        /**
+         * The payload to cache and return after an assembly pass. A blank [freshPayload] means every
+         * source failed or was empty (PrimerAssembler skips blank bodies and trims), so we keep
+         * [lastGood] rather than evicting a working primer over a transient FS/VFS/git error.
+         */
+        internal fun nextCachedPayload(freshPayload: String, lastGood: String): String =
+            freshPayload.ifBlank { lastGood }
     }
 }
