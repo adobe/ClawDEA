@@ -13,6 +13,7 @@ package com.adobe.clawdea.settings.tabs
 
 import com.adobe.clawdea.provider.ProviderRegistry
 import com.adobe.clawdea.settings.ClawDEASettings
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,5 +59,29 @@ class ProvidersTabTest {
         assertFalse(
             ProvidersTab.isGenericCatalogKey("${ProviderRegistry.OPENAI_COMPATIBLE_ID}:p2")
         )
+    }
+
+    @Test
+    fun `combo index to provider key uses the registry order`() {
+        val ids = com.adobe.clawdea.provider.ProviderRegistry.orderedIds()
+        for ((index, id) in ids.withIndex()) {
+            assertEquals(id, ProvidersTab.providerKeyForIndex(index))
+            assertEquals(index, ProvidersTab.providerIndexForKey(id))
+        }
+    }
+
+    @Test
+    fun `an out-of-range index clamps instead of throwing`() {
+        val ids = com.adobe.clawdea.provider.ProviderRegistry.orderedIds()
+        assertEquals(ids.first(), ProvidersTab.providerKeyForIndex(-1))
+        assertEquals(ids.first(), ProvidersTab.providerKeyForIndex(-99))
+        assertEquals(ids.last(), ProvidersTab.providerKeyForIndex(ids.size))
+        assertEquals(ids.last(), ProvidersTab.providerKeyForIndex(9_999))
+    }
+
+    @Test
+    fun `an unknown provider key falls back to the first entry`() {
+        assertEquals(0, ProvidersTab.providerIndexForKey("not-a-provider"))
+        assertEquals(0, ProvidersTab.providerIndexForKey(""))
     }
 }

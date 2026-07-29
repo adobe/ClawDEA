@@ -5,7 +5,10 @@ enum class AuthStrategy { API_KEY, ENVIRONMENT, CLAUDE_LOGIN, CODEX_LOGIN, PROFI
 
 data class ProviderDescriptor(
     val id: String,
+    /** Short label for chat chrome and the assistant bubble ("Anthropic", "Codex"). */
     val displayLabel: String,
+    /** Long label for the Settings → Providers combo ("Anthropic (direct)"). */
+    val settingsLabel: String,
     val backendKind: BackendKind,
     val authStrategy: AuthStrategy,
     val supportsInlineCompletions: Boolean,

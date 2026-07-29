@@ -51,18 +51,9 @@ class ProvidersTab : SettingsTab {
 
     override val title: String = "Providers"
 
-    // Provider selection
-    private val PROVIDERS = arrayOf(
-        "Anthropic (direct)",
-        "Amazon Bedrock",
-        "Google Vertex AI",
-        "Claude subscription (Pro / Max / Team / Enterprise)",
-        "OpenAI (direct)",
-        "OpenAI (ChatGPT subscription)",
-        "OpenAI-compatible",
-    )
-    private val PROVIDER_KEYS = arrayOf("anthropic", "bedrock", "vertex", "subscription", "openai", "openai-subscription", "openai-compatible")
-    val apiProviderCombo = ComboBox(DefaultComboBoxModel(PROVIDERS))
+    // Provider selection — labels and ids both come from ProviderRegistry, so adding a provider
+    // there is all it takes for the combo to pick it up (no parallel array to keep in step).
+    val apiProviderCombo = ComboBox(DefaultComboBoxModel(com.adobe.clawdea.provider.ProviderRegistry.settingsLabels().toTypedArray()))
 
     // Anthropic fields
     val apiKeyField = JBPasswordField()
@@ -372,10 +363,7 @@ class ProvidersTab : SettingsTab {
         refreshSubscriptionDetectionHint()
     }
 
-    private fun selectedProviderKey(): String {
-        val idx = apiProviderCombo.selectedIndex
-        return if (idx >= 0) PROVIDER_KEYS[idx] else "anthropic"
-    }
+    private fun selectedProviderKey(): String = providerKeyForIndex(apiProviderCombo.selectedIndex)
 
     /**
      * Reads the API key from the card the user last interacted with.
@@ -390,8 +378,7 @@ class ProvidersTab : SettingsTab {
             String(apiKeyField.password)
 
     private fun selectProviderByKey(key: String) {
-        val idx = PROVIDER_KEYS.indexOf(key)
-        apiProviderCombo.selectedIndex = if (idx >= 0) idx else 0
+        apiProviderCombo.selectedIndex = providerIndexForKey(key)
     }
 
     override fun loadFrom(state: ClawDEASettings.State) {
@@ -460,8 +447,7 @@ class ProvidersTab : SettingsTab {
     // Models catalog load/save/dirty-check (per-provider)
     // ------------------------------------------------------------------
 
-    private fun providerKey(): String =
-        PROVIDER_KEYS[apiProviderCombo.selectedIndex.coerceIn(0, PROVIDER_KEYS.lastIndex)]
+    private fun providerKey(): String = providerKeyForIndex(apiProviderCombo.selectedIndex)
 
     fun loadModels(catalogs: Map<String, List<ModelEntry>>) {
         transientCatalogs.clear()
@@ -621,5 +607,15 @@ class ProvidersTab : SettingsTab {
          */
         internal fun shouldPersistSecret(fieldValue: String, loadedValue: String): Boolean =
             fieldValue != loadedValue
+
+        /** Combo index → provider id, clamped so a stale index can never throw. */
+        internal fun providerKeyForIndex(index: Int): String {
+            val ids = com.adobe.clawdea.provider.ProviderRegistry.orderedIds()
+            return ids[index.coerceIn(0, ids.lastIndex)]
+        }
+
+        /** Provider id → combo index; an unknown id falls back to the first entry. */
+        internal fun providerIndexForKey(key: String): Int =
+            com.adobe.clawdea.provider.ProviderRegistry.orderedIds().indexOf(key).takeIf { it >= 0 } ?: 0
     }
 }
