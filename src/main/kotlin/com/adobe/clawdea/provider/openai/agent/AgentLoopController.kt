@@ -283,7 +283,12 @@ class AgentLoopController(
                         }
                         is AgentStreamEvent.Usage -> {
                             usageEvents++
-                            state.usage = AgentUsage(
+                            // Each round of a turn reports its own Usage. Accumulate, so the
+                            // terminal Result carries the turn total instead of the last round's
+                            // figure. The per-user-turn reset lives in
+                            // OpenAiCompatibleAgentBackend.sendMessage — NOT here, because a
+                            // bounded retry re-enters runTurn with the same ConversationState.
+                            state.usage = state.usage + AgentUsage(
                                 inputTokens = event.inputTokens,
                                 outputTokens = event.outputTokens,
                                 cachedInputTokens = event.cachedInputTokens,

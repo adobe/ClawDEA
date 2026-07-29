@@ -20,6 +20,7 @@ import com.adobe.clawdea.provider.openai.agent.AgentLoopController
 import com.adobe.clawdea.provider.openai.agent.AgentStreamEvent
 import com.adobe.clawdea.provider.openai.agent.AgentRetryPolicy
 import com.adobe.clawdea.provider.openai.agent.AgentToolExecutor
+import com.adobe.clawdea.provider.openai.agent.AgentUsage
 import com.adobe.clawdea.provider.openai.agent.ConversationState
 import com.adobe.clawdea.provider.openai.agent.OpenAiInstructions
 import com.adobe.clawdea.provider.openai.agent.OpenAiToolDefinition
@@ -365,6 +366,11 @@ class OpenAiCompatibleAgentBackend(
             // this turn actually owns (never a newer turn's job).
             var lastTurnJob: Job? = null
             try {
+                // Per-turn token accounting: usage accumulates across a turn's rounds
+                // (AgentLoopController adds each round's Usage event), so a NEW user turn
+                // starts from zero. Placed here, not at runTurn entry: runTurnWithRetries
+                // re-enters runTurn with this same state on a bounded retry.
+                state.usage = AgentUsage()
                 writeUserMessage(text)
 
                 var turnText = text

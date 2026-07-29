@@ -64,14 +64,22 @@ data class AgentMessage(
 data class AgentToolCall(val id: String, val name: String, val argumentsJson: String)
 
 /**
- * Token usage metrics.
+ * Token usage metrics. Additive so a multi-round turn can accumulate a total:
+ * one round's Usage event is a delta, not the turn's figure.
  */
 data class AgentUsage(
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
     val cachedInputTokens: Int = 0,
     val reasoningTokens: Int = 0,
-)
+) {
+    operator fun plus(other: AgentUsage): AgentUsage = AgentUsage(
+        inputTokens = inputTokens + other.inputTokens,
+        outputTokens = outputTokens + other.outputTokens,
+        cachedInputTokens = cachedInputTokens + other.cachedInputTokens,
+        reasoningTokens = reasoningTokens + other.reasoningTokens,
+    )
+}
 
 /**
  * Tool definition for function calling.
