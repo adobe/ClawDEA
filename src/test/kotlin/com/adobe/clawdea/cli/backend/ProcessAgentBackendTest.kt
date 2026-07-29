@@ -116,6 +116,21 @@ class ProcessAgentBackendTest {
         assertEquals(BackendKind.CODEX_APP_SERVER, backend.backendKind)
         assertEquals("Codex", backend.agentLabel)
         assertEquals(SteeringMode.NATIVE, backend.steeringMode)
+        assertFalse(backend.abortTerminatesProcess)
+    }
+
+    @Test
+    fun `Claude CLI backend reports abort terminates process`() {
+        val process = FakeAgentProcess(output = emptyList())
+        val backend = ProcessAgentBackend(
+            process,
+            CliEventParser(),
+            SteeringMode.NONE,
+            BackendKind.CLAUDE_CLI,
+            "Claude"
+        )
+
+        assertTrue(backend.abortTerminatesProcess)
     }
 
     @Test

@@ -121,6 +121,45 @@ class OpenAiCompatibleAgentBackendTest {
         assertEquals(0, state.completedToolCallIds.size)
     }
 
+    @Test
+    fun `abort does not terminate the in-process backend`() {
+        // The OpenAI-compatible backend is in-process and survives an abort (it only cancels
+        // the active job). This property distinguishes it from the Claude CLI, where abort is
+        // SIGINT and kills the process. This is a property check only — no start/send required.
+        val projectPath = temp.newFolder("project").absolutePath
+        val ledgerBase = temp.newFolder("ledger")
+        val ledger = OpenAiSessionLedger(projectPath, ledgerBase.toPath())
+        val backend = com.adobe.clawdea.cli.backend.OpenAiCompatibleAgentBackend(
+            profile = com.adobe.clawdea.provider.openai.profile.ResolvedProviderProfile(
+                profile = com.adobe.clawdea.provider.openai.profile.OpenAiCompatibleProfile(
+                    id = "test",
+                    name = "Test",
+                    baseUrl = "https://test",
+                ),
+                baseUrl = java.net.URI("https://test"),
+                configuredValues = emptyMap(),
+            ),
+            credentialProvider = { "test-key" },
+            modelIdProvider = { "test-model" },
+            project = null,
+            projectPath = projectPath,
+            mcpDefs = emptyList(),
+            approvalGate = com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate(
+                toolApprovalMode = { "allow-all" },
+                policy = { null },
+                route = { _, _, _ -> null },
+                promptTimeoutMs = 30_000,
+            ),
+            autoAcceptEdits = { false },
+            fallbackAgentLabel = "Test",
+            ledger = ledger,
+            clientFactory = { _, _ -> throw UnsupportedOperationException("unused") },
+            executorFactory = { throw UnsupportedOperationException("unused") },
+        )
+
+        assertFalse(backend.abortTerminatesProcess)
+    }
+
     private fun metaRecord(sessionId: String, projectPath: String): SessionLedgerRecord {
         val payload = JsonObject().apply {
             addProperty("sessionId", sessionId)

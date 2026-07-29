@@ -25,6 +25,14 @@ interface AgentBackend {
     val agentLabel: String
     val steeringMode: SteeringMode
 
+    /**
+     * True when [abort] terminates the backend process, so the next send restarts it (the Claude
+     * CLI: abort is SIGINT). False when the process survives an abort (Codex `turn/interrupt`, the
+     * in-process OpenAI-compatible loop) — CliBridge then scopes its post-abort event mute to the
+     * aborted turn instead of the process generation, which would never clear.
+     */
+    val abortTerminatesProcess: Boolean
+
     fun start(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList())
     fun readEvent(): CliEvent?
     fun sendMessage(text: String)

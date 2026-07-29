@@ -40,6 +40,11 @@ class CliBridge(
     // (byte-identical to the pre-per-tab CliBridge, which applies env-fallthrough: a configured
     // provider lacking creds resolves to a credentialed one). Tests inject a fixed id.
     effectiveProviderIdProvider: () -> String = { AuthManager.getInstance().effectiveProviderId() },
+    // Test seam: build the agentic backend. Production uses AgentBackendFactory; tests inject a
+    // fake so the bridge's reader/mute logic can be exercised without a live agent process.
+    backendFactory: (AgentSelection) -> AgentBackend = { sel ->
+        AgentBackendFactory.create(sel, workingDirectory, mcpPort, project, settings, credentialStore)
+    },
 ) : Disposable {
 
     private val log = Logger.getInstance(CliBridge::class.java)
@@ -51,14 +56,7 @@ class CliBridge(
     private val resolvedSelection: AgentSelection =
         selection ?: computeDefaultSelection(effectiveProviderIdProvider(), settings, workingDirectory)
 
-    private val backend: AgentBackend = AgentBackendFactory.create(
-        resolvedSelection,
-        workingDirectory,
-        mcpPort,
-        project,
-        settings,
-        credentialStore,
-    )
+    private val backend: AgentBackend = backendFactory(resolvedSelection)
 
     /**
      * The [AgentSelection] that this bridge was constructed from (effective selection, resolved from
@@ -81,6 +79,15 @@ class CliBridge(
 
     @Volatile
     private var activeGeneration: Long = 0
+
+    /**
+     * Turn-scoped event mute for backends whose process survives an abort. Set by [abort], cleared
+     * by [sendMessage] / [steer] / [start]. Without this the mute would have to be
+     * generation-scoped, and a persistent backend never advances its generation after an abort —
+     * so one ESC would silence the tab for the rest of the session.
+     */
+    @Volatile
+    private var turnMuted: Boolean = false
 
     var sessionId: String? = null
         private set
@@ -123,6 +130,8 @@ class CliBridge(
             activeGeneration += 1
             activeGeneration
         }
+        turnMuted = false
+
         val requestedResumeSessionId = resumableSessionForStart(resumeSessionId)
         sessionId = requestedResumeSessionId
         pendingReplayContext = replayContext?.takeIf { it.isNotBlank() }
@@ -187,6 +196,10 @@ class CliBridge(
     }
 
     fun sendMessage(text: String) {
+        // A new user turn always un-mutes: for persistent backends this is the only thing that
+        // clears the post-abort mute, since their generation never advances.
+        turnMuted = false
+
         // On a cross-backend resume, the first message carries the prior conversation as context so
         // the new backend can continue it (neither CLI can natively resume the other's session).
         val outgoing = firstMessagePayload(text)
@@ -202,7 +215,15 @@ class CliBridge(
     }
 
     fun abort() {
-        expectedExitGeneration = activeGeneration
+        if (backend.abortTerminatesProcess) {
+            // The process is about to die; suppress the synthetic "exited unexpectedly" Result for
+            // this generation. The next send restarts it and bumps the generation, clearing this.
+            expectedExitGeneration = activeGeneration
+        } else {
+            // The process survives. Mute only the aborted turn's trailing events (the backend
+            // still emits its own cancellation Result), and let the next send un-mute.
+            turnMuted = true
+        }
         backend.abort()
     }
 
@@ -219,7 +240,8 @@ class CliBridge(
      * Returns true when the backend accepted it into a live turn; false when there is no steerable
      * turn and the caller should send a normal new message instead.
      */
-    fun steer(text: String): Boolean = backend.steer(text)
+    fun steer(text: String): Boolean =
+        backend.steer(text).also { if (it) turnMuted = false }
 
     fun restart(resumeSessionId: String? = null, skills: List<SkillInfo> = emptyList()) {
         val sessionToResume = resumeSessionForRestart(sessionId, resumeSessionId)
@@ -304,6 +326,18 @@ class CliBridge(
         ): Boolean =
             readerGeneration == activeGeneration && expectedExitGeneration != readerGeneration
 
+        /**
+         * Whether the reader may forward an event. Combines the generation guard (a stale reader
+         * from a replaced process must stay silent) with the turn-scoped abort mute.
+         */
+        internal fun canEmit(
+            readerGeneration: Long,
+            activeGeneration: Long,
+            expectedExitGeneration: Long?,
+            turnMuted: Boolean,
+        ): Boolean =
+            !turnMuted && shouldEmitUnexpectedExit(readerGeneration, activeGeneration, expectedExitGeneration)
+
         internal fun shouldRecoverFromRejectedResume(
             requestedResumeSessionId: String?,
             recentStderr: List<String>,
@@ -334,7 +368,7 @@ class CliBridge(
         readerGeneration == activeGeneration
 
     private fun canReaderEmit(readerGeneration: Long): Boolean =
-        shouldEmitUnexpectedExit(readerGeneration, activeGeneration, expectedExitGeneration)
+        canEmit(readerGeneration, activeGeneration, expectedExitGeneration, turnMuted)
 
     private fun recoverFromRejectedResume(
         resumeSessionId: String?,

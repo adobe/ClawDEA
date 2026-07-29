@@ -855,6 +855,9 @@ class OpenAiCompatibleAgentBackend(
         return if (event === EOF_SENTINEL) null else event
     }
 
+    /** Aborting cancels the active turn job; the in-process backend itself stays alive. */
+    override val abortTerminatesProcess: Boolean get() = false
+
     override fun abort() {
         activeJob?.cancel()
         activeJob = null

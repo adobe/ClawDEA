@@ -75,6 +75,12 @@ class ProcessAgentBackend(
         process.writeLine(json)
     }
 
+    // Claude's abort is SIGINT (CliProcess.sendInterrupt) and kills the process; Codex's is a
+    // `turn/interrupt` JSON-RPC request (CodexAppServerProcess.sendInterrupt) and the app-server
+    // keeps running.
+    override val abortTerminatesProcess: Boolean
+        get() = backendKind == BackendKind.CLAUDE_CLI
+
     override fun abort() {
         process.sendInterrupt()
     }
