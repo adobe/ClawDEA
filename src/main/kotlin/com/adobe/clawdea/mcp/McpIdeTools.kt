@@ -218,24 +218,21 @@ class McpIdeTools(private val project: Project) {
         // tier-4 budget) so we don't blow past the MCP tool envelope.
         val effectiveTimeoutMillis = minOf(cmd.timeout.inWholeMilliseconds, budgetMillis)
         return try {
-            val process = ProcessBuilder(cmd.argv)
-                .directory(cmd.workingDir)
-                .redirectErrorStream(true)
-                .start()
-            val exited = process.waitFor(effectiveTimeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)
-            if (!exited) {
-                process.destroyForcibly()
+            val run = runCapturingOutput(
+                ProcessBuilder(cmd.argv).directory(cmd.workingDir).redirectErrorStream(true),
+                effectiveTimeoutMillis,
+            )
+            if (run.timedOut) {
                 return McpToolRouter.ToolResult(
                     "${buildTool.displayName} compile timed out after ${effectiveTimeoutMillis}ms", isError = true,
                 )
             }
-            val output = process.inputStream.bufferedReader().readText()
-            if (process.exitValue() == 0) {
+            if (run.exitCode == 0) {
                 McpToolRouter.ToolResult("No diagnostics found.")
             } else {
-                val relevant = buildTool.filterDiagnostics(output, filePath, basePath)
+                val relevant = buildTool.filterDiagnostics(run.output, filePath, basePath)
                 if (relevant.isBlank()) {
-                    McpToolRouter.ToolResult(output.take(2000))
+                    McpToolRouter.ToolResult(run.output.take(2000))
                 } else {
                     McpToolRouter.ToolResult(relevant)
                 }
@@ -253,6 +250,35 @@ class McpIdeTools(private val project: Project) {
 
         internal const val NO_BUILD_TOOL_MSG =
             "No build tool detected for this project; diagnostics fell back to in-IDE inspections only."
+
+        /** Outcome of a drained subprocess run. [exitCode] is meaningless when [timedOut]. */
+        internal data class ProcessRun(val timedOut: Boolean, val exitCode: Int, val output: String)
+
+        /**
+         * Runs [builder] and returns its combined output, draining the pipe on a daemon thread
+         * *while* waiting. Reading only after waitFor deadlocks on any process whose output
+         * exceeds the OS pipe buffer (~64 KB) — which every real compile does. Mirrors the
+         * idiom in knowledge/repostate/sections/GitSectionGenerator.
+         */
+        internal fun runCapturingOutput(builder: ProcessBuilder, timeoutMillis: Long): ProcessRun {
+            val process = builder.start()
+            val captured = java.util.concurrent.atomic.AtomicReference<String?>(null)
+            val drainer = Thread({
+                try {
+                    captured.set(process.inputStream.bufferedReader().readText())
+                } catch (_: Exception) {
+                    // Interrupted on timeout, or the stream closed under us: leave it null.
+                }
+            }, "ClawDEA-diagnostics-drain").apply { isDaemon = true; start() }
+
+            if (!process.waitFor(timeoutMillis, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly()
+                drainer.interrupt()
+                return ProcessRun(timedOut = true, exitCode = -1, output = captured.get().orEmpty())
+            }
+            drainer.join(500)
+            return ProcessRun(timedOut = false, exitCode = process.exitValue(), output = captured.get().orEmpty())
+        }
 
         internal fun unknownExtensionMsg(extension: String): String =
             "No language support known for file extension '.$extension'"
