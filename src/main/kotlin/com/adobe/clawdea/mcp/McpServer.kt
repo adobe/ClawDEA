@@ -23,6 +23,7 @@ import com.adobe.clawdea.mcp.coexistence.JetBrainsMcpStatus
 import com.adobe.clawdea.mcp.coexistence.applyCollisionFilter
 import com.adobe.clawdea.profiling.analysis.AnalysisService
 import com.adobe.clawdea.profiling.mcp.McpProfilingTools
+import com.adobe.clawdea.settings.ChatModeUi
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
@@ -61,6 +62,14 @@ class McpServer(private val project: Project) : Disposable {
 
     @Volatile
     var activeToolApprovalMode: String = ClawDEASettings.getInstance().state.toolApprovalMode
+
+    /**
+     * Live chat mode (Auto / Plan / Ask) chosen in the chat chrome. Read by CliProcess.start() to
+     * build `--permission-mode`; ChatPanel restarts the CLI when it changes. Same pattern as
+     * [activeToolApprovalMode].
+     */
+    @Volatile
+    var activeChatMode: String = ChatModeUi.keyForLabel(ClawDEASettings.getInstance().state.defaultChatMode)
 
     init {
         registerTools()

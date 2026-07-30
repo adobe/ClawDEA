@@ -22,7 +22,7 @@ class CliProcessPermissionArgsTest {
 
     @Test
     fun `confirm-all emits no permission mode flag`() {
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all", chatMode = "auto"))
     }
 
     @Test
@@ -41,13 +41,13 @@ class CliProcessPermissionArgsTest {
 
     @Test
     fun `allow-safe emits native --permission-mode auto`() {
-        assertEquals(listOf("--permission-mode", "auto"), CliProcess.buildPermissionArgs("allow-safe"))
+        assertEquals(listOf("--permission-mode", "auto"), CliProcess.buildPermissionArgs("allow-safe", chatMode = "auto"))
         assertNull(CliProcess.buildPermissionSettingsJson("allow-safe"))
     }
 
     @Test
     fun `allow-all emits no flag - silent-approve is handled by the prompt tool`() {
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("allow-all"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("allow-all", chatMode = "auto"))
         assertNull(CliProcess.buildPermissionSettingsJson("allow-all"))
     }
 
@@ -58,14 +58,14 @@ class CliProcessPermissionArgsTest {
 
     @Test
     fun `unknown value falls back to confirm-all behavior`() {
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("garbage"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("garbage", chatMode = "auto"))
         assertNotNull(CliProcess.buildPermissionSettingsJson("garbage"))
     }
 
     @Test
     fun `empty and blank map to confirm-all`() {
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs(""))
-        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("   "))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("", chatMode = "auto"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("   ", chatMode = "auto"))
         assertNotNull(CliProcess.buildPermissionSettingsJson(""))
         assertNotNull(CliProcess.buildPermissionSettingsJson("   "))
     }
@@ -78,12 +78,51 @@ class CliProcessPermissionArgsTest {
             "dangerous", "skip-permissions", "--dangerously-skip-permissions",
             "ALLOW-ALL", "Allow-Safe",
         )
+        val chatModes = listOf("auto", "plan", "ask", "", "garbage", "PLAN")
         for (input in inputs) {
-            val args = CliProcess.buildPermissionArgs(input)
-            assertFalse(
-                "buildPermissionArgs($input) must never emit --dangerously-skip-permissions but got: $args",
-                args.contains("--dangerously-skip-permissions"),
-            )
+            for (mode in chatModes) {
+                val args = CliProcess.buildPermissionArgs(input, chatMode = mode)
+                assertFalse(
+                    "buildPermissionArgs($input, $mode) must never emit --dangerously-skip-permissions but got: $args",
+                    args.contains("--dangerously-skip-permissions"),
+                )
+            }
         }
+    }
+
+    @Test
+    fun `plan chat mode emits --permission-mode plan`() {
+        assertEquals(
+            listOf("--permission-mode", "plan"),
+            CliProcess.buildPermissionArgs("confirm-all", chatMode = "plan"),
+        )
+    }
+
+    @Test
+    fun `plan chat mode overrides allow-safe's auto so only one flag is passed`() {
+        val args = CliProcess.buildPermissionArgs("allow-safe", chatMode = "plan")
+
+        assertEquals(listOf("--permission-mode", "plan"), args)
+        assertEquals(
+            "exactly one --permission-mode may be passed",
+            1,
+            args.count { it == "--permission-mode" },
+        )
+    }
+
+    @Test
+    fun `auto and ask chat modes defer to the tool approval mode`() {
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all", chatMode = "auto"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all", chatMode = "ask"))
+        assertEquals(
+            listOf("--permission-mode", "auto"),
+            CliProcess.buildPermissionArgs("allow-safe", chatMode = "ask"),
+        )
+    }
+
+    @Test
+    fun `an unknown chat mode is inert`() {
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all", chatMode = "garbage"))
+        assertEquals(emptyList<String>(), CliProcess.buildPermissionArgs("confirm-all", chatMode = ""))
     }
 }

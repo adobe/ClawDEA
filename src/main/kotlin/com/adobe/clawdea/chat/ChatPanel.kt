@@ -25,6 +25,7 @@ import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.mcp.McpServer
+import com.adobe.clawdea.settings.ChatModeUi
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.settings.ToolApprovalModeUi
 import com.adobe.clawdea.commands.*
@@ -131,7 +132,7 @@ class ChatPanel(
     private val slashManager = SlashCommandManager(this, commandRegistry)
 
     // Mode buttons
-    private var currentMode = "Auto"
+    private var currentMode = ChatModeUi.labelForKey(ClawDEASettings.getInstance().state.defaultChatMode)
     private lateinit var modeButtons: Map<String, JToggleButton>
 
     // ── Responsive chrome (issue #140) ─────────────────────────────────
@@ -1025,7 +1026,7 @@ class ChatPanel(
             ?: UIManager.getColor("Button.default.startBackground")
             ?: Color(75, 110, 175)
 
-        val modes = listOf("Auto", "Plan", "Ask")
+        val modes = ChatModeUi.labels
         val arc = 10
         segmented = object : JPanel(GridLayout(1, modes.size, 0, 0)) {
             init { isOpaque = false }
@@ -1084,6 +1085,11 @@ class ChatPanel(
             segmented.add(btn)
         }
         setMode(currentMode)
+
+        // Only the Claude CLI accepts --permission-mode. Hide (never skip the add) on the other
+        // backends: `segmented` is a shared leaf control added in BOTH applyResponsiveLayout
+        // branches, so skipping an add would leave it parentless in one arrangement.
+        segmented.isVisible = ChatModeUi.isSupported(bridge.backendKind)
     }
 
     private fun syncRendererAutoAccept() {
@@ -1207,11 +1213,48 @@ class ChatPanel(
         }
     }
 
+    /**
+     * Applies a chat-mode selection: repaint the segmented control, persist it, publish it to the
+     * MCP server for the next CLI start, and restart the CLI so `--permission-mode` takes effect.
+     * Mirrors the tool-approval combo's listener.
+     */
     private fun setMode(mode: String) {
+        val previousKey = ChatModeUi.keyForLabel(currentMode)
         currentMode = mode
         for ((m, btn) in modeButtons) {
             btn.isSelected = m == mode
             btn.repaint()
+        }
+
+        val newKey = ChatModeUi.keyForLabel(mode)
+        if (!ChatModeUi.requiresCliRestart(previousKey, newKey)) return
+        ClawDEASettings.getInstance().state.defaultChatMode = newKey
+        McpServer.getInstance(project).activeChatMode = newKey
+        if (!ChatModeUi.isSupported(bridge.backendKind)) return
+        applyChatModeChange(mode)
+    }
+
+    private fun applyChatModeChange(label: String) {
+        when {
+            bridge.isRunning && !turnController.isStreaming -> restartAfterChatModeChange(label)
+            bridge.isRunning -> appendHtml(renderer.renderInfoMessage(
+                "Mode changed to $label. It will apply after the current response or next session restart.",
+            ))
+            else -> appendHtml(renderer.renderInfoMessage("Mode changed to $label. It will apply on the next send."))
+        }
+    }
+
+    private fun restartAfterChatModeChange(label: String) {
+        scope.launch {
+            try {
+                clearQueuedPrompt()
+                withContext(Dispatchers.IO) { bridge.restart(skills = discoveredSkills) }
+                appendHtml(renderer.renderInfoMessage("Mode changed to $label. Session restarted to apply permission flags."))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                appendHtml(renderer.renderError("Failed to restart session after changing mode: ${e.message}"))
+            }
         }
     }
 
@@ -1506,12 +1549,15 @@ class ChatPanel(
         commandRegistry.register("/mode", LocalHandler(
             CommandInfo("/mode", "Switch mode (auto/plan/ask)", CommandCategory.LOCAL),
         ) { args, _ ->
-            val mode = args.replaceFirstChar { it.uppercase() }
-            if (mode in listOf("Auto", "Plan", "Ask")) {
-                setMode(mode)
-                appendHtml(renderer.renderInfoMessage("Switched to $mode mode"))
-            } else {
+            val key = ChatModeUi.keyForLabel(args)
+            // keyForLabel normalizes anything unrecognized to "auto", so reject explicitly
+            // instead of silently switching the user to Auto.
+            if (args.trim().lowercase() !in ChatModeUi.labels.map { it.lowercase() }) {
                 appendHtml(renderer.renderError("Unknown mode: $args (use auto, plan, or ask)"))
+            } else {
+                val label = ChatModeUi.labelForKey(key)
+                setMode(label)
+                appendHtml(renderer.renderInfoMessage("Switched to $label mode"))
             }
         })
 

@@ -15,6 +15,7 @@ import com.adobe.clawdea.auth.AuthManager
 import com.adobe.clawdea.knowledge.primer.PrimerService
 import com.adobe.clawdea.knowledge.prompts.PromptResource
 import com.adobe.clawdea.mcp.McpServer
+import com.adobe.clawdea.settings.ChatModeUi
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.skills.SkillInfo
 import com.intellij.openapi.diagnostic.Logger
@@ -127,7 +128,9 @@ class CliProcess(
         if (mcpPort > 0) {
             val effectiveApprovalMode = project?.let { McpServer.getInstance(it).activeToolApprovalMode }
                 ?: settings.toolApprovalMode
-            command.addAll(buildPermissionArgs(effectiveApprovalMode))
+            val effectiveChatMode = project?.let { McpServer.getInstance(it).activeChatMode }
+                ?: settings.defaultChatMode
+            command.addAll(buildPermissionArgs(effectiveApprovalMode, effectiveChatMode))
             val settingsJson = buildPermissionSettingsJson(effectiveApprovalMode)
             if (settingsJson != null) {
                 // Write to a temp file rather than passing inline. On Windows the CLI
@@ -477,22 +480,22 @@ class CliProcess(
             listOf("--setting-sources", "user")
 
         /**
-         * Map the user's tool-approval preference to CLI flags.
+         * The single `--permission-mode` flag, resolved from two inputs. Only one may be passed, so
+         * the chat mode wins when it maps to a value and the tool-approval mode's mapping applies
+         * otherwise:
+         *  - chat mode `plan`  → `--permission-mode plan` (overrides `allow-safe`'s `auto`)
+         *  - chat mode `auto` / `ask` → no chat-mode flag; fall through to the approval mode
+         *  - approval `allow-safe` → `--permission-mode auto`
+         *  - approval `allow-all` → no flag; the prompt tool silently approves each request and
+         *    emits an "auto-allowed" notice in the transcript.
+         *  - everything else → no flag (gating happens in the request_permission prompt tool)
          *
-         * - `confirm-all`  → no mode flag; [buildPermissionSettingsJson] injects
-         *                    session-only ask rules for read-only Bash commands
-         *                    that Claude Code otherwise runs without prompting.
-         * - `allow-safe`   → --permission-mode auto; Anthropic's native auto-mode
-         *                    classifier auto-approves routine actions; soft-deny
-         *                    cases fall through to the prompt tool.
-         * - `allow-all`    → no CLI flag. We deliberately avoid
-         *                    `--dangerously-skip-permissions`: enterprise policies
-         *                    commonly strip it, and it's risky in general. Instead, the
-         *                    prompt tool itself silently approves every request under
-         *                    `allow-all` and emits a compact "auto-allowed" notice in
-         *                    the chat transcript so the user can see what just ran.
+         * ClawDEA deliberately never passes `--dangerously-skip-permissions`: enterprise policies
+         * commonly strip it, and it is risky in general. `no input ever emits
+         * --dangerously-skip-permissions` in CliProcessPermissionArgsTest pins this.
          */
-        internal fun buildPermissionArgs(toolApprovalMode: String): List<String> {
+        internal fun buildPermissionArgs(toolApprovalMode: String, chatMode: String): List<String> {
+            ChatModeUi.permissionModeValue(chatMode)?.let { return listOf("--permission-mode", it) }
             return when (toolApprovalMode.trim()) {
                 "allow-safe" -> listOf("--permission-mode", "auto")
                 else -> emptyList() // confirm-all, allow-all, and unknown — all gating via prompt tool
