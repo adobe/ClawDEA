@@ -52,8 +52,10 @@ class RecentFilesCache(private val project: Project, private val scope: Coroutin
                 val paths = readGitLog(basePath)
                 if (paths != null) {
                     snapshot.set(paths)
-                    lastRefreshAtMs.set(System.currentTimeMillis())
                 }
+                // Advance timestamp on every refresh attempt, successful or not, so a failed refresh
+                // backs off for the full TTL instead of retrying immediately on the next keystroke.
+                lastRefreshAtMs.set(System.currentTimeMillis())
             } finally {
                 refreshing.set(false)
             }

@@ -17,7 +17,8 @@ package com.adobe.clawdea.provider.openai.agent
  * - [messages]: the full conversation history (user, assistant, tool results).
  * - [completedToolCallIds]: set of tool call IDs that have been executed (exactly-once guard).
  * - [partialAssistantText]: accumulator for assistant text deltas during streaming.
- * - [usage]: cumulative token usage across turns.
+ * - [usage]: per-turn token usage, accumulating across rounds within a single turn. Reset at turn
+ *   start in OpenAiCompatibleAgentBackend.sendMessage (~line 373).
  */
 data class ConversationState(
     val messages: MutableList<AgentMessage> = mutableListOf(),

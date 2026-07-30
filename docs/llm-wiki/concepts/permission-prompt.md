@@ -16,8 +16,8 @@
 ## Resolution pipeline
 
 1. CLI tool-call arrives at MCP server. `McpPermissionPromptTool.resolveStage` runs the decision ladder: settings `deny` → trusted tools (our own MCP tools + `Read`/`Glob`/`Grep`) → settings `allow` → `allow-all` silent approve (never for `AskUserQuestion`) → interactive prompt.
-2. If mode is "allow-all": `notify(toolName, inputJson, toolUseId)` records the tool in `AutoAllowSignal`, then returns allow. No interactive prompt.
-3. If mode requires confirmation: `PermissionRouterRegistry.route(toolName, inputJson, toolUseId, waitMs=2000ms)` finds the dispatcher for the matching panel:
+2. **If the ladder resolves to `SILENT_ALLOW`** (the `allow-all` rung): `notify(toolName, inputJson, toolUseId)` records the tool in `AutoAllowSignal`, then returns allow. No interactive prompt.
+3. **If the ladder resolves to `PROMPT`**: `PermissionRouterRegistry.route(toolName, inputJson, toolUseId, waitMs=2000ms)` finds the dispatcher for the matching panel:
    - Poll each registered router's `claimById(toolUseId)` (preferred), or fallback to `claim(toolName, inputJson)` if id is unavailable.
    - Wait up to 2 s for a claim; if the panel's ToolUse hasn't yet populated its claim-map, this delay covers the race.
    - If no panel claims the call: return `DENY` without prompting (prevents spurious stalls when called outside an active panel).

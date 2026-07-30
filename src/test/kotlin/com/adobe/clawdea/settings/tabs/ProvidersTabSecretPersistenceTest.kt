@@ -50,4 +50,61 @@ class ProvidersTabSecretPersistenceTest {
     fun `a deliberately cleared field is persisted so the delete goes through`() {
         assertTrue(ProvidersTab.shouldPersistSecret(fieldValue = "", loadedValue = "sk-old"))
     }
+
+    // ------------------------------------------------------------------
+    // resolveSharedSecret tests
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `resolveSharedSecret returns loaded when neither card edited`() {
+        val result = ProvidersTab.resolveSharedSecret(
+            activeValue = "sk-loaded",
+            otherValue = "sk-loaded",
+            loadedValue = "sk-loaded"
+        )
+        org.junit.Assert.assertEquals("sk-loaded", result)
+        // Confirm the no-delete invariant: feeding this result to shouldPersistSecret yields false
+        assertFalse(ProvidersTab.shouldPersistSecret(result, "sk-loaded"))
+    }
+
+    @Test
+    fun `resolveSharedSecret returns loaded when neither card edited and both blank`() {
+        val result = ProvidersTab.resolveSharedSecret(
+            activeValue = "",
+            otherValue = "",
+            loadedValue = ""
+        )
+        org.junit.Assert.assertEquals("", result)
+        assertFalse(ProvidersTab.shouldPersistSecret(result, ""))
+    }
+
+    @Test
+    fun `resolveSharedSecret prefers active card when it differs from loaded`() {
+        val result = ProvidersTab.resolveSharedSecret(
+            activeValue = "sk-active-edited",
+            otherValue = "sk-loaded",
+            loadedValue = "sk-loaded"
+        )
+        org.junit.Assert.assertEquals("sk-active-edited", result)
+    }
+
+    @Test
+    fun `resolveSharedSecret picks other card when active is untouched but other was edited`() {
+        val result = ProvidersTab.resolveSharedSecret(
+            activeValue = "sk-loaded",
+            otherValue = "sk-other-edited",
+            loadedValue = "sk-loaded"
+        )
+        org.junit.Assert.assertEquals("sk-other-edited", result)
+    }
+
+    @Test
+    fun `resolveSharedSecret prefers active when both cards edited`() {
+        val result = ProvidersTab.resolveSharedSecret(
+            activeValue = "sk-active-edited",
+            otherValue = "sk-other-edited",
+            loadedValue = "sk-loaded"
+        )
+        org.junit.Assert.assertEquals("sk-active-edited", result)
+    }
 }

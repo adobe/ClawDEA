@@ -366,16 +366,18 @@ class ProvidersTab : SettingsTab {
     private fun selectedProviderKey(): String = providerKeyForIndex(apiProviderCombo.selectedIndex)
 
     /**
-     * Reads the API key from the card the user last interacted with.
      * Both the Anthropic card and the Subscription card expose the same
-     * `state.apiKey`; we take the active card's value when the user is on
-     * that provider, otherwise fall back to the Anthropic card.
+     * `state.apiKey`; we resolve the edited value when the user typed into
+     * one card then switched providers before Apply.
      */
-    private fun effectiveApiKey(): String =
-        if (selectedProviderKey() == "subscription")
-            String(subscriptionCard.apiKeyField.password)
+    private fun effectiveApiKey(): String {
+        val anthropicValue = String(apiKeyField.password)
+        val subscriptionValue = String(subscriptionCard.apiKeyField.password)
+        return if (selectedProviderKey() == "subscription")
+            resolveSharedSecret(subscriptionValue, anthropicValue, loadedApiKey)
         else
-            String(apiKeyField.password)
+            resolveSharedSecret(anthropicValue, subscriptionValue, loadedApiKey)
+    }
 
     private fun selectProviderByKey(key: String) {
         apiProviderCombo.selectedIndex = providerIndexForKey(key)
@@ -596,6 +598,22 @@ class ProvidersTab : SettingsTab {
         fun isGenericCatalogKey(key: String): Boolean =
             key != com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID &&
                 !key.startsWith("${com.adobe.clawdea.provider.ProviderRegistry.OPENAI_COMPATIBLE_ID}:")
+
+        /**
+         * The API key value to persist when both cards hold the same secret. Prefers the active card's
+         * value, then a non-active card the user edited — otherwise a key typed into one card and lost
+         * when the combo moved to the other would be silently discarded.
+         *
+         * Returns [loadedValue] when neither card was edited, ensuring the no-delete invariant:
+         * an untouched field can never cause a stored secret to be written (and blank → setSecret →
+         * PasswordSafe.setPassword(attr, null) is a delete).
+         */
+        internal fun resolveSharedSecret(activeValue: String, otherValue: String, loadedValue: String): String =
+            when {
+                activeValue != loadedValue -> activeValue
+                otherValue != loadedValue -> otherValue
+                else -> loadedValue
+            }
 
         /**
          * Whether a credential field should be written back to PasswordSafe on Apply.
