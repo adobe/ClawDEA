@@ -155,26 +155,19 @@ class MentionCompletionProvider(private val project: Project) {
         return "@`${item.insertValue}` "
     }
 
+    /**
+     * Recently modified files from [RecentFilesCache]. Resolving cached paths through
+     * LocalFileSystem is an in-memory lookup, so this stays safe on the EDT — the `git log` that
+     * produces the paths runs off-EDT behind the cache's TTL.
+     */
     private fun getRecentlyModifiedFiles(max: Int): List<VirtualFile> {
         val basePath = project.basePath ?: return emptyList()
-        return try {
-            val process = ProcessBuilder("git", "log", "--diff-filter=M", "--name-only", "--pretty=format:", "-50")
-                .directory(java.io.File(basePath))
-                .redirectErrorStream(true)
-                .start()
-            val lines = process.inputStream.bufferedReader().readLines()
-            process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
-            val lfs = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
-            lines.asSequence()
-                .filter { it.isNotBlank() }
-                .distinct()
-                .mapNotNull { lfs.findFileByPath("$basePath/$it") }
-                .filter { it.isValid && !it.isDirectory }
-                .take(max)
-                .toList()
-        } catch (_: Exception) {
-            emptyList()
-        }
+        val lfs = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+        return RecentFilesCache.getInstance(project).relativePaths().asSequence()
+            .mapNotNull { lfs.findFileByPath("$basePath/$it") }
+            .filter { it.isValid && !it.isDirectory }
+            .take(max)
+            .toList()
     }
 
     companion object {

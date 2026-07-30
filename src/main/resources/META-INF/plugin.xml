@@ -580,6 +580,9 @@ backend, on equal footing with Claude Code and OpenAI Codex.</p>
         <postStartupActivity
             implementation="com.adobe.clawdea.chat.GitRepositoryChangeSubscriberStartupActivity"/>
 
+        <!-- Recently Modified Files Cache (for @-mention autocomplete) -->
+        <projectService serviceImplementation="com.adobe.clawdea.chat.RecentFilesCache"/>
+
         <!-- Language Support Registry (Java + Kotlin built-in) -->
         <postStartupActivity
             implementation="com.adobe.clawdea.language.LanguageSupportInitializer"/>
