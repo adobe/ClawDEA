@@ -225,6 +225,36 @@ backend, on equal footing with Claude Code and OpenAI Codex.</p>
   sub-agents leaking their steps into the main chat instead of staying in their own cards.</li>
   <li><b>A stale code index no longer crashes symbol search.</b> <code>find_symbol</code> now skips a
   momentarily-outdated index entry (e.g. right after an edit) instead of failing the whole lookup.</li>
+  <li><b>Your API keys no longer disappear when you press Apply.</b> Saving Settings while a key field
+  was untouched could erase the stored key for that provider &mdash; even when you&rsquo;d only changed
+  something on an unrelated tab. A stored key is now left alone unless you actually edit it.</li>
+  <li><b>A <code>deny</code> rule you wrote is now always honored.</b> ClawDEA&rsquo;s list of tools it
+  considers safe was consulted <i>before</i> your own <code>permissions.deny</code> rules, so a tool you
+  had explicitly denied could still run. Your rules now come first, in every approval mode.</li>
+  <li><b>The Auto / Plan / Ask switch now actually reaches the agent.</b> Choosing <b>Plan</b> puts Claude
+  Code into plan mode instead of only highlighting the segment, and your choice is remembered between
+  sessions.</li>
+  <li><b>Pressing Esc no longer silences the chat.</b> On Codex and OpenAI-compatible providers, stopping
+  a reply mid-stream left the tab permanently quiet &mdash; later turns ran and spent tokens with nothing
+  rendered, and only closing the tab recovered. Your next message streams normally again.</li>
+  <li><b>Token counts and cost are per reply again.</b> On OpenAI-compatible providers a multi-step turn
+  reported only its last step, understating the cost chip, provider totals, and daily budget by roughly the
+  number of steps.</li>
+  <li><b>Typing <code>@</code> no longer stalls the editor.</b> Recent-file suggestions used to run
+  <code>git log</code> on the UI thread on every keystroke; they&rsquo;re now gathered in the background
+  and cached.</li>
+  <li><b>Asking for diagnostics no longer hangs on a chatty build.</b> A project whose build produced a
+  lot of output could make <code>get_diagnostics</code> wait forever; it now always returns within its
+  timeout.</li>
+  <li><b>The agent keeps its project context after a transient failure.</b> A momentary file-read error
+  while assembling the project primer produced an empty one <i>and</i> discarded the last good copy,
+  leaving the agent working with no CLAUDE.md and no wiki index &mdash; which looked like the model having
+  a bad day. The last good primer is now reused.</li>
+  <li><b>Debug breakpoints are cleaned up reliably.</b> Ending a debug session could leave a ClawDEA
+  breakpoint behind, or leave one of your own breakpoints disabled.</li>
+  <li><b>The Settings provider list can no longer drift out of step.</b> The dropdown is now derived from
+  the providers ClawDEA actually supports, so adding or reordering one can&rsquo;t leave it showing the
+  wrong name for the selected provider.</li>
 </ul>
 
 <h3>2.2.0</h3>

@@ -85,6 +85,19 @@ class CliBridge(
      * by [sendMessage] / [steer] / [start]. Without this the mute would have to be
      * generation-scoped, and a persistent backend never advances its generation after an abort —
      * so one ESC would silence the tab for the rest of the session.
+     *
+     * Cleared on the next *send*, deliberately, not on the aborted turn's terminal Result: the two
+     * persistent backends do not agree that there is one. Codex answers `turn/interrupt` with
+     * `turn/completed` → a Result, but the OpenAI-compatible backend's abort is a bare
+     * `activeJob.cancel()` whose handler rethrows with no terminal Result at all
+     * (`OpenAiCompatibleAgentBackend.sendMessage`, the `CancellationException` branch). Clearing on
+     * a Result would leave that backend muted forever — the very bug this field fixes.
+     *
+     * Known gap: trailing events already queued by the aborted turn can still be emitted into the
+     * next turn, because clearing races the reader draining the backend's FIFO and no [CliEvent]
+     * carries a turn id. A stray Result among them ends the new turn's UI early. Fixing it needs an
+     * ordered abort barrier in the queue rather than a wall-clock flag; the design is written up
+     * under "Abort barrier" in docs/superpowers/plans/2026-07-29-tier0-live-defects.md.
      */
     @Volatile
     private var turnMuted: Boolean = false
@@ -220,8 +233,10 @@ class CliBridge(
             // this generation. The next send restarts it and bumps the generation, clearing this.
             expectedExitGeneration = activeGeneration
         } else {
-            // The process survives. Mute only the aborted turn's trailing events (the backend
-            // still emits its own cancellation Result), and let the next send un-mute.
+            // The process survives, so mute the aborted turn's trailing events and let the next send
+            // un-mute. Whether a cancellation Result arrives is backend-specific — Codex emits one,
+            // the OpenAI-compatible backend emits none — which is why the clear hangs off the next
+            // send rather than off a terminal event. See [turnMuted].
             turnMuted = true
         }
         backend.abort()
