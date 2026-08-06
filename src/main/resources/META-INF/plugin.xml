@@ -140,6 +140,15 @@ integration and is not affiliated with or endorsed by Anthropic or JetBrains.</i
     ]]></description>
 
     <change-notes><![CDATA[
+<h3>3.0.1</h3>
+<h4>Claude turns finish correctly with current Claude Code</h4>
+<ul>
+  <li><b>Fixed turns that stayed visually active after Claude finished.</b> Claude Code 2.1.220 changed
+  the field ordering of terminal <code>stream-json</code> events. ClawDEA now reads envelope fields only
+  from the root JSON object, so multi-step and tool-using turns reliably leave the thinking state.</li>
+  <li><b>Preserved terminal result and error text regardless of field order.</b> End-of-turn payloads are
+  now extracted from the root event instead of relying on their position relative to the event type.</li>
+</ul>
 <h3>3.0.0</h3>
 <h4>Bring your own model: full agentic chat on any OpenAI-compatible provider</h4>
 <p>The headline feature of this release: ClawDEA can now drive <b>any OpenAI-compatible API</b> &mdash; a

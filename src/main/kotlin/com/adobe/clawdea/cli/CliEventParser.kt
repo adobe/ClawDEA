@@ -15,7 +15,7 @@ class CliEventParser : AgentEventParser {
 
     override fun parse(jsonLine: String): CliEvent {
         try {
-            val type = extractString(jsonLine, "\"type\"") ?: ""
+            val type = extractTopLevelString(jsonLine, "type") ?: ""
             return when (type) {
                 "system" -> parseSystem(jsonLine)
                 "stream_event" -> parseStreamEvent(jsonLine)
@@ -177,10 +177,7 @@ class CliEventParser : AgentEventParser {
     }
 
     private fun parseResult(json: String): CliEvent {
-        val typeResultIndex = json.indexOf("\"type\":\"result\"")
-        val searchStart = if (typeResultIndex != -1) typeResultIndex + 15 else 0
-        val resultSubstring = json.substring(searchStart)
-        val text = extractString(resultSubstring, "\"result\"") ?: ""
+        val text = extractTopLevelString(json, "result") ?: ""
         val isError = json.contains("\"is_error\":true")
         val costUsd = extractNumber(json, "\"total_cost_usd\"")
         val sessionId = extractString(json, "\"session_id\"") ?: ""
@@ -224,6 +221,47 @@ class CliEventParser : AgentEventParser {
     private fun looksLikeAuthFailure(text: String): Boolean {
         val lower = text.lowercase()
         return AUTH_ERROR_PHRASES.any { lower.contains(it) }
+    }
+
+    /**
+     * Extracts a string field from the root JSON object without matching the same key in nested
+     * objects or arrays. Claude Code does not guarantee field order, so root event dispatch cannot
+     * rely on the first recursive `type` occurrence being the envelope type.
+     */
+    private fun extractTopLevelString(json: String, key: String): String? {
+        var objectDepth = 0
+        var arrayDepth = 0
+        var i = 0
+        while (i < json.length) {
+            when (json[i]) {
+                '{' -> objectDepth++
+                '}' -> objectDepth--
+                '[' -> arrayDepth++
+                ']' -> arrayDepth--
+                '"' -> {
+                    val quoteStart = i
+                    i++
+                    while (i < json.length) {
+                        if (json[i] == '\\') {
+                            i += 2
+                            continue
+                        }
+                        if (json[i] == '"') break
+                        i++
+                    }
+                    if (objectDepth == 1 && arrayDepth == 0 && i < json.length &&
+                        json.substring(quoteStart + 1, i) == key) {
+                        var valueStart = i + 1
+                        while (valueStart < json.length && json[valueStart].isWhitespace()) valueStart++
+                        if (valueStart < json.length && json[valueStart] == ':') {
+                            return extractString(json.substring(quoteStart), "\"$key\"")
+                        }
+                    }
+                }
+            }
+            i++
+        }
+        return null
     }
 
     private fun extractString(json: String, key: String): String? {

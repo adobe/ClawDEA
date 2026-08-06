@@ -135,6 +135,18 @@ class CliEventParserTest {
     }
 
     @Test
+    fun `parses result when top-level type follows nested type`() {
+        // Claude Code 2.1.220 can serialize the root type after usage.iterations.
+        // Dispatch must use the root field, not the first recursively matching key.
+        val json = """{"usage":{"iterations":[{"type":"message"}]},"result":"Done!","is_error":false,"session_id":"abc-123","type":"result"}"""
+        val event = parser.parse(json)
+        assertTrue(event is CliEvent.Result)
+        val result = event as CliEvent.Result
+        assertEquals("Done!", result.text)
+        assertEquals("abc-123", result.sessionId)
+    }
+
+    @Test
     fun `extracts contextTokens and contextWindow from result usage and modelUsage`() {
         val json = """{"type":"result","subtype":"success","is_error":false,"result":"hi","total_cost_usd":0.01,"session_id":"s1","usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":500,"output_tokens":42},"modelUsage":{"claude-opus-4-7":{"inputTokens":10,"contextWindow":1000000,"maxOutputTokens":32000}}}"""
         val event = parser.parse(json)
