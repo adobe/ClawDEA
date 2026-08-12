@@ -1,7 +1,7 @@
 // build.gradle.kts
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.3.21"
+    id("org.jetbrains.kotlin.jvm") version "2.4.10"
     id("org.jetbrains.intellij.platform")
 }
 
