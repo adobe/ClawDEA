@@ -31,7 +31,7 @@ dependencies {
     // cancel-and-continue integration). Pinned to 1.10.2 — NOT the latest — to match the coroutines
     // runtime the target platform (2026.1) bundles; see the note below for why this must track the
     // platform, not upstream latest.
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     // Required when running LightJavaCodeInsightFixtureTestCase fixtures from the
     // IDE's JUnit runner — UsefulTestCase references opentest4j AssertionFailedError
     // in method signatures, and the IntelliJ Platform test framework no longer
