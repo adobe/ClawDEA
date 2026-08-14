@@ -97,13 +97,6 @@ object TranscriptCostReader {
         return com.adobe.clawdea.util.FastJson.unescape(s.substring(q1 + 1, end))
     }
 
-    private fun extractIntValue(s: String, key: String): Int {
-        val i = s.indexOf(key)
-        if (i == -1) return 0
-        val colon = s.indexOf(':', i + key.length)
-        if (colon == -1) return 0
-        val after = s.substring(colon + 1).trimStart()
-        val num = after.takeWhile { it.isDigit() }
-        return num.toIntOrNull() ?: 0
-    }
+    private fun extractIntValue(s: String, key: String): Int =
+        com.adobe.clawdea.util.FastJson.numberToken(s, key)?.toIntOrNull() ?: 0
 }

@@ -227,11 +227,8 @@ object TranscriptSavingsReader {
     }
 
     private fun extractUsageInt(line: String, key: String): Int {
+        // Scope to the usage object first (a top-level "output_tokens" must not be read here).
         val usageStart = line.indexOf("\"usage\""); if (usageStart == -1) return 0
-        val s = line.substring(usageStart)
-        val i = s.indexOf(key); if (i == -1) return 0
-        val colon = s.indexOf(':', i + key.length); if (colon == -1) return 0
-        val after = s.substring(colon + 1).trimStart()
-        return after.takeWhile { it.isDigit() }.toIntOrNull() ?: 0
+        return com.adobe.clawdea.util.FastJson.numberToken(line.substring(usageStart), key)?.toIntOrNull() ?: 0
     }
 }

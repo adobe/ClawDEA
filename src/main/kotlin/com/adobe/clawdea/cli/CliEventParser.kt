@@ -293,15 +293,8 @@ class CliEventParser : AgentEventParser {
         return Regex("\"([^\"]+)\"").findAll(arrayContent).map { it.groupValues[1] }.toList()
     }
 
-    private fun extractNumber(json: String, key: String): Double {
-        val keyIndex = json.indexOf(key)
-        if (keyIndex == -1) return 0.0
-        val colonIndex = json.indexOf(':', keyIndex + key.length)
-        if (colonIndex == -1) return 0.0
-        val afterColon = json.substring(colonIndex + 1).trimStart()
-        val numStr = afterColon.takeWhile { it.isDigit() || it == '.' || it == '-' || it == 'e' || it == 'E' }
-        return numStr.toDoubleOrNull() ?: 0.0
-    }
+    private fun extractNumber(json: String, key: String): Double =
+        com.adobe.clawdea.util.FastJson.numberToken(json, key)?.toDoubleOrNull() ?: 0.0
 
     private fun extractContentArray(json: String): List<String> {
         val contentKey = "\"content\":["

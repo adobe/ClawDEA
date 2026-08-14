@@ -104,6 +104,28 @@ object FastJson {
     }
 
     /**
+     * The raw JSON number token for [key] — the run of number characters after the colon — or null
+     * if the key, its colon, or a number is absent. [key] is matched literally (callers include the
+     * surrounding quotes if they want an exact key match). Callers apply their own
+     * `toIntOrNull` / `toLongOrNull` / `toDoubleOrNull` and default, so per-site numeric type and
+     * fallback (`0` vs `0.0` vs `null`) are preserved.
+     */
+    fun numberToken(json: String, key: String): String? {
+        val keyIndex = json.indexOf(key)
+        if (keyIndex == -1) return null
+        val colonIndex = json.indexOf(':', keyIndex + key.length)
+        if (colonIndex == -1) return null
+        var i = colonIndex + 1
+        while (i < json.length && json[i].isWhitespace()) i++
+        val start = i
+        while (i < json.length) {
+            val c = json[i]
+            if (c.isDigit() || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') i++ else break
+        }
+        return if (i > start) json.substring(start, i) else null
+    }
+
+    /**
      * Index of the closing quote of a JSON string whose body starts at [from] (i.e. [from] is the
      * first char after the opening quote). Escape-aware: `\"` does not terminate. Returns null if
      * unterminated.

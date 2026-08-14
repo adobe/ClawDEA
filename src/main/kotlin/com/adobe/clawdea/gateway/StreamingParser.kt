@@ -102,23 +102,14 @@ class StreamingParser {
             if (colonIndex == -1) return null
             val startQuote = json.indexOf('"', colonIndex + 1)
             if (startQuote == -1) return null
-            val endQuote = findClosingQuote(json, startQuote + 1)
-            if (endQuote == -1) return null
+            val endQuote = com.adobe.clawdea.util.FastJson.findStringEnd(json, startQuote + 1) ?: return null
+            // Raw body; callers unescape via unescapeJson (kept separate to match the existing pipeline).
             return json.substring(startQuote + 1, endQuote)
         }
 
         /** Extract an integer value for a given key. */
-        fun extractInt(json: String, key: String): Int? {
-            val keyIndex = json.indexOf(key)
-            if (keyIndex == -1) return null
-            val colonIndex = json.indexOf(':', keyIndex + key.length)
-            if (colonIndex == -1) return null
-            val numStart = json.indexOfFirst(colonIndex + 1) { it.isDigit() || it == '-' }
-            if (numStart == -1) return null
-            val numEnd = json.indexOfFirst(numStart + 1) { !it.isDigit() && it != '-' }
-            val numStr = if (numEnd == -1) json.substring(numStart) else json.substring(numStart, numEnd)
-            return numStr.toIntOrNull()
-        }
+        fun extractInt(json: String, key: String): Int? =
+            com.adobe.clawdea.util.FastJson.numberToken(json, key)?.toIntOrNull()
 
         /** Extract a nested JSON object for a given key. */
         fun extractObject(json: String, key: String): String? {
@@ -158,33 +149,11 @@ class StreamingParser {
             return null
         }
 
-        /** Find the closing quote, handling escape sequences. */
-        private fun findClosingQuote(json: String, startIndex: Int): Int {
-            var i = startIndex
-            while (i < json.length) {
-                when (json[i]) {
-                    '\\' -> i += 2 // Skip escaped character
-                    '"' -> return i
-                    else -> i++
-                }
-            }
-            return -1
-        }
-
-        /** Find first index matching predicate starting from given index. */
-        private fun String.indexOfFirst(startIndex: Int, predicate: (Char) -> Boolean): Int {
-            for (i in startIndex until length) {
-                if (predicate(this[i])) return i
-            }
-            return -1
-        }
-
-        /** Unescape basic JSON string escapes. */
-        fun unescapeJson(s: String): String = s
-            .replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .replace("\\r", "\r")
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\")
+        /**
+         * Unescape a JSON string body. Delegates to the shared, single-pass [FastJson.unescape],
+         * which (unlike the former chained `replace` calls) has no ordering fragility and also
+         * decodes `\/`, `\b`, `\f`, and `\uXXXX`.
+         */
+        fun unescapeJson(s: String): String = com.adobe.clawdea.util.FastJson.unescape(s)
     }
 }
