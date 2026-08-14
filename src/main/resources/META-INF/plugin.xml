@@ -557,7 +557,7 @@ backend, on equal footing with Claude Code and OpenAI Codex.</p>
 
         <!-- Filesystem Refresh Coordinator -->
         <projectService
-            serviceImplementation="com.adobe.clawdea.chat.FilesystemRefreshCoordinator"/>
+            serviceImplementation="com.adobe.clawdea.vfs.FilesystemRefreshCoordinator"/>
 
         <!-- Chat Auto-Resume State -->
         <projectService

@@ -34,6 +34,7 @@ Use these pages to ground reasoning before touching code. Invariants and resolut
 - [Drift monitoring](concepts/drift-monitoring.md) — upstream Claude Code CLI drift digest and fixture replay
 
 ### IDE integrations
+- [Filesystem refresh](concepts/filesystem-refresh.md) — debounced, write-safe VFS and VCS refresh coordination
 - [Debug integration](concepts/debug-integration.md) — Claude-owned breakpoints, SuspendGate semantics
 - [Profiling](concepts/profiling.md) — JFR capture, IntelliJ backend selection, analysis tools
 - [Language support](concepts/language-support.md) — `LanguageSupport` registry, optional Scala plugin bridge, extension/Language fallback

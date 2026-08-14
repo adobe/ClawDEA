@@ -105,10 +105,10 @@ class MessageRenderer(
             return if (mode is ToolMode.Replay) renderCollapsedToolBlock(toolName, toolUseId) else ""
         }
 
-        val isPropose = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.isProposeTool(toolName)
-        val isEdit = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.isEditTool(toolName)
+        val isPropose = com.adobe.clawdea.editreview.EditReviewCoordinator.isProposeTool(toolName)
+        val isEdit = com.adobe.clawdea.editreview.EditReviewCoordinator.isEditTool(toolName)
         if (isPropose || isEdit) {
-            val filePath = com.adobe.clawdea.chat.editreview.EditReviewCoordinator.extractFilePath(input)
+            val filePath = com.adobe.clawdea.editreview.EditReviewCoordinator.extractFilePath(input)
                 ?: toolName
             val label = if (toolName.contains("write", ignoreCase = true)) "Write" else "Edit"
             val (status, showActions) = when (mode) {

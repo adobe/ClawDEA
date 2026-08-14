@@ -4,11 +4,11 @@
 
 ## Invariants
 
-- There are **two layers**, not one. Layer 1 is the preferred path (MCP `propose_edit` / `propose_write` / `propose_multi_edit`); Layer 2 is the safety net for built-in `Edit` / `Write` calls that slip through. Both must be present; removing either breaks the contract that no edit lands without user awareness ([McpEditReviewTools.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpEditReviewTools.kt), [EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewCoordinator.kt)).
-- Layer 1 (`propose_*`) **blocks the MCP HTTP response** until the user clicks Accept or Reject in the diff dialog. The dialog runs on the EDT; the dispatch thread waits on a `CountDownLatch`. The HTTP call returning is the signal to the CLI that the edit is done ([EditDiffReviewer.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditDiffReviewer.kt)).
-- Layer 2 captures the **original file content** at the moment a `ToolUse` event for `Edit`/`Write` arrives — **before** the CLI applies the edit. Capturing later means the "original" is already the modified file and revert is silently broken ([EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewCoordinator.kt)).
+- There are **two layers**, not one. Layer 1 is the preferred path (MCP `propose_edit` / `propose_write` / `propose_multi_edit`); Layer 2 is the safety net for built-in `Edit` / `Write` calls that slip through. Both must be present; removing either breaks the contract that no edit lands without user awareness ([McpEditReviewTools.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpEditReviewTools.kt), [EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditReviewCoordinator.kt)).
+- Layer 1 (`propose_*`) **blocks the MCP HTTP response** until the user clicks Accept or Reject in the diff dialog. The dialog runs on the EDT; the dispatch thread waits on a `CountDownLatch`. The HTTP call returning is the signal to the CLI that the edit is done ([EditDiffReviewer.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditDiffReviewer.kt)).
+- Layer 2 captures the **original file content** at the moment a `ToolUse` event for `Edit`/`Write` arrives — **before** the CLI applies the edit. Capturing later means the "original" is already the modified file and revert is silently broken ([EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditReviewCoordinator.kt)).
 - Layer 1 is gated by `autoAcceptEdits = false` in settings AND by the CLI honoring the system-prompt directive to prefer `propose_*`. When auto-accept is on, `propose_*` returns success without prompting and the edit is silently applied ([McpServer.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpServer.kt)).
-- Layer 2 reverts a rejected edit by writing the captured `originalContent` back via `WriteAction` and refreshing the VFS through `FilesystemRefreshCoordinator` (never `LocalFileSystem.refresh` directly). Rejected edits also produce a feedback message appended to the next user turn so Claude can correct course ([EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewCoordinator.kt)).
+- Layer 2 reverts a rejected edit by writing the captured `originalContent` back via `WriteAction` and refreshing the VFS through `FilesystemRefreshCoordinator` (never `LocalFileSystem.refresh` directly). Rejected edits also produce a feedback message appended to the next user turn so Claude can correct course ([EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditReviewCoordinator.kt)).
 - The `--disallowedTools` flag in `CliProcess` is what actually convinces the CLI to use `propose_*` instead of `Edit`/`Write`. Without that flag, Claude prefers built-in tools and Layer 2 carries the entire load ([CliProcess.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CliProcess.kt)).
 
 ## Resolution pipeline
@@ -38,8 +38,8 @@
 ## Source pointers
 
 - [McpEditReviewTools.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpEditReviewTools.kt) — Layer 1 MCP tools (`propose_edit`, `propose_write`, `propose_multi_edit`, `propose_notebook_edit`)
-- [EditDiffReviewer.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditDiffReviewer.kt) — Layer 1 diff dialog with explicit Accept/Reject
-- [EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewCoordinator.kt) — Layer 2 capture, decision tracking, feedback synthesis
+- [EditDiffReviewer.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditDiffReviewer.kt) — Layer 1 diff dialog with explicit Accept/Reject
+- [EditReviewCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditReviewCoordinator.kt) — Layer 2 capture, decision tracking, feedback synthesis
 - [EditReviewHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewHandler.kt) — Layer 2 inline-card action handlers
-- [EditReviewOutcomes.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/editreview/EditReviewOutcomes.kt) — `EditOutcome` enum and feedback formatting
-- [FilesystemRefreshCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/FilesystemRefreshCoordinator.kt) — debounced VFS refresh used by both layers
+- [EditReviewOutcomes.kt](../../../src/main/kotlin/com/adobe/clawdea/editreview/EditReviewOutcomes.kt) — `EditOutcome` enum and feedback formatting
+- [FilesystemRefreshCoordinator.kt](../../../src/main/kotlin/com/adobe/clawdea/vfs/FilesystemRefreshCoordinator.kt) — debounced VFS refresh used by both layers

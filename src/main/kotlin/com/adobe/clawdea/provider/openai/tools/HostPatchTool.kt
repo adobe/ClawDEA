@@ -11,9 +11,9 @@
  */
 package com.adobe.clawdea.provider.openai.tools
 
-import com.adobe.clawdea.chat.FilesystemRefreshCoordinator
-import com.adobe.clawdea.chat.editreview.EditDiffReviewer
-import com.adobe.clawdea.chat.editreview.EditOutcome
+import com.adobe.clawdea.vfs.FilesystemRefreshCoordinator
+import com.adobe.clawdea.editreview.EditDiffReviewer
+import com.adobe.clawdea.editreview.EditOutcome
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
 import java.io.File

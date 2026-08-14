@@ -142,7 +142,7 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
             // push an immediate broad refresh so the relocated tree is visible
             // before the drift rescan reads it back. Skip when nothing moved.
             if (action != Action.NOTHING) {
-                project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
+                project.getService(com.adobe.clawdea.vfs.FilesystemRefreshCoordinator::class.java)
                     ?.onMassFileChange()
             }
             // This runs on the application thread pool (executeOnPooledThread),

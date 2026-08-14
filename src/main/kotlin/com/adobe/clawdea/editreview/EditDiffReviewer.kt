@@ -9,9 +9,9 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat.editreview
+package com.adobe.clawdea.editreview
 
-import com.adobe.clawdea.chat.FilesystemRefreshCoordinator
+import com.adobe.clawdea.vfs.FilesystemRefreshCoordinator
 
 import com.intellij.diff.DiffContentFactory
 import com.intellij.diff.DiffManager

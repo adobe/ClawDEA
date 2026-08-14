@@ -11,7 +11,8 @@
  */
 package com.adobe.clawdea.chat
 
-import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
+import com.adobe.clawdea.editreview.EditReviewCoordinator
+import com.adobe.clawdea.editreview.EditReviewOutcomes
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.cli.TaskEventExtractor
@@ -863,7 +864,7 @@ class EventStreamHandler(
         if (status == null) {
             val filePath = editReviewCoordinator.getCapturedFilePath(toolUseId)
             if (filePath != null) {
-                val mcpOutcome = com.adobe.clawdea.chat.editreview.EditReviewOutcomes.take(filePath)
+                val mcpOutcome = EditReviewOutcomes.take(filePath)
                 status = when (mcpOutcome) {
                     "ACCEPTED" -> "Accepted"
                     "AUTO-ACCEPTED" -> "Auto-accepted"

@@ -17,7 +17,8 @@ import com.adobe.clawdea.approval.HandlerQuestionService
 import com.adobe.clawdea.approval.PermissionDispatcher
 import com.adobe.clawdea.approval.PermissionRouter
 import com.adobe.clawdea.approval.PermissionRouterRegistry
-import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
+import com.adobe.clawdea.editreview.EditReviewCoordinator
+import com.adobe.clawdea.vfs.FilesystemRefreshCoordinator
 import com.adobe.clawdea.chat.editreview.EditReviewHandler
 import com.adobe.clawdea.chat.permission.AskUserQuestionRenderer
 import com.adobe.clawdea.chat.permission.PermissionRequestHandler

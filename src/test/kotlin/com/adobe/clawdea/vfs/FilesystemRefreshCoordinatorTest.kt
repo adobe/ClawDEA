@@ -9,7 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat
+package com.adobe.clawdea.vfs
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

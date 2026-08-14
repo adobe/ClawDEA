@@ -134,7 +134,7 @@ class SeedWikiHandler(
                 // (e.g. a stale .clawdea/wiki) so it doesn't dangle.
                 WikiRelocateHandler.removeEmptyDefaultWikiTrees(projectBase, WikiRelocateHandler.safeWikiSubdir(), projectBase.resolve(newPath))
                 WikiRelocateHandler.appendGitignore(projectBase, ".clawdea/wiki-state.local.json")
-                project.getService(com.adobe.clawdea.chat.FilesystemRefreshCoordinator::class.java)
+                project.getService(com.adobe.clawdea.vfs.FilesystemRefreshCoordinator::class.java)
                     ?.onMassFileChange()
                 postUi {
                     context.appendHtml(

@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.commands.handlers
 
-import com.adobe.clawdea.chat.editreview.EditDiffReviewer
-import com.adobe.clawdea.chat.editreview.EditOutcome
+import com.adobe.clawdea.editreview.EditDiffReviewer
+import com.adobe.clawdea.editreview.EditOutcome
 import com.adobe.clawdea.commands.CommandCategory
 import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler

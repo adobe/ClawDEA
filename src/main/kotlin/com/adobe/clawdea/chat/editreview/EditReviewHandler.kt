@@ -13,6 +13,9 @@ package com.adobe.clawdea.chat.editreview
 
 import com.adobe.clawdea.chat.ChatBrowserRenderer
 import com.adobe.clawdea.chat.MessageRenderer
+import com.adobe.clawdea.editreview.EditDiffReviewer
+import com.adobe.clawdea.editreview.EditOutcome
+import com.adobe.clawdea.editreview.EditReviewCoordinator
 
 import com.adobe.clawdea.cli.CliBridge
 import com.intellij.notification.NotificationGroupManager

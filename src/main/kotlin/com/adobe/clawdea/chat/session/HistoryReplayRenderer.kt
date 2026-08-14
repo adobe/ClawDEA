@@ -8,7 +8,7 @@ import com.adobe.clawdea.chat.MessageRenderer
 import com.adobe.clawdea.chat.SubAgentController
 import com.adobe.clawdea.chat.TaskWidgetController
 import com.adobe.clawdea.chat.ToolMode
-import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
+import com.adobe.clawdea.editreview.EditReviewCoordinator
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.cli.TaskEventExtractor
 import com.adobe.clawdea.util.JsonScan
