@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat.permission
 
+import com.adobe.clawdea.approval.HandlerQuestionResolver
 import com.adobe.clawdea.chat.ChatBrowserRenderer
 import com.adobe.clawdea.mcp.McpPermissionPromptTool
 import com.google.gson.JsonObject
@@ -62,13 +63,6 @@ class PermissionRequestHandler(
      */
     private val handlerQuestions: HandlerQuestionResolver? = null,
 ) {
-
-    /** Pluggable resolver for handler-initiated question cards. */
-    interface HandlerQuestionResolver {
-        fun owns(requestId: String): Boolean
-        fun submit(requestId: String, answers: Map<String, String>, freeforms: Map<String, String>)
-        fun cancel(requestId: String)
-    }
 
     /**
      * Called from the MCP dispatch thread when a new permission prompt is needed.

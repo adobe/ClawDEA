@@ -11,6 +11,8 @@ import com.adobe.clawdea.chat.ToolMode
 import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.cli.TaskEventExtractor
+import com.adobe.clawdea.util.JsonScan
+import com.adobe.clawdea.util.TASK_TOOL_NAMES
 
 /**
  * Pure translation of parsed [HistoryEntry] list into the HTML fragments the
@@ -83,7 +85,7 @@ object HistoryReplayRenderer {
         for ((i, entry) in history.withIndex()) {
             if (entry !is HistoryEntry.ToolUse) continue
             if (entry.parentToolUseId != null) continue
-            if (entry.name !in MessageRenderer.TASK_TOOLS) continue
+            if (entry.name !in TASK_TOOL_NAMES) continue
             taskToolIndices.add(i)
             val (resultContent, resultIsError, _) = findToolResult(history, i, entry.id)
             val event = extractor.extract(
@@ -102,8 +104,8 @@ object HistoryReplayRenderer {
         renderer: MessageRenderer,
         consumed: MutableSet<Int>,
     ): String {
-        val agentType = MessageRenderer.extractJsonString(agent.input, "subagent_type") ?: "agent"
-        val description = MessageRenderer.extractJsonString(agent.input, "description") ?: ""
+        val agentType = JsonScan.string(agent.input, "subagent_type") ?: "agent"
+        val description = JsonScan.string(agent.input, "description") ?: ""
 
         val childrenHtml = StringBuilder()
         var stepCount = 0
@@ -114,7 +116,7 @@ object HistoryReplayRenderer {
                 stepCount++
                 val (childResult, childIsError, _) = findToolResult(history, j, e.id)
                 val isReadWithPath = e.name == "Read" &&
-                    MessageRenderer.extractJsonString(e.input, "file_path") != null
+                    JsonScan.string(e.input, "file_path") != null
                 val stepHtml = if (EditReviewCoordinator.isProposeTool(e.name) || EditReviewCoordinator.isEditTool(e.name) || isReadWithPath) {
                     renderer.renderToolUseEvent(e.name, e.input, e.id, ToolMode.Replay(childResult, childIsError))
                 } else {

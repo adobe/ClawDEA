@@ -11,6 +11,9 @@
  */
 package com.adobe.clawdea.chat
 
+import com.adobe.clawdea.util.JsonScan
+import com.adobe.clawdea.util.TASK_TOOL_NAMES
+
 /**
  * Display context for [MessageRenderer.renderToolUseEvent]. See that
  * method's docstring for how each variant changes the output.
@@ -60,7 +63,7 @@ class MessageRenderer(
 
     fun renderToolUseCompact(toolName: String, input: String, toolUseId: String = ""): String {
         if (toolName == "Read" || toolName == "Edit" || toolName == "Write") {
-            val path = extractJsonString(input, "file_path")
+            val path = JsonScan.string(input, "file_path")
             if (path != null) return renderFileLink(path, toolUseId, toolName)
         }
         return renderToolUse(toolName, input, toolUseId)
@@ -95,7 +98,7 @@ class MessageRenderer(
         // multi-choice card instead of a generic tool block.
         if (toolName == "AskUserQuestion") return ""
 
-        if (toolName in TASK_TOOLS) {
+        if (toolName in TASK_TOOL_NAMES) {
             // Live: the task widget owns task-tool display; emit nothing here.
             // Replay: there's no task widget to populate, so a collapsed badge
             // is the next best thing.
@@ -122,7 +125,7 @@ class MessageRenderer(
         }
 
         if (toolName == "Read") {
-            val filePath = extractJsonString(input, "file_path")
+            val filePath = JsonScan.string(input, "file_path")
             if (filePath != null) return renderFileLink(filePath, toolUseId)
             // Fall through to a generic tool block if Read came without file_path.
         }
@@ -464,7 +467,7 @@ class MessageRenderer(
             lower.endsWith("__propose_edit") ||
             lower.endsWith("__propose_write")
         if (!isEditOrWriteName) return false
-        val filePath = extractJsonString(input, "file_path") ?: return false
+        val filePath = JsonScan.string(input, "file_path") ?: return false
         return isPathUnderWikiDir(filePath)
     }
 
@@ -497,63 +500,63 @@ class MessageRenderer(
         val lower = toolName.lowercase()
         return when {
             lower.contains("bash") -> {
-                val desc = extractJsonString(input, "description")
-                val cmd = extractJsonString(input, "command")
+                val desc = JsonScan.string(input, "description")
+                val cmd = JsonScan.string(input, "command")
                 ToolDisplay(
                     title = desc ?: "Bash",
                     body = cmd ?: input,
                 )
             }
             lower.endsWith("read_sibling_wiki") -> {
-                val repo = extractJsonString(input, "repo")
-                val page = extractJsonString(input, "page")
+                val repo = JsonScan.string(input, "repo")
+                val page = JsonScan.string(input, "page")
                 val suffix = listOfNotNull(repo, page).joinToString("/")
                 ToolDisplay(title = "Read sibling Wiki${if (suffix.isNotEmpty()) " $suffix" else ""}", body = "")
             }
             lower.endsWith("read_wiki_page") -> {
-                val name = extractJsonString(input, "name")
+                val name = JsonScan.string(input, "name")
                 ToolDisplay(title = "Read Wiki${if (!name.isNullOrEmpty()) " $name" else ""}", body = "")
             }
             lower.endsWith("search_wiki") -> {
-                val query = extractJsonString(input, "query")
+                val query = JsonScan.string(input, "query")
                 ToolDisplay(title = "Search Wiki${if (!query.isNullOrEmpty()) ": $query" else ""}", body = "")
             }
             lower.contains("read") -> {
-                val path = extractJsonString(input, "file_path")
+                val path = JsonScan.string(input, "file_path")
                 ToolDisplay(title = "Read ${path ?: ""}", body = "")
             }
             lower.contains("edit") -> {
-                val path = extractJsonString(input, "file_path")
+                val path = JsonScan.string(input, "file_path")
                 ToolDisplay(title = "Edit ${path ?: ""}", body = "")
             }
             lower.contains("write") -> {
-                val path = extractJsonString(input, "file_path")
+                val path = JsonScan.string(input, "file_path")
                 ToolDisplay(title = "Write ${path ?: ""}", body = "")
             }
             lower.contains("grep") -> {
-                val pattern = extractJsonString(input, "pattern")
-                val path = extractJsonString(input, "path")
+                val pattern = JsonScan.string(input, "pattern")
+                val path = JsonScan.string(input, "path")
                 val suffix = if (path != null) " in $path" else ""
                 ToolDisplay(title = "Grep: ${pattern ?: ""}$suffix", body = "")
             }
             lower.contains("glob") -> {
-                val pattern = extractJsonString(input, "pattern")
+                val pattern = JsonScan.string(input, "pattern")
                 ToolDisplay(title = "Glob: ${pattern ?: ""}", body = "")
             }
             lower.contains("agent") || lower.contains("task") -> {
-                val desc = extractJsonString(input, "description")
-                    ?: extractJsonString(input, "prompt")
+                val desc = JsonScan.string(input, "description")
+                    ?: JsonScan.string(input, "prompt")
                 ToolDisplay(title = desc ?: toolName, body = "")
             }
             else -> {
-                val titleField = extractJsonString(input, "description")
-                    ?: extractJsonString(input, "query")
-                    ?: extractJsonString(input, "prompt")
-                    ?: extractJsonString(input, "name")
-                    ?: extractJsonString(input, "url")
-                    ?: extractJsonString(input, "skill")
-                    ?: extractJsonString(input, "file_path")
-                    ?: extractJsonString(input, "path")
+                val titleField = JsonScan.string(input, "description")
+                    ?: JsonScan.string(input, "query")
+                    ?: JsonScan.string(input, "prompt")
+                    ?: JsonScan.string(input, "name")
+                    ?: JsonScan.string(input, "url")
+                    ?: JsonScan.string(input, "skill")
+                    ?: JsonScan.string(input, "file_path")
+                    ?: JsonScan.string(input, "path")
                 val title = if (titleField != null) "$toolName: $titleField" else toolName
                 val body = formatJsonAsParams(input, titleField)
                 ToolDisplay(title = title, body = body)
@@ -562,12 +565,6 @@ class MessageRenderer(
     }
 
     companion object {
-        // Task-widget tools — rendered as a single collapsed badge in the
-        // live stream because their full output drives the [TaskWidgetController]
-        // sidebar instead of the main chat. Keep the list in sync with the
-        // matching branch in `EventStreamHandler.handleEvent`.
-        internal val TASK_TOOLS = setOf("TaskCreate", "TaskUpdate", "TodoWrite", "TodoRead")
-
         private val KNOWN_EXTENSIONS = setOf(
             "kt", "java", "xml", "json", "html", "css", "js", "ts", "tsx", "jsx",
             "yaml", "yml", "properties", "gradle", "kts", "md", "txt", "sh", "py",
@@ -598,40 +595,6 @@ class MessageRenderer(
                 """|(?<![.\w])([A-Z]\w+\.\w+\(\))""",
         )
 
-        /** Extract a string value from a JSON object by key. Minimal parser, no dependencies. */
-        internal fun extractJsonString(json: String, key: String): String? {
-        val searchKey = "\"$key\""
-        val keyIndex = json.indexOf(searchKey)
-        if (keyIndex == -1) return null
-        val colonIndex = json.indexOf(':', keyIndex + searchKey.length)
-        if (colonIndex == -1) return null
-        val afterColon = json.substring(colonIndex + 1).trimStart()
-        if (afterColon.isEmpty() || afterColon[0] != '"') return null
-        val sb = StringBuilder()
-        var i = 1
-        while (i < afterColon.length) {
-            val c = afterColon[i]
-            if (c == '\\' && i + 1 < afterColon.length) {
-                when (afterColon[i + 1]) {
-                    '"' -> sb.append('"')
-                    '\\' -> sb.append('\\')
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    '/' -> sb.append('/')
-                    else -> { sb.append('\\'); sb.append(afterColon[i + 1]) }
-                }
-                i += 2
-            } else if (c == '"') {
-                break
-            } else {
-                sb.append(c)
-                i++
-            }
-        }
-        val result = sb.toString()
-        return if (result.isNotBlank()) result else null
-        }
     }
 
     fun renderToolResult(content: String, autoAllowed: Boolean = false): String {

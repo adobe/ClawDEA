@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.chat.editreview
 
-import com.adobe.clawdea.chat.MessageRenderer
+import com.adobe.clawdea.util.JsonScan
 
 import com.adobe.clawdea.cli.CliBridge
 import com.intellij.openapi.project.Project
@@ -114,17 +114,17 @@ class EditReviewCoordinator(
         }
 
         fun extractFilePath(toolInput: String): String? {
-            return MessageRenderer.extractJsonString(toolInput, "file_path")
-                ?: MessageRenderer.extractJsonString(toolInput, "notebook_path")
+            return JsonScan.string(toolInput, "file_path")
+                ?: JsonScan.string(toolInput, "notebook_path")
         }
 
         fun buildProposedContent(originalContent: String, toolName: String, toolInput: String): String {
             val lower = toolName.lowercase()
             return if (lower.contains("write")) {
-                MessageRenderer.extractJsonString(toolInput, "content") ?: originalContent
+                JsonScan.string(toolInput, "content") ?: originalContent
             } else {
-                val oldString = MessageRenderer.extractJsonString(toolInput, "old_string") ?: return originalContent
-                val newString = MessageRenderer.extractJsonString(toolInput, "new_string") ?: return originalContent
+                val oldString = JsonScan.string(toolInput, "old_string") ?: return originalContent
+                val newString = JsonScan.string(toolInput, "new_string") ?: return originalContent
                 if (originalContent.contains(oldString)) {
                     originalContent.replaceFirst(oldString, newString)
                 } else {

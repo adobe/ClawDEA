@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat.permission
 
+import com.adobe.clawdea.approval.HandlerQuestionResolver
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -37,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Service(Service.Level.PROJECT)
 class HandlerQuestionService(@Suppress("unused") private val project: Project? = null) :
-    PermissionRequestHandler.HandlerQuestionResolver {
+    HandlerQuestionResolver {
 
     private val pending = ConcurrentHashMap<String, (HandlerQuestionAnswers?) -> Unit>()
 

@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.chat.permission
 
-import com.adobe.clawdea.chat.MessageRenderer
+import com.adobe.clawdea.util.JsonScan
 
 /**
  * Formats a one-line human-readable summary of a tool call. Falls back to the
@@ -24,11 +24,11 @@ object PermissionSummaryBuilder {
     fun build(toolName: String, inputJson: String): String {
         if (inputJson.isBlank()) return toolName
         val raw = when (toolName) {
-            "Bash" -> MessageRenderer.extractJsonString(inputJson, "command")
-            "WebFetch" -> MessageRenderer.extractJsonString(inputJson, "url")
-            "WebSearch" -> MessageRenderer.extractJsonString(inputJson, "query")
-            "Edit", "Write", "MultiEdit" -> MessageRenderer.extractJsonString(inputJson, "file_path")
-            "NotebookEdit" -> MessageRenderer.extractJsonString(inputJson, "notebook_path")
+            "Bash" -> JsonScan.string(inputJson, "command")
+            "WebFetch" -> JsonScan.string(inputJson, "url")
+            "WebSearch" -> JsonScan.string(inputJson, "query")
+            "Edit", "Write", "MultiEdit" -> JsonScan.string(inputJson, "file_path")
+            "NotebookEdit" -> JsonScan.string(inputJson, "notebook_path")
             else -> fallbackSummary(inputJson)
         } ?: return toolName
         return truncate(collapseWhitespace(raw))
@@ -42,7 +42,7 @@ object PermissionSummaryBuilder {
 
     /**
      * For unknown tools: find the first two top-level string fields and render
-     * them as "k1=v1, k2=v2". MessageRenderer.extractJsonString only reads a
+     * them as "k1=v1, k2=v2". JsonScan.string only reads a
      * given key, so we pull top-level keys with a light regex.
      */
     private fun fallbackSummary(json: String): String? {
@@ -50,7 +50,7 @@ object PermissionSummaryBuilder {
         val keys = keyRegex.findAll(json).map { it.groupValues[1] }.distinct().take(2).toList()
         if (keys.isEmpty()) return null
         val parts = keys.mapNotNull { key ->
-            MessageRenderer.extractJsonString(json, key)?.let { "$key=$it" }
+            JsonScan.string(json, key)?.let { "$key=$it" }
         }
         return if (parts.isEmpty()) null else parts.joinToString(", ")
     }

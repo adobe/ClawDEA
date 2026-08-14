@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.cli
 
-import com.adobe.clawdea.chat.MessageRenderer
+import com.adobe.clawdea.util.JsonScan
 
 class TaskEventExtractor {
 
@@ -24,24 +24,21 @@ class TaskEventExtractor {
     }
 
     private fun extractTaskCreated(input: String, resultContent: String): CliEvent.TaskEvent? {
-        val subject = extractJsonString(input, "subject") ?: return null
-        val description = extractJsonString(input, "description") ?: ""
-        val activeForm = extractJsonString(input, "activeForm")
+        val subject = JsonScan.string(input, "subject") ?: return null
+        val description = JsonScan.string(input, "description") ?: ""
+        val activeForm = JsonScan.string(input, "activeForm")
         val id = extractTaskId(resultContent) ?: return null
         return CliEvent.TaskEvent.TaskCreated(id, subject, description, activeForm)
     }
 
     private fun extractTaskUpdated(input: String, resultContent: String): CliEvent.TaskEvent? {
-        val taskId = extractJsonString(input, "taskId") ?: return null
-        val status = extractJsonString(input, "status") ?: return null
+        val taskId = JsonScan.string(input, "taskId") ?: return null
+        val status = JsonScan.string(input, "status") ?: return null
         if (status == "deleted") {
             return CliEvent.TaskEvent.TaskDeleted(taskId)
         }
         return CliEvent.TaskEvent.TaskStatusChanged(taskId, status)
     }
-
-    private fun extractJsonString(json: String, key: String): String? =
-        MessageRenderer.extractJsonString(json, key)
 
     companion object {
         private val TASK_ID_PATTERN = Regex("""#(\d+)""")

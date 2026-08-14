@@ -15,6 +15,8 @@ import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.cli.TaskEventExtractor
+import com.adobe.clawdea.util.JsonScan
+import com.adobe.clawdea.util.TASK_TOOL_NAMES
 import com.intellij.openapi.application.ApplicationManager
 
 import kotlinx.coroutines.CoroutineScope
@@ -318,7 +320,7 @@ class EventStreamHandler(
                         val isEditOrPropose = EditReviewCoordinator.isProposeTool(toolUse.name) ||
                             EditReviewCoordinator.isEditTool(toolUse.name)
                         val isReadWithPath = toolUse.name == "Read" &&
-                            MessageRenderer.extractJsonString(toolUse.input, "file_path") != null
+                            JsonScan.string(toolUse.input, "file_path") != null
                         val stepHtml = if (isEditOrPropose) {
                             val filePath = EditReviewCoordinator.extractFilePath(toolUse.input) ?: toolUse.name
                             val file = java.io.File(filePath)
@@ -389,8 +391,8 @@ class EventStreamHandler(
                     toolStartTime = System.currentTimeMillis()
 
                     if (SubAgentController.isSubAgentTool(toolUse.name)) {
-                        val agentType = MessageRenderer.extractJsonString(toolUse.input, "subagent_type") ?: "agent"
-                        val description = MessageRenderer.extractJsonString(toolUse.input, "description") ?: ""
+                        val agentType = JsonScan.string(toolUse.input, "subagent_type") ?: "agent"
+                        val description = JsonScan.string(toolUse.input, "description") ?: ""
                         subAgentController.register(toolUse.id, agentType, description, System.currentTimeMillis())
                         // Live sub-agent cards are pinned in the bottom dock
                         // (stacked when several run in parallel) so they stay
@@ -402,7 +404,7 @@ class EventStreamHandler(
 
                     // Side effects that only make sense live: track for the
                     // task widget, capture edit content for diff/revert.
-                    val isTaskTool = toolUse.name in MessageRenderer.TASK_TOOLS
+                    val isTaskTool = toolUse.name in TASK_TOOL_NAMES
                     if (isTaskTool) {
                         pendingToolUses[toolUse.id] = toolUse
                     } else if (EditReviewCoordinator.isProposeTool(toolUse.name) ||

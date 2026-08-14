@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat.permission
 
+import com.adobe.clawdea.approval.HandlerQuestionResolver
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -141,8 +142,8 @@ class HandlerQuestionServiceTest {
     }
 
     @Test
-    fun `service implements the PermissionRequestHandler resolver interface`() {
-        val service: PermissionRequestHandler.HandlerQuestionResolver = HandlerQuestionService()
+    fun `service implements the handler-question resolver interface`() {
+        val service: HandlerQuestionResolver = HandlerQuestionService()
         val id = (service as HandlerQuestionService).register {}
         assertTrue(service.owns(id))
         service.cancel(id)
