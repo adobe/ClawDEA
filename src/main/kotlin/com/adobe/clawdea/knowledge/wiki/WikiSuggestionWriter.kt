@@ -95,9 +95,20 @@ class WikiSuggestionWriter(
         null
     }
 
+    // The real project-relative wiki directory (e.g. "docs/llm-wiki" in team mode, or ".clawdea/wiki"
+    // by default), or null when it can't be derived. The librarian reports the path it actually read,
+    // which is this real path — but the canonical stored form is the logical ".claude/wiki/" prefix
+    // the digest builder rewrites downstream, so real paths are re-rooted onto it (Tier 6.6).
+    private val realWikiPrefix: String? = projectBase?.runCatching {
+        relativize(wikiDir).toString().replace('\\', '/').trim('/')
+    }?.getOrNull()?.takeIf { it.isNotBlank() && !it.startsWith("..") }
+
     private fun normalizeWikiPath(raw: String): String {
         if (raw.isBlank()) return ""
-        val p = raw.trim().removePrefix("/").removePrefix("./")
+        var p = raw.trim().removePrefix("/").removePrefix("./")
+        if (realWikiPrefix != null && (p == realWikiPrefix || p.startsWith("$realWikiPrefix/"))) {
+            p = ".claude/wiki/" + p.removePrefix(realWikiPrefix).removePrefix("/")
+        }
         val rooted = when {
             p.startsWith(".claude/wiki/") -> p
             p.startsWith("wiki/") -> ".claude/$p"

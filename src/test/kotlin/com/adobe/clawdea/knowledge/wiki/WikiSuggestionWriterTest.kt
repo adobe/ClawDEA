@@ -190,4 +190,31 @@ class WikiSuggestionWriterTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    @Test fun `team mode accepts the real project-relative wiki path the librarian actually read`() {
+        val tmp = Files.createTempDirectory("wiki-sugg-team-real")
+        try {
+            val wikiDir = tmp.resolve("docs/llm-wiki")
+            Files.createDirectories(wikiDir)
+            Files.createDirectories(tmp.resolve(".clawdea"))
+            Files.writeString(tmp.resolve(".clawdea/config.json"), """{"wikiPath":"docs/llm-wiki"}""")
+
+            val writer = WikiSuggestionWriter(wikiDir = wikiDir, projectBase = tmp)
+            // The librarian reports the real path it read — previously this fell through and was
+            // rejected as unsafe, dropping the suggestion (Tier 6.6).
+            val result = writer.record(
+                kind = "missingConcept",
+                title = "Add a concept page",
+                rationale = "Referenced widely with no coverage at all.",
+                targetFilesCsv = "docs/llm-wiki/concepts/foo.md",
+                sourcePage = "docs/llm-wiki/index.md",
+                recordedAt = Instant.parse("2026-05-16T16:30:00Z"),
+            )
+            assertTrue("real team-mode path must be accepted", result is WikiSuggestionWriter.Result.Recorded)
+            val state = DriftStateStore.read(wikiDir = wikiDir, projectBase = tmp)
+            assertEquals(".claude/wiki/concepts/foo.md", state.suggestions.single().targetFiles.single())
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }
