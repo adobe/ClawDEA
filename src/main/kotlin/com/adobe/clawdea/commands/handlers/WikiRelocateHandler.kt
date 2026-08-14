@@ -194,8 +194,7 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
         return git4idea.commands.Git.getInstance().runCommand(handler).exitCode == 0
     }
 
-    private fun escapeHtml(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    private fun escapeHtml(s: String): String = com.adobe.clawdea.util.WebEscape.html(s)
 
     companion object {
 

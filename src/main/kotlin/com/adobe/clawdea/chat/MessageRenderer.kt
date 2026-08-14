@@ -705,12 +705,7 @@ class MessageRenderer(
         return """<span class="skill-badge">$safe</span>"""
     }
 
-    fun escapeHtml(text: String): String = text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
+    fun escapeHtml(text: String): String = com.adobe.clawdea.util.WebEscape.html(text)
 
     internal fun formatElapsed(ms: Long): String {
         return when {

@@ -253,7 +253,7 @@ class ChatBrowserRenderer(
 
     fun hideStopButton(toolUseId: String) {
         if (!browserReady) return
-        val safeId = toolUseId.replace("'", "\\'").replace("\\", "\\\\")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsSingleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             "var el = document.querySelector('[data-tool-id=\"$safeId\"] .tool-stop-btn'); if (el) el.style.display = 'none';",
             browser.cefBrowser.url, 0,
@@ -270,7 +270,7 @@ class ChatBrowserRenderer(
 
     fun injectElapsedTime(toolUseId: String, formattedElapsed: String) {
         if (!browserReady) return
-        val safeId = toolUseId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var block = document.querySelector('[data-tool-id="$safeId"]');
@@ -289,7 +289,7 @@ class ChatBrowserRenderer(
     fun injectToolOutput(toolUseId: String, resultHtml: String) {
         if (!browserReady || resultHtml.isBlank()) return
         val escaped = escapeForJs(resultHtml)
-        val safeId = toolUseId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var block = document.querySelector('[data-tool-id="$safeId"]');
@@ -312,7 +312,7 @@ class ChatBrowserRenderer(
     fun injectToolAttachment(toolUseId: String, html: String) {
         if (!browserReady || html.isBlank()) return
         val escaped = escapeForJs(html)
-        val safeId = toolUseId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var block = document.querySelector('[data-tool-id="$safeId"]');
@@ -326,7 +326,7 @@ class ChatBrowserRenderer(
     /** Append [html] into the `.subagent-children` of the sub-agent card [parentId]. */
     fun appendIntoSubAgent(parentId: String, html: String) {
         if (!browserReady || html.isBlank()) return
-        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(parentId)
         browser.cefBrowser.executeJavaScript(
             "appendIntoSubAgent(\"$safeId\", '${escapeForJs(html)}');",
             browser.cefBrowser.url, 0,
@@ -336,7 +336,7 @@ class ChatBrowserRenderer(
     /** Update the live status line (e.g. step counter) of sub-agent card [parentId]. */
     fun updateSubAgentStatus(parentId: String, statusHtml: String) {
         if (!browserReady) return
-        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(parentId)
         browser.cefBrowser.executeJavaScript(
             "updateSubAgentStatus(\"$safeId\", '${escapeForJs(statusHtml)}');",
             browser.cefBrowser.url, 0,
@@ -364,7 +364,7 @@ class ChatBrowserRenderer(
     /** Collapse a generic tool block on completion. Mirrors finalizeSubAgent. */
     fun finalizeToolBlock(toolUseId: String) {
         if (!browserReady) return
-        val safeId = toolUseId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             "finalizeToolBlock(\"$safeId\");",
             browser.cefBrowser.url, 0,
@@ -374,7 +374,7 @@ class ChatBrowserRenderer(
     /** Collapse sub-agent card [parentId] and insert its final [summaryHtml]. */
     fun finalizeSubAgent(parentId: String, summaryHtml: String) {
         if (!browserReady) return
-        val safeId = parentId.replace("\\", "\\\\").replace("\"", "\\\"")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsDoubleQuoted(parentId)
         browser.cefBrowser.executeJavaScript(
             "finalizeSubAgent(\"$safeId\", '${escapeForJs(summaryHtml)}');",
             browser.cefBrowser.url, 0,
@@ -383,7 +383,7 @@ class ChatBrowserRenderer(
 
     fun updateEditLinkStatus(toolUseId: String, status: String, escapeHtml: (String) -> String) {
         if (!browserReady) return
-        val safeId = toolUseId.replace("\\", "\\\\").replace("'", "\\'")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsSingleQuoted(toolUseId)
         val safeStatus = escapeHtml(status)
         val statusClass = when (status.lowercase()) {
             "accepted", "auto-accepted" -> "edit-status-accepted"
@@ -429,7 +429,7 @@ class ChatBrowserRenderer(
     fun markEditLinkUnavailable(toolUseId: String, escapeHtml: (String) -> String) {
         updateEditLinkStatus(toolUseId, "Unavailable", escapeHtml)
         if (!browserReady) return
-        val safeId = toolUseId.replace("\\", "\\\\").replace("'", "\\'")
+        val safeId = com.adobe.clawdea.util.WebEscape.jsSingleQuoted(toolUseId)
         browser.cefBrowser.executeJavaScript(
             """(function(){
                 var el = document.querySelector('.edit-link[data-tool-id="$safeId"]');

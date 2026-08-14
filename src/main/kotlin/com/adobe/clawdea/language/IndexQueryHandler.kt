@@ -190,13 +190,7 @@ class IndexQueryHandler(private val project: Project) {
         return """<div class="info-block">${escapeHtml(text)}</div>"""
     }
 
-    private fun escapeHtml(text: String): String {
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-    }
+    private fun escapeHtml(text: String): String = com.adobe.clawdea.util.WebEscape.html(text)
 
     private fun formatMethodSignature(method: PsiMethod): String {
         val returnType = method.returnType?.presentableText ?: "void"

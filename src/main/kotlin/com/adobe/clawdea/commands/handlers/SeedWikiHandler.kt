@@ -159,8 +159,7 @@ class SeedWikiHandler(
         if (app != null) app.invokeLater(block) else block()
     }
 
-    private fun escapeHtml(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    private fun escapeHtml(s: String): String = com.adobe.clawdea.util.WebEscape.html(s)
 
     companion object {
 

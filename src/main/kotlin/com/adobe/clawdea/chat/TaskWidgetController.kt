@@ -83,9 +83,5 @@ class TaskWidgetController {
         tasks.clear()
     }
 
-    private fun escapeHtml(text: String): String = text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
+    private fun escapeHtml(text: String): String = com.adobe.clawdea.util.WebEscape.html(text)
 }

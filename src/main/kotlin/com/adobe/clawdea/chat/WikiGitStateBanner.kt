@@ -65,8 +65,7 @@ class WikiGitStateBanner(
     }
 
     private fun escapeHtml(s: String): String =
-        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace("\"", "&quot;").replace("\n", "&#10;")
+        com.adobe.clawdea.util.WebEscape.html(s, preserveNewlines = true)
 
     companion object {
         private val LOG = Logger.getInstance(WikiGitStateBanner::class.java)
