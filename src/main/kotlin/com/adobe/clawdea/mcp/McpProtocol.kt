@@ -102,13 +102,7 @@ object McpProtocol {
 
     // --- Internal helpers ---
 
-    fun escapeJsonString(s: String): String {
-        return s.replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-    }
+    fun escapeJsonString(s: String): String = com.adobe.clawdea.util.FastJson.escape(s)
 
     private fun extractString(json: String, key: String): String? {
         val keyIndex = json.indexOf(key)
@@ -117,30 +111,8 @@ object McpProtocol {
         if (colonIndex == -1) return null
         val afterColon = json.substring(colonIndex + 1).trimStart()
         if (afterColon.isEmpty() || afterColon[0] != '"') return null
-        val sb = StringBuilder()
-        var i = 1
-        while (i < afterColon.length) {
-            val c = afterColon[i]
-            if (c == '\\' && i + 1 < afterColon.length) {
-                val next = afterColon[i + 1]
-                when (next) {
-                    '"' -> sb.append('"')
-                    '\\' -> sb.append('\\')
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    '/' -> sb.append('/')
-                    else -> { sb.append('\\'); sb.append(next) }
-                }
-                i += 2
-            } else if (c == '"') {
-                break
-            } else {
-                sb.append(c)
-                i++
-            }
-        }
-        return sb.toString()
+        val end = com.adobe.clawdea.util.FastJson.findStringEnd(afterColon, 1) ?: return null
+        return com.adobe.clawdea.util.FastJson.unescape(afterColon.substring(1, end))
     }
 
     private fun extractNestedString(json: String, outerKey: String, innerKey: String): String? {
@@ -285,26 +257,5 @@ object McpProtocol {
         return null
     }
 
-    fun unescapeJsonString(s: String): String {
-        val sb = StringBuilder(s.length)
-        var i = 0
-        while (i < s.length) {
-            if (s[i] == '\\' && i + 1 < s.length) {
-                when (s[i + 1]) {
-                    '"' -> sb.append('"')
-                    '\\' -> sb.append('\\')
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    '/' -> sb.append('/')
-                    else -> { sb.append('\\'); sb.append(s[i + 1]) }
-                }
-                i += 2
-            } else {
-                sb.append(s[i])
-                i++
-            }
-        }
-        return sb.toString()
-    }
+    fun unescapeJsonString(s: String): String = com.adobe.clawdea.util.FastJson.unescape(s)
 }
