@@ -168,6 +168,10 @@ class CodexAppServerProcess(
             return
         }
         proc = process
+        // Track in the process-global registry so the safety-net reaper can kill this long-lived
+        // app-server on dynamic plugin unload / ungraceful IDE exit. Previously only CliProcess
+        // registered, so every codex reinstall leaked a reparented process (4.2a).
+        CliProcessRegistry.register(process)
         stdin = OutputStreamWriter(process.outputStream, StandardCharsets.UTF_8)
         aliveFlag = true
 
@@ -506,7 +510,10 @@ class CodexAppServerProcess(
         turnActive = false
         try { approvalExecutor.shutdownNow() } catch (_: Exception) {}
         try { stdin?.close() } catch (_: Exception) {}
-        proc?.let { if (it.isAlive) it.destroyForcibly() }
+        proc?.let {
+            CliProcessRegistry.unregister(it)
+            if (it.isAlive) it.destroyForcibly()
+        }
         proc = null
         outQueue.put(STOP)
     }

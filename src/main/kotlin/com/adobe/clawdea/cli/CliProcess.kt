@@ -52,9 +52,9 @@ class CliProcess(
     private var stdoutReader: BufferedReader? = null
     private var stdinWriter: BufferedWriter? = null
     private var stderrThread: Thread? = null
-    private var mcpConfigFile: java.io.File? = null
-    private var systemPromptFile: java.io.File? = null
-    private var settingsFile: java.io.File? = null
+    // All per-launch temp files (settings, MCP config, system prompt). Collected in one list so
+    // stop() drains every one — a nullable-field-per-file scheme leaked settingsFile before (4.2c).
+    private val tempFiles = mutableListOf<java.io.File>()
     private val recentStderr = ConcurrentLinkedDeque<String>()
 
     override val isAlive: Boolean
@@ -143,7 +143,7 @@ class CliProcess(
                 val tmp = java.io.File.createTempFile("clawdea-settings-", ".json")
                 tmp.deleteOnExit()
                 tmp.writeText(settingsJson, StandardCharsets.UTF_8)
-                settingsFile = tmp
+                tempFiles.add(tmp)
                 log.info("Wrote permission settings to ${tmp.absolutePath}")
                 command.addAll(listOf("--settings", tmp.absolutePath))
             }
@@ -154,7 +154,7 @@ class CliProcess(
             val tmpFile = java.io.File.createTempFile("clawdea-mcp-", ".json")
             tmpFile.deleteOnExit()
             tmpFile.writeText(mcpJson)
-            mcpConfigFile = tmpFile
+            tempFiles.add(tmpFile)
             log.info("Wrote MCP config to ${tmpFile.absolutePath}")
 
             command.addAll(listOf("--mcp-config", tmpFile.absolutePath))
@@ -210,7 +210,7 @@ class CliProcess(
             val promptFile = java.io.File.createTempFile("clawdea-system-prompt-", ".txt")
             promptFile.deleteOnExit()
             promptFile.writeText(systemPrompt, StandardCharsets.UTF_8)
-            systemPromptFile = promptFile
+            tempFiles.add(promptFile)
             log.info("Wrote system prompt (${systemPrompt.length} chars) to ${promptFile.absolutePath}")
             command.addAll(listOf("--append-system-prompt-file", promptFile.absolutePath))
         }
@@ -300,11 +300,11 @@ class CliProcess(
 
     override fun sendInterrupt() {
         val proc = process ?: return
-        try {
-            val pid = proc.pid()
-            Runtime.getRuntime().exec(arrayOf("kill", "-INT", pid.toString())).waitFor()
-        } catch (e: Exception) {
-            log.warn("Error sending SIGINT to CLI (pid=${proc.pid()})", e)
+        // `kill` does not exist on Windows; the old shell-out threw IOException there, was swallowed,
+        // and the turn kept generating/billing (4.2b). ProcessInterrupter signals on Unix and falls
+        // back to destroy() on Windows.
+        if (!ProcessInterrupter.interrupt(proc)) {
+            log.warn("Failed to interrupt CLI process (pid=${proc.pid()})")
         }
     }
 
@@ -330,8 +330,8 @@ class CliProcess(
         } finally {
             CliProcessRegistry.unregister(proc)
             try { stdoutReader?.close() } catch (_: Exception) {}
-            try { mcpConfigFile?.delete() } catch (_: Exception) {}
-            try { systemPromptFile?.delete() } catch (_: Exception) {}
+            for (f in tempFiles) try { f.delete() } catch (_: Exception) {}
+            tempFiles.clear()
             stderrThread?.let { t ->
                 t.interrupt()
                 try { t.join(1000) } catch (_: Exception) {}
@@ -340,8 +340,6 @@ class CliProcess(
             stdoutReader = null
             stdinWriter = null
             stderrThread = null
-            mcpConfigFile = null
-            systemPromptFile = null
         }
     }
 

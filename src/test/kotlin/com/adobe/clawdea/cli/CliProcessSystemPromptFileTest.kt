@@ -46,10 +46,15 @@ class CliProcessSystemPromptFileTest {
     @Test
     fun `CliProcess cleans up temp system prompt file on stop`() {
         val source = readSource()
+        // The system prompt file is tracked in the shared tempFiles list, which stop() drains —
+        // one list so no per-launch temp file (settings/MCP/prompt) can be forgotten (4.2c).
         assertTrue(
-            "CliProcess.stop() must delete the temp system prompt file to avoid " +
-                "leaking files across sessions.",
-            source.contains("systemPromptFile?.delete()"),
+            "CliProcess must track the temp system prompt file for cleanup.",
+            source.contains("tempFiles.add(promptFile)"),
+        )
+        assertTrue(
+            "CliProcess.stop() must delete every tracked temp file to avoid leaking files across sessions.",
+            source.contains("for (f in tempFiles)") && source.contains("f.delete()"),
         )
     }
 
