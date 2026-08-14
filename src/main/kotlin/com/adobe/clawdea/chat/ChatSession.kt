@@ -77,7 +77,7 @@ class ChatSession(
      */
     private fun shouldAutoResume(sessionId: String): Boolean {
         val basePath = project.basePath ?: return true
-        val origin = com.adobe.clawdea.chat.session.SessionCatalog.resolveOrigin(basePath, sessionId)
+        val origin = com.adobe.clawdea.session.SessionCatalog.resolveOrigin(basePath, sessionId)
             ?: return true
         if (!ProviderFallbackPrompt.requiresConfirmation(origin, bridge.backendKind)) return true
         return ProviderFallbackPrompt(

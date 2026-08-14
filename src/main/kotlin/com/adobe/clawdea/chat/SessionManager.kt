@@ -11,10 +11,10 @@
  */
 package com.adobe.clawdea.chat
 
-import com.adobe.clawdea.chat.session.HistoryEntry
-import com.adobe.clawdea.chat.session.SessionCatalog
-import com.adobe.clawdea.chat.session.SessionOrigin
-import com.adobe.clawdea.chat.session.SessionPickerDialog
+import com.adobe.clawdea.session.HistoryEntry
+import com.adobe.clawdea.session.SessionCatalog
+import com.adobe.clawdea.session.SessionOrigin
+import com.adobe.clawdea.session.SessionPickerDialog
 import com.adobe.clawdea.cli.CliBridge
 import com.adobe.clawdea.cost.CostTracker
 import com.adobe.clawdea.skills.SkillInfo
@@ -157,7 +157,7 @@ class SessionManager(
     }
 
     private fun buildReplay(history: List<HistoryEntry>, origin: SessionOrigin): String? =
-        com.adobe.clawdea.chat.session.TranscriptReplay
+        com.adobe.clawdea.session.TranscriptReplay
             .serialize(history, origin.displayLabel)
             .takeIf { it.isNotBlank() }
 

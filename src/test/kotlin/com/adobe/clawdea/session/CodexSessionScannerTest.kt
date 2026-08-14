@@ -1,4 +1,4 @@
-package com.adobe.clawdea.chat.session
+package com.adobe.clawdea.session
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

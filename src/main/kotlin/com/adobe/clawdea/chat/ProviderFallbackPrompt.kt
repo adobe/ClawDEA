@@ -12,7 +12,7 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.provider.BackendKind
-import com.adobe.clawdea.chat.session.SessionOrigin
+import com.adobe.clawdea.session.SessionOrigin
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.util.ui.JBUI

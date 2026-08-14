@@ -5,6 +5,7 @@
 package com.adobe.clawdea.chat.session
 
 import com.adobe.clawdea.chat.MessageRenderer
+import com.adobe.clawdea.session.HistoryEntry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

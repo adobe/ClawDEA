@@ -561,7 +561,7 @@ backend, on equal footing with Claude Code and OpenAI Codex.</p>
 
         <!-- Chat Auto-Resume State -->
         <projectService
-            serviceImplementation="com.adobe.clawdea.chat.session.ChatAutoResumeState"/>
+            serviceImplementation="com.adobe.clawdea.session.ChatAutoResumeState"/>
 
         <!-- MCP Server -->
         <projectService

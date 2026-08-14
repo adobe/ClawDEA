@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.chat
 
-import com.adobe.clawdea.chat.session.SessionOrigin
+import com.adobe.clawdea.session.SessionOrigin
 import com.adobe.clawdea.provider.BackendKind
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

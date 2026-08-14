@@ -107,7 +107,7 @@ class CliBridge(
 
     /**
      * Prior-conversation transcript to prepend to the *first* user message of this session, set by a
-     * cross-backend resume (see [com.adobe.clawdea.chat.session.TranscriptReplay]). Consumed and
+     * cross-backend resume (see [com.adobe.clawdea.session.TranscriptReplay]). Consumed and
      * cleared by the first [sendMessage]; null for native resumes and fresh sessions.
      */
     @Volatile
@@ -224,7 +224,7 @@ class CliBridge(
     private fun firstMessagePayload(text: String): String {
         val replay = pendingReplayContext ?: return text
         pendingReplayContext = null
-        return com.adobe.clawdea.chat.session.TranscriptReplay.wrapFirstMessage(replay, text)
+        return com.adobe.clawdea.session.TranscriptReplay.wrapFirstMessage(replay, text)
     }
 
     fun abort() {

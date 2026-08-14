@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.provider.openai.session
 
-import com.adobe.clawdea.chat.session.SessionOrigin
+import com.adobe.clawdea.session.SessionOrigin
 import com.google.gson.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,8 +75,8 @@ class OpenAiSessionScannerTest {
         val history = OpenAiSessionScanner.loadHistoryFromFile(file)
 
         assertEquals(2, history.size)
-        assertTrue(history[0] is com.adobe.clawdea.chat.session.HistoryEntry.UserMessage)
-        assertTrue(history[1] is com.adobe.clawdea.chat.session.HistoryEntry.AssistantText)
+        assertTrue(history[0] is com.adobe.clawdea.session.HistoryEntry.UserMessage)
+        assertTrue(history[1] is com.adobe.clawdea.session.HistoryEntry.AssistantText)
     }
 
     @Test

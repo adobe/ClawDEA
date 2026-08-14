@@ -14,7 +14,7 @@ package com.adobe.clawdea.util
 /**
  * Encodes an absolute project path into the folder name the Claude Code CLI uses under
  * `~/.claude/projects/<encoded>/`. This is the single source of truth for that scheme;
- * [com.adobe.clawdea.chat.session.SessionScanner],
+ * [com.adobe.clawdea.session.SessionScanner],
  * [com.adobe.clawdea.cost.TranscriptCostReader], and
  * [com.adobe.clawdea.knowledge.notes.NotesPaths] all route through it so the plugin points
  * at the exact directory the CLI creates.

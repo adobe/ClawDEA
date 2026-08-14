@@ -51,7 +51,7 @@ Anything else is a deliberately-ignored `Unknown` with a **blank** `rawJson` so 
 ## Cost and sessions
 
 - `CodexRateLimitMapper` maps a codex `RateLimitSnapshot` (`individualLimit` spend gauge, or a `credits.balance` fallback, plus `primary`/`secondary` rate-limit windows) onto ClawDEA's `SubscriptionUsage`, giving the OpenAI subscription the same live Cost Control gauge Claude has ([CodexRateLimitMapper.kt](../../../src/main/kotlin/com/adobe/clawdea/cost/CodexRateLimitMapper.kt)).
-- `CodexSessionScanner` scans codex rollout JSONL files under the **global** `~/.codex/sessions/YYYY/MM/DD/` tree, filtering by the `cwd` recorded in each rollout's `session_meta`, so codex sessions appear in the resume picker and their transcripts replay across backends. It strips codex/ClawDEA-injected synthetic turns — the leading `<recommended_plugins>` and `<environment_context>` XML blocks (both listed in `SYNTHETIC_USER_BLOCKS`), the JetBrains harness note, and everything before the last `User request:` marker ([CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/session/CodexSessionScanner.kt)).
+- `CodexSessionScanner` scans codex rollout JSONL files under the **global** `~/.codex/sessions/YYYY/MM/DD/` tree, filtering by the `cwd` recorded in each rollout's `session_meta`, so codex sessions appear in the resume picker and their transcripts replay across backends. It strips codex/ClawDEA-injected synthetic turns — the leading `<recommended_plugins>` and `<environment_context>` XML blocks (both listed in `SYNTHETIC_USER_BLOCKS`), the JetBrains harness note, and everything before the last `User request:` marker ([CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/session/CodexSessionScanner.kt)).
 
 ## Anti-patterns
 
@@ -71,7 +71,7 @@ Anything else is a deliberately-ignored `Unknown` with a **blank** `rawJson` so 
 - [CodexInstructions.kt](../../../src/main/kotlin/com/adobe/clawdea/cli/CodexInstructions.kt) — first-turn `baseInstructions` preamble (tooling + skills + primer)
 - [CodexModelProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/gateway/CodexModelProbe.kt) — OpenAI-subscription model catalog from `models_cache.json`
 - [CodexRateLimitMapper.kt](../../../src/main/kotlin/com/adobe/clawdea/cost/CodexRateLimitMapper.kt) — `RateLimitSnapshot` → `SubscriptionUsage` for the Cost Control gauge
-- [CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/session/CodexSessionScanner.kt) — codex rollout scan + transcript replay for resume
+- [CodexSessionScanner.kt](../../../src/main/kotlin/com/adobe/clawdea/session/CodexSessionScanner.kt) — codex rollout scan + transcript replay for resume
 - [CodexSubscriptionAuth.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/CodexSubscriptionAuth.kt) — ChatGPT sign-in/out driver (`codex login`/`logout`)
 - [CodexSubscriptionAuthProbe.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/CodexSubscriptionAuthProbe.kt) — `codex login status` text probe (negative-case-first)
 - [CodexSubscriptionAuthEvent.kt](../../../src/main/kotlin/com/adobe/clawdea/auth/CodexSubscriptionAuthEvent.kt) — distinct auth-event topic so the Claude card doesn't react to codex sign-in

@@ -11,9 +11,9 @@
  */
 package com.adobe.clawdea.provider.openai.session
 
-import com.adobe.clawdea.chat.session.HistoryEntry
-import com.adobe.clawdea.chat.session.SessionInfo
-import com.adobe.clawdea.chat.session.SessionOrigin
+import com.adobe.clawdea.session.HistoryEntry
+import com.adobe.clawdea.session.SessionInfo
+import com.adobe.clawdea.session.SessionOrigin
 import com.adobe.clawdea.provider.openai.profile.ProfileStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.google.gson.JsonObject

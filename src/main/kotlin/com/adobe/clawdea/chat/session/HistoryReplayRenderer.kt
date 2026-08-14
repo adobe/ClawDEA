@@ -4,6 +4,7 @@
  */
 package com.adobe.clawdea.chat.session
 
+import com.adobe.clawdea.session.HistoryEntry
 import com.adobe.clawdea.chat.MessageRenderer
 import com.adobe.clawdea.chat.SubAgentController
 import com.adobe.clawdea.chat.TaskWidgetController

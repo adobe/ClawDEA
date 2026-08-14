@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.chat
 
-import com.adobe.clawdea.chat.session.ChatAutoResumeState
-import com.adobe.clawdea.chat.session.SessionCatalog
+import com.adobe.clawdea.session.ChatAutoResumeState
+import com.adobe.clawdea.session.SessionCatalog
 import com.adobe.clawdea.provider.AgentRole
 import com.adobe.clawdea.provider.RoleSelectionStore
 import com.adobe.clawdea.settings.ClawDEASettings
