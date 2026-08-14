@@ -15,6 +15,8 @@ import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 
@@ -395,6 +397,11 @@ class AgentLoopController(
 
             // Execute tool calls (exactly-once: skip if already completed)
             for (toolCall in toolCalls) {
+                // Honor Stop/steer between tool calls: executor.execute is a blocking call and the
+                // only other cancellation point is the next round's stream collect, so without this
+                // the remaining tools in a batch (more shell commands, an apply_patch) still ran after
+                // the user aborted (Tier 5.3b).
+                currentCoroutineContext().ensureActive()
                 if (toolCall.id in state.completedToolCallIds) {
                     // Skip execution, emit cached result placeholder
                     emit(CliEvent.ToolResult(
