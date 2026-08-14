@@ -2711,6 +2711,7 @@ class ChatPanel(
 
     override fun dispose() {
         scope.cancel()
+        if (::eventHandler.isInitialized) eventHandler.dispose()
         PermissionRouterRegistry.getInstance(project).unregister(permissionDispatcher)
         if (::driftListenerUnregister.isInitialized) {
             try { driftListenerUnregister() } catch (_: Throwable) {}

@@ -84,6 +84,17 @@ class EventStreamHandler(
     private val reasoningBuffer = StringBuilder()
     private var reasoningFlushTimer: Timer? = null
 
+    // Single re-armed stall-recovery timer (see scheduleStallRecovery). EDT-confined.
+    private var stallTimer: Timer? = null
+
+    /** Stops the outstanding EDT timers. Called from ChatPanel.dispose(). */
+    fun dispose() {
+        stallTimer?.stop()
+        stallTimer = null
+        reasoningFlushTimer?.stop()
+        reasoningFlushTimer = null
+    }
+
     // Set when a genuine CliEvent.Result ends the turn; cleared as soon as a new turn streams.
     // Gates the false-stall self-heal ([shouldRestoreStreaming]) so a stray coarse event arriving
     // after a real turn end can't resurrect the activity indicator (leaving its pause button stuck).
@@ -220,7 +231,13 @@ class EventStreamHandler(
     }
 
     private fun scheduleStallRecovery(timeoutMs: Int, observedProgressSequence: Long, onStalled: () -> Unit) {
-        Timer(timeoutMs) {
+        // One re-armed timer, not one per event. Each turn-start/tool-result scheduled an independent
+        // non-repeating 5-minute Timer and kept no reference, so a 200-tool turn left 200 live timers
+        // on the EDT queue, each retaining this handler, the bridge, and the turn controller (Tier
+        // 6.3). Re-arming a single timer also tracks stall relative to the *latest* progress, which is
+        // what stall detection wants. EDT-confined, like reasoningFlushTimer.
+        stallTimer?.stop()
+        stallTimer = Timer(timeoutMs) {
             if (shouldRecoverStall(
                 isStreaming = turnController.isStreaming,
                 bridgeRunning = bridge.isRunning,
