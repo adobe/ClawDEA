@@ -221,8 +221,9 @@ object TranscriptSavingsReader {
         val i = s.indexOf(key); if (i == -1) return null
         val colon = s.indexOf(':', i + key.length); if (colon == -1) return null
         val q1 = s.indexOf('"', colon + 1); if (q1 == -1) return null
-        val q2 = s.indexOf('"', q1 + 1); if (q2 == -1) return null
-        return s.substring(q1 + 1, q2)
+        // Escape-aware (was an indexOf('"') pair that truncated on an escaped quote).
+        val end = com.adobe.clawdea.util.FastJson.findStringEnd(s, q1 + 1) ?: return null
+        return com.adobe.clawdea.util.FastJson.unescape(s.substring(q1 + 1, end))
     }
 
     private fun extractUsageInt(line: String, key: String): Int {

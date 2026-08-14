@@ -91,9 +91,10 @@ object TranscriptCostReader {
         if (colon == -1) return null
         val q1 = s.indexOf('"', colon + 1)
         if (q1 == -1) return null
-        val q2 = s.indexOf('"', q1 + 1)
-        if (q2 == -1) return null
-        return s.substring(q1 + 1, q2)
+        // Escape-aware: the previous indexOf('"') pair truncated any value containing an escaped
+        // quote. Model ids never contain one, but route through the shared scanner for consistency.
+        val end = com.adobe.clawdea.util.FastJson.findStringEnd(s, q1 + 1) ?: return null
+        return com.adobe.clawdea.util.FastJson.unescape(s.substring(q1 + 1, end))
     }
 
     private fun extractIntValue(s: String, key: String): Int {
