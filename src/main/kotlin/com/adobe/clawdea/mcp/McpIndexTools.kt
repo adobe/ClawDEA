@@ -116,9 +116,12 @@ class McpIndexTools(private val project: Project) {
 
         val results = runReadAction {
             val scope = GlobalSearchScope.projectScope(project)
-            val refs = ReferencesSearch.search(method, scope).findAll()
+            val refs = ArrayList<com.intellij.psi.PsiReference>(McpResultLimits.CALLERS)
+            ReferencesSearch.search(method, scope).forEach(com.intellij.util.Processor { ref ->
+                refs.add(ref); refs.size < McpResultLimits.CALLERS
+            })
             val sb = StringBuilder()
-            for (ref in refs.take(10)) {
+            for (ref in refs) {
                 val element = ref.element
                 val refFile = element.containingFile ?: continue
                 val lineNum = PsiUtils.getLineNumber(refFile, element.textOffset)
@@ -146,13 +149,16 @@ class McpIndexTools(private val project: Project) {
 
         val results = runReadAction {
             val scope = GlobalSearchScope.projectScope(project)
-            val inheritors = ClassInheritorsSearch.search(psiClass, scope, false).findAll()
+            val inheritors = ArrayList<com.intellij.psi.PsiClass>(McpResultLimits.IMPLEMENTATIONS)
+            ClassInheritorsSearch.search(psiClass, scope, false).forEach(com.intellij.util.Processor { impl ->
+                inheritors.add(impl); inheritors.size < McpResultLimits.IMPLEMENTATIONS
+            })
             val sb = StringBuilder()
-            for (impl in inheritors.take(10)) {
+            for (impl in inheritors) {
                 val path = impl.containingFile?.let { PsiUtils.getFilePath(it, project) } ?: "unknown"
                 sb.appendLine("--- ${impl.name} ($path) ---")
                 sb.appendLine("class ${impl.name}")
-                for (m in impl.methods.take(10)) {
+                for (m in impl.methods.take(McpResultLimits.METHODS_PER_TYPE)) {
                     sb.appendLine("  ${PsiUtils.formatMethodSignature(m)}")
                 }
                 sb.appendLine()
@@ -183,9 +189,12 @@ class McpIndexTools(private val project: Project) {
 
         val results = runReadAction {
             val scope = GlobalSearchScope.projectScope(project)
-            val refs = ReferencesSearch.search(element, scope).findAll()
+            val refs = ArrayList<com.intellij.psi.PsiReference>(McpResultLimits.USAGES)
+            ReferencesSearch.search(element, scope).forEach(com.intellij.util.Processor { ref ->
+                refs.add(ref); refs.size < McpResultLimits.USAGES
+            })
             val sb = StringBuilder()
-            for (ref in refs.take(15)) {
+            for (ref in refs) {
                 val el = ref.element
                 val refFile = el.containingFile ?: continue
                 val lineNum = PsiUtils.getLineNumber(refFile, el.textOffset)
@@ -294,7 +303,7 @@ class McpIndexTools(private val project: Project) {
 
             matched.sort()
             val sb = StringBuilder()
-            for (path in matched.take(30)) {
+            for (path in matched.take(McpResultLimits.FILES)) {
                 sb.appendLine(path)
             }
             if (matched.size > 30) {
@@ -385,6 +394,6 @@ class McpIndexTools(private val project: Project) {
     }
 
     companion object {
-        private const val MAX_SYMBOL_RESULTS = 10
+        private const val MAX_SYMBOL_RESULTS = McpResultLimits.SYMBOLS
     }
 }
