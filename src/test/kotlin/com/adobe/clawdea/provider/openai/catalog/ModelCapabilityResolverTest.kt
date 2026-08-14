@@ -45,6 +45,17 @@ class ModelCapabilityResolverTest {
     }
 
     @Test
+    fun `parseCapability accepts both the hyphen and underscore spellings`() {
+        // The profile schema default and docs use "completion-only" (hyphen); only the underscore
+        // form was accepted before, so a shipped-example profile silently resolved to UNKNOWN (5.4).
+        assertEquals(ModelCapability.COMPLETION_ONLY, ModelCapabilityResolver.parseCapability("completion-only"))
+        assertEquals(ModelCapability.COMPLETION_ONLY, ModelCapabilityResolver.parseCapability("completion_only"))
+        assertEquals(ModelCapability.COMPLETION_ONLY, ModelCapabilityResolver.parseCapability("  Completion-Only  "))
+        assertEquals(ModelCapability.AGENTIC, ModelCapabilityResolver.parseCapability("agentic"))
+        assertEquals(ModelCapability.UNKNOWN, ModelCapabilityResolver.parseCapability("nonsense"))
+    }
+
+    @Test
     fun `endpoint capability trumps rule`() {
         val rules = listOf(
             ModelRule(pattern = "unknown-*", capability = "completion_only"),

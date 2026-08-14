@@ -80,8 +80,11 @@ object ModelCapabilityResolver {
         return Regex("^$regexPattern\$").matches(modelId)
     }
 
-    private fun parseCapability(capability: String): ModelCapability {
-        return when (capability.lowercase()) {
+    internal fun parseCapability(capability: String): ModelCapability {
+        // Normalize hyphen -> underscore: the profile schema's default and the published docs use
+        // "completion-only" (hyphen), but this only accepted "completion_only" (underscore), so a
+        // profile author following the shipped example silently resolved to UNKNOWN (Tier 5.4).
+        return when (capability.trim().lowercase().replace('-', '_')) {
             "agentic" -> ModelCapability.AGENTIC
             "completion_only" -> ModelCapability.COMPLETION_ONLY
             else -> ModelCapability.UNKNOWN
