@@ -96,13 +96,15 @@ class ClawDEACompletionProvider : DebouncedInlineCompletionProvider() {
         val needsContext = CompletionPromptBuilder.needsSemanticContext(documentText, offset)
 
         val contextText = if (needsContext) {
-            runReadAction {
-                val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(request.document)
-                if (psiFile != null) {
-                    ContextEngine.getInstance(project).gatherContext(editor, psiFile, ContextProfile.COMPLETION)
-                } else {
-                    ""
-                }
+            // Only resolve the PsiFile under the read lock. gatherContext runs OUTSIDE it: each
+            // collector takes its own read action, and IndexCollector blocks on a 500ms future.get —
+            // holding the read lock across that starves write actions, i.e. the user's own typing
+            // (Tier 6.3).
+            val psiFile = runReadAction { PsiDocumentManager.getInstance(project).getPsiFile(request.document) }
+            if (psiFile != null) {
+                ContextEngine.getInstance(project).gatherContext(editor, psiFile, ContextProfile.COMPLETION)
+            } else {
+                ""
             }
         } else {
             ""

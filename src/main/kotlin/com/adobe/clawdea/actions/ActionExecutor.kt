@@ -39,13 +39,13 @@ object ActionExecutor {
         selectedText: String,
         userInstructions: String? = null,
     ): ActionResult {
-        val contextText = runReadAction {
-            val psiFile = PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
-            if (psiFile != null) {
-                ContextEngine.getInstance(project).gatherContext(editor, psiFile, ContextProfile.ACTION)
-            } else {
-                ""
-            }
+        // Only the PsiFile lookup needs the read lock; gatherContext manages its own read actions and
+        // must not run under a held read lock (IndexCollector blocks on a timed future — Tier 6.3).
+        val psiFile = runReadAction { PsiDocumentManager.getInstance(project).getPsiFile(editor.document) }
+        val contextText = if (psiFile != null) {
+            ContextEngine.getInstance(project).gatherContext(editor, psiFile, ContextProfile.ACTION)
+        } else {
+            ""
         }
 
         val promptBuilder = ActionPromptBuilder()
