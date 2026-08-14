@@ -478,7 +478,17 @@ class OpenAiCompatibleAgentBackend(
                 onCompacted = { n ->
                     queue.put(CliEvent.TextDelta("\n_Compacted context — summarized $n earlier messages._\n"))
                 },
-                subAgentRunner = if (advertiseAgent) buildSubAgentRunner(settings) else null,
+                // Defer building the sub-agent runner (which assembles a primer-backed system
+                // prompt: git subprocesses + a REPO_STATE write) until the Agent tool is actually
+                // dispatched. Eager construction here paid that cost on every turn and every retry
+                // attempt for a runner usually never used (Tier 0.6/6.1 backlog).
+                subAgentRunner = if (advertiseAgent) {
+                    com.adobe.clawdea.provider.openai.agent.LazySubAgentRunner(
+                        toolName = com.adobe.clawdea.provider.openai.agent.SubAgentDispatcher.TOOL_NAME,
+                    ) { buildSubAgentRunner(settings) }
+                } else {
+                    null
+                },
             )
 
             val result = runOneRound(loop, text, append)

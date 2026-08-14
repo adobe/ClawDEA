@@ -39,7 +39,12 @@ class SubAgentDispatcher(
     private val maxContextChars: Int = 1_000_000,
 ) : SubAgentRunner {
 
-    override val toolName: String = "Agent"
+    override val toolName: String = TOOL_NAME
+
+    companion object {
+        /** The tool name that triggers a sub-agent dispatch. Must match the chat's card detection. */
+        const val TOOL_NAME = "Agent"
+    }
 
     override suspend fun run(toolCall: AgentToolCall, emit: (CliEvent) -> Unit): ToolExecutionResult {
         val prompt = try {
