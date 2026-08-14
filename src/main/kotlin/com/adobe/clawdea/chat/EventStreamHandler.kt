@@ -148,6 +148,15 @@ class EventStreamHandler(
     ) {
         pendingKnowledgeBucket = explicitBucket
             ?: com.adobe.clawdea.cost.KnowledgeBucketClassifier.classify(promptText)
+        resetTurnAccumulators()
+    }
+
+    /**
+     * Clears the per-turn accumulator maps. Single source so a new accumulator can't be reset in one
+     * place and forgotten in the other — the reset was duplicated between onTurnSubmitted and the
+     * terminal Result branch (Tier 5.2).
+     */
+    private fun resetTurnAccumulators() {
         turnIndexToolHits.clear()
         pendingIndexToolUses.clear()
         turnSubagents.clear()
@@ -750,10 +759,7 @@ class EventStreamHandler(
                     knowledgeUpkeepUsd = 0.0,
                 )
                 savingsTracker.recordTurn(chatId, savingsObs)
-                turnIndexToolHits.clear()
-                pendingIndexToolUses.clear()
-                turnSubagents.clear()
-                subagentReadTokens.clear()
+                resetTurnAccumulators()
                 turnController.onStreamResult()
                 onSyncStreamingUi()
                 browserRenderer.hideAllStopButtons()
