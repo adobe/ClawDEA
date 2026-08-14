@@ -55,6 +55,7 @@ class DefaultWikiAuthorInvoker(
     private val claudeCliPath: String,
     private val projectRoot: Path,
     private val mcpPort: Int = 0,
+    private val mcpToken: String = "",
     private val modelId: String = "",
     /**
      * Invoked with the subprocess's full stream-json stdout after a run so the caller can
@@ -101,7 +102,7 @@ class DefaultWikiAuthorInvoker(
             try {
                 val tmp = java.io.File.createTempFile("clawdea-mcp-wiki-author-", ".json")
                 tmp.deleteOnExit()
-                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort))
+                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken))
                 tmp
             } catch (e: Throwable) {
                 LOG.warn("wiki-author failed to write MCP config: ${e.message}", e)

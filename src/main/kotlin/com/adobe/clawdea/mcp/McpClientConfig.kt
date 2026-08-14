@@ -20,11 +20,18 @@ package com.adobe.clawdea.mcp
  * `alwaysLoad: true` opts the server out of Claude Code's tool-search deferral
  * (requires CLI v2.1.121+). `timeout` gives interactive approval/review flows
  * enough time for a human decision. Older clients ignore unknown fields.
+ *
+ * When [token] is non-blank, an `Authorization: Bearer <token>` header is added so the CLI
+ * authenticates to the local [McpServer] (soft-enforced — see [McpRequestAuthenticator]). A blank
+ * token omits the header, which the server treats as an unauthenticated-but-allowed client. The
+ * token is a URL-safe base64 string (no JSON-significant characters), so it needs no escaping.
  */
 internal const val MCP_CLIENT_INTERACTIVE_TIMEOUT_MS = 600_000
 
-internal fun buildMcpClientConfigJson(port: Int): String =
-    """{"mcpServers":{"clawdea-intellij":{"type":"http","url":"http://127.0.0.1:$port/mcp","alwaysLoad":true,"timeout":$MCP_CLIENT_INTERACTIVE_TIMEOUT_MS}}}"""
+internal fun buildMcpClientConfigJson(port: Int, token: String = ""): String {
+    val headersField = if (token.isNotBlank()) """"headers":{"Authorization":"Bearer $token"},""" else ""
+    return """{"mcpServers":{"clawdea-intellij":{"type":"http","url":"http://127.0.0.1:$port/mcp",$headersField"alwaysLoad":true,"timeout":$MCP_CLIENT_INTERACTIVE_TIMEOUT_MS}}}"""
+}
 
 /**
  * The MCP server name codex uses to namespace ClawDEA's tools (`mcp__<name>__<tool>`).

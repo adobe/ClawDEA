@@ -245,11 +245,12 @@ class McpWikiTools(private val project: Project) {
         val basePath = project.basePath
             ?: return McpToolRouter.ToolResult("No project basePath", isError = true)
         val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
-        val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+        val mcpServer = com.adobe.clawdea.mcp.McpServer.getInstance(project)
         val librarian = com.adobe.clawdea.knowledge.wiki.ClaudeSubprocessLibrarian(
             claudeCliPath = cliPath,
             projectRoot = java.nio.file.Paths.get(basePath),
-            mcpPort = mcpPort,
+            mcpPort = mcpServer.port,
+            mcpToken = mcpServer.authToken,
             selection = wikiSel,
         )
         val answer = librarian.ask(question)

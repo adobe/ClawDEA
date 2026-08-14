@@ -26,6 +26,25 @@ class McpClientConfigTest {
     }
 
     @Test
+    fun `a blank token omits the Authorization header`() {
+        val config = buildMcpClientConfigJson(12345, token = "")
+
+        assertTrue("no headers field when token blank", !config.contains("headers"))
+        assertTrue("stays valid single-line json", config.contains(""""url":"http://127.0.0.1:12345/mcp","alwaysLoad":true"""))
+    }
+
+    @Test
+    fun `a non-blank token adds a Bearer Authorization header after the url`() {
+        val config = buildMcpClientConfigJson(12345, token = "abc123_XYZ-")
+
+        assertTrue(config.contains(""""headers":{"Authorization":"Bearer abc123_XYZ-"}"""))
+        // header must sit between url and alwaysLoad so the object stays well-formed
+        assertTrue(
+            config.contains(""""url":"http://127.0.0.1:12345/mcp","headers":{"Authorization":"Bearer abc123_XYZ-"},"alwaysLoad":true"""),
+        )
+    }
+
+    @Test
     fun `codex mcp args register the local server via a config override`() {
         val args = buildCodexMcpConfigArgs(23456)
 

@@ -47,7 +47,7 @@ class WikiPromptRunnerTest {
 
     @Test fun `claude runner non-zero exit reports error`() = runBlocking {
         val fake = runnerReturning(DefaultWikiAuthorInvoker.ProcessResult(2, "", "boom", false))
-        val runner = ClaudeWikiPromptRunner(fake, "claude", root, 0, "m")
+        val runner = ClaudeWikiPromptRunner(fake, "claude", root, mcpPort = 0, modelId = "m")
         val res = runner.run("p")
         assertFalse(res.ok)
         assertTrue(res.errorMessage!!.contains("boom"))
@@ -55,7 +55,7 @@ class WikiPromptRunnerTest {
 
     @Test fun `claude runner timeout reports error`() = runBlocking {
         val fake = runnerReturning(DefaultWikiAuthorInvoker.ProcessResult(-1, "", "", true))
-        val runner = ClaudeWikiPromptRunner(fake, "claude", root, 0, "m", timeoutSeconds = 5)
+        val runner = ClaudeWikiPromptRunner(fake, "claude", root, mcpPort = 0, modelId = "m", timeoutSeconds = 5)
         val res = runner.run("p")
         assertFalse(res.ok)
         assertTrue(res.errorMessage!!.contains("timed out"))

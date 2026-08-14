@@ -34,6 +34,8 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.nio.file.Path
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -56,6 +58,15 @@ class McpServer(private val project: Project) : Disposable {
 
     var port: Int = 0
         private set
+
+    /**
+     * Per-instance bearer token handed to Claude-family MCP clients via their config `headers`
+     * (see [buildMcpClientConfigJson]). Enforced softly by [McpRequestAuthenticator] — a wrong
+     * token is rejected, an absent one is allowed so the Codex transport is not broken.
+     */
+    val authToken: String = generateAuthToken()
+
+    private val authenticator = McpRequestAuthenticator(authToken)
 
     @Volatile
     var activeAutoAcceptEdits: Boolean = ClawDEASettings.getInstance().state.autoAcceptEdits
@@ -173,6 +184,20 @@ class McpServer(private val project: Project) : Disposable {
                 return
             }
 
+            val headers = exchange.requestHeaders
+            val decision = authenticator.authorize(
+                origin = headers.getFirst("Origin"),
+                secFetchSite = headers.getFirst("Sec-Fetch-Site"),
+                contentType = headers.getFirst("Content-Type"),
+                authorization = headers.getFirst("Authorization"),
+                declaredContentLength = headers.getFirst("Content-Length")?.toLongOrNull() ?: -1L,
+            )
+            if (decision is McpRequestAuthenticator.Decision.Reject) {
+                log.warn("MCP request rejected (${decision.status}): ${decision.message}")
+                sendResponse(exchange, decision.status, McpProtocol.errorResponse(null, -32600, decision.message))
+                return
+            }
+
             val body = exchange.requestBody.bufferedReader().readText()
             val method = McpProtocol.parseJsonRpcMethod(body)
             val id = McpProtocol.parseJsonRpcId(body)
@@ -261,6 +286,12 @@ class McpServer(private val project: Project) : Disposable {
     override fun dispose() {
         stop()
         dispatchExecutor.shutdownNow()
+    }
+
+    private fun generateAuthToken(): String {
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
     }
 
     companion object {

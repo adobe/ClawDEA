@@ -4,7 +4,7 @@
 
 ## Invariants
 
-- The server binds to `127.0.0.1` on a **random port** (port 0). No remote access — the CLI subprocess is the only client and discovers the port via `--mcp-config <temp file>` ([McpServer.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpServer.kt)).
+- The server binds to `127.0.0.1` on a **random port** (port 0). Loopback + random port is a discovery obstacle, **not** access control, so every request first passes [`McpRequestAuthenticator`](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpRequestAuthenticator.kt) — see [Request authentication](#request-authentication). The CLI subprocess discovers the port via `--mcp-config <temp file>` ([McpServer.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpServer.kt)).
 - All tool dispatch runs on a dedicated cached executor (`ClawDEA-MCP-dispatch` daemon threads). Tool handlers must not block the EDT and must not block the HTTP server thread ([McpServer.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpServer.kt)).
 - Every tool handler returns within Claude Code's hard ~60 s HTTP MCP timeout. Long-running interactive tools (permission prompts) cap at **45 s** to stay safely under the cliff — see [Permission prompt](permission-prompt.md) ([PermissionDispatcher.kt](../../../src/main/kotlin/com/adobe/clawdea/approval/PermissionDispatcher.kt)).
 - Tools are registered once in `McpServer.registerTools()` at construction. The router is a flat name → handler map; there is no namespacing or wildcards ([McpToolRouter.kt](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpToolRouter.kt)).
@@ -19,6 +19,13 @@
 4. **CLI startup** — `CliProcess` writes `mcpClientConfigJson(port)` to a temp file and passes `--mcp-config <path>`. The CLI now knows where to call back.
 5. **Tool call (per request)** — CLI POSTs JSON-RPC, the HTTP handler hands the request to the dispatch executor. Executor calls `router.dispatch(toolName, args)`. Handler runs, returns `ToolResult`, response goes back to the CLI.
 6. **Project close** — `Disposable.dispose()` stops the HTTP server, shuts down the dispatch executor.
+
+## Request authentication
+
+Because a random loopback port is only a discovery obstacle, a web page the user visits can issue a CORS "simple" `POST` to `http://127.0.0.1:<port>/mcp` (no preflight) and, while it cannot read the response, the side effect still lands (`propose_write` under auto-accept, `get_diagnostics` spawning the build, `debug_evaluate`). Every request is validated by [`McpRequestAuthenticator`](../../../src/main/kotlin/com/adobe/clawdea/mcp/McpRequestAuthenticator.kt) on the HTTP server thread (before dispatch, sub-millisecond) in two layers:
+
+- **Layer A — transport (universal, load-bearing).** Reject any request carrying a browser-only header (`Origin` / `Sec-Fetch-Site`) → 403, and require `Content-Type: application/json` → 415. A cross-origin fetch cannot both omit `Origin` and send `application/json` without a preflight this server never satisfies, so the reachable browser attack is closed for **every** client. Loopback CLIs send neither header, so they are unaffected. A declared `Content-Length` over `MAX_REQUEST_BODY_BYTES` (64 MB) → 413.
+- **Layer B — bearer token (soft, defense-in-depth).** `McpServer` generates a per-instance 256-bit URL-safe token (`authToken`) handed to Claude-family clients via the MCP config `headers` field (`buildMcpClientConfigJson(port, token)`). A **present-but-wrong** token → 401 (tamper evidence, constant-time compare); an **absent** token is **allowed**. Absent is allowed deliberately: the Codex app-server builds its `mcp_servers` config inline and cannot be verified to forward a configured header, so hard-requiring the token would break the Codex backend. Layer A already covers the browser vector regardless. Callers that write an MCP config (`CliProcess`, `InteractiveCommandDialog`, and the three `claude -p` wiki subprocesses — `ClaudeSubprocessLibrarian`, `ClaudeWikiPromptRunner`, `DefaultWikiAuthorInvoker`) thread `authToken` through; a blank token omits the header.
 
 ## JetBrains MCP coexistence
 

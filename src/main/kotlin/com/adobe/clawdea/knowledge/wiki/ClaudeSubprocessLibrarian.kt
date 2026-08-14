@@ -34,6 +34,7 @@ class ClaudeSubprocessLibrarian(
     private val claudeCliPath: String,
     private val projectRoot: Path,
     private val mcpPort: Int,
+    private val mcpToken: String = "",
     private val selection: AgentSelection,
     private val runner: Runner = DefaultRunner,
     private val timeoutSeconds: Long = 300,
@@ -49,7 +50,7 @@ class ClaudeSubprocessLibrarian(
             try {
                 val tmp = java.io.File.createTempFile("clawdea-mcp-librarian-", ".json")
                 tmp.deleteOnExit()
-                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort))
+                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken))
                 tmp
             } catch (e: Throwable) {
                 LOG.warn("librarian MCP config write failed: ${e.message}"); null

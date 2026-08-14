@@ -163,12 +163,13 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             val runner: com.adobe.clawdea.knowledge.wiki.WikiPromptRunner = when (kind) {
                 com.adobe.clawdea.provider.BackendKind.CLAUDE_CLI -> {
                     val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
-                    val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+                    val mcpServer = com.adobe.clawdea.mcp.McpServer.getInstance(project)
                     com.adobe.clawdea.knowledge.wiki.ClaudeWikiPromptRunner(
                         runner = DefaultWikiAuthorInvoker.DefaultProcessRunner(wikiSelection),
                         claudeCliPath = cliPath,
                         projectRoot = Paths.get(basePath),
-                        mcpPort = mcpPort,
+                        mcpPort = mcpServer.port,
+                        mcpToken = mcpServer.authToken,
                         modelId = wikiSelection.modelId,
                         onStdout = { stdout ->
                             project.getService(com.adobe.clawdea.cost.CostTracker::class.java)
@@ -326,14 +327,15 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             kind = kind,
             claude = {
                 val cliPath = com.adobe.clawdea.cli.resolveClaudeCliPath(settings.state.cliPath)
-                val mcpPort = com.adobe.clawdea.mcp.McpServer.getInstance(project).port
+                val mcpServer = com.adobe.clawdea.mcp.McpServer.getInstance(project)
                 // Model now comes from the WIKI selection (post-migration this equals today's value,
                 // so the Claude path is unchanged by default). Everything else — --agents,
                 // disallowedTools, digest, timeouts, cost attribution — stays byte-identical.
                 DefaultWikiAuthorInvoker(
                     claudeCliPath = cliPath,
                     projectRoot = Paths.get(basePath),
-                    mcpPort = mcpPort,
+                    mcpPort = mcpServer.port,
+                    mcpToken = mcpServer.authToken,
                     modelId = wikiSelection.modelId,
                     wikiDir = wikiDir,
                     selection = wikiSelection,

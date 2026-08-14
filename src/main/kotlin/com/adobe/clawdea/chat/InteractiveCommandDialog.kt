@@ -204,11 +204,12 @@ class InteractiveCommandDialog(
      * leak is bounded and never user-visible.
      */
     private fun mcpConfigArgs(): List<String> {
-        val port = McpServer.getInstance(project).port
+        val server = McpServer.getInstance(project)
+        val port = server.port
         if (port <= 0) return emptyList()
         val tmpFile = File.createTempFile("clawdea-mcp-cc-", ".json")
         tmpFile.deleteOnExit()
-        tmpFile.writeText(buildMcpClientConfigJson(port))
+        tmpFile.writeText(buildMcpClientConfigJson(port, server.authToken))
         return listOf("--mcp-config", tmpFile.absolutePath)
     }
 

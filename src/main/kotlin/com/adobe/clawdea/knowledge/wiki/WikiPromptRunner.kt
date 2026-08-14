@@ -42,6 +42,7 @@ class ClaudeWikiPromptRunner(
     private val claudeCliPath: String,
     private val projectRoot: Path,
     private val mcpPort: Int = 0,
+    private val mcpToken: String = "",
     private val modelId: String = "",
     private val timeoutSeconds: Long = 600,
     private val onStdout: (String) -> Unit = {},
@@ -52,7 +53,7 @@ class ClaudeWikiPromptRunner(
             try {
                 val tmp = java.io.File.createTempFile("clawdea-mcp-seed-wiki-", ".json")
                 tmp.deleteOnExit()
-                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort))
+                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken))
                 tmp
             } catch (e: Throwable) {
                 LOG.warn("seed-wiki failed to write MCP config: ${e.message}", e); null
