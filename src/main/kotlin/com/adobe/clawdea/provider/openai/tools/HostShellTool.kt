@@ -86,7 +86,10 @@ class HostShellTool(
         return ToolExecutionResult(
             toolCallId = toolUseId,
             content = content,
-            isError = false,
+            // A non-zero exit or a timeout IS an error. Hardcoding false let ToolCallLoopGuard reset
+            // its error streak on every Bash result, so it could never break a Bash -> exit 1 -> Bash
+            // degeneration loop (Tier 5.3a). Truncation is informational, not an error.
+            isError = result.exitCode != 0 || result.timedOut,
         )
     }
 

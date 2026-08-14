@@ -80,7 +80,8 @@ class HostShellToolTest {
         )
 
         val result = tool.execute("false", "tool-1")
-        assertEquals(false, result.isError)
+        // A non-zero exit is an error, so the loop guard sees it (Tier 5.3a).
+        assertEquals(true, result.isError)
         assertTrue(result.content.contains("exit code: 1"))
         assertTrue(result.content.contains("error"))
         assertTrue(result.content.contains("stderr output"))
