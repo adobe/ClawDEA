@@ -12,7 +12,6 @@
 package com.adobe.clawdea.auth
 
 import com.intellij.openapi.diagnostic.Logger
-import java.util.concurrent.TimeUnit
 
 /**
  * Determines subscription auth status.
@@ -77,31 +76,19 @@ class SubscriptionAuthProbe(
         }
     }
 
-    // Callers assume the subprocess produces small (KB-scale) output — reading
-    // stdout/stderr after waitFor is safe for that. Do NOT reuse for commands
-    // that may produce large output: doing so can deadlock on the OS pipe buffer.
     private fun runProcess(command: List<String>): ProcessResult {
-        val pb = ProcessBuilder(command).redirectErrorStream(false)
-        pb.environment().apply {
-            clear()
-            putAll(environmentProvider())
+        val r = com.adobe.clawdea.cli.AgentSubprocess.run(
+            command = command,
+            timeoutMillis = timeoutMillis,
+        ) { env ->
+            env.clear()
+            env.putAll(environmentProvider())
             // The subscription state must be read independently of any 3P-provider
             // env vars the user may have exported globally.
-            remove("CLAUDE_CODE_USE_BEDROCK")
-            remove("CLAUDE_CODE_USE_VERTEX")
+            env.remove("CLAUDE_CODE_USE_BEDROCK")
+            env.remove("CLAUDE_CODE_USE_VERTEX")
         }
-        val proc = pb.start()
-        val exited = proc.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
-        if (!exited) {
-            proc.destroyForcibly()
-            return ProcessResult(exit = 0, stdout = "", stderr = "", timedOut = true)
-        }
-        return ProcessResult(
-            exit = proc.exitValue(),
-            stdout = proc.inputStream.bufferedReader().readText(),
-            stderr = proc.errorStream.bufferedReader().readText(),
-            timedOut = false,
-        )
+        return ProcessResult(exit = r.exitCode, stdout = r.stdout, stderr = r.stderr, timedOut = r.timedOut)
     }
 
     private fun firstNonBlankLine(vararg candidates: String): String {
