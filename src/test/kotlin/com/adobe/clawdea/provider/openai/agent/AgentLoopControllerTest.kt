@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.provider.openai.agent
 
+import com.adobe.clawdea.cli.CliEvent
 import com.adobe.clawdea.provider.openai.tools.ToolExecutionResult
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
@@ -56,6 +57,49 @@ class AgentLoopControllerTest {
         loop.runTurn("continue") { event -> events.add(event) }
 
         assertEquals(0, executor.invocations)
+    }
+
+    @Test
+    fun `finish_reason length surfaces a truncation notice in the terminal result`() = runBlocking {
+        val client = FakeAgentClient {
+            flowOf(
+                AgentStreamEvent.Text("partial answer"),
+                AgentStreamEvent.Finished("length"),
+            )
+        }
+        val loop = AgentLoopController(
+            client = client,
+            executor = CountingToolExecutor(),
+            state = ConversationState(),
+            maxToolRounds = 10,
+            maxElapsedMs = 600_000,
+            maxContextChars = 1_000_000,
+        )
+
+        val events = mutableListOf<Any>()
+        val result = loop.runTurn("go") { events.add(it) }
+
+        val terminal = events.filterIsInstance<CliEvent.Result>().last()
+        assertTrue("terminal result text carries the notice", terminal.text.contains("truncated"))
+        assertTrue("finalText carries the notice", result.finalText.contains("truncated"))
+    }
+
+    @Test
+    fun `a normal stop finish does not add a truncation notice`() = runBlocking {
+        val client = FakeAgentClient {
+            flowOf(AgentStreamEvent.Text("complete answer"), AgentStreamEvent.Finished("stop"))
+        }
+        val loop = AgentLoopController(
+            client = client,
+            executor = CountingToolExecutor(),
+            state = ConversationState(),
+            maxToolRounds = 10,
+            maxElapsedMs = 600_000,
+            maxContextChars = 1_000_000,
+        )
+
+        val result = loop.runTurn("go") { }
+        assertFalse(result.finalText.contains("truncated"))
     }
 
     @Test

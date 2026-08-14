@@ -371,8 +371,16 @@ class AgentLoopController(
 
             // If no tool calls, we're done
             if (toolCalls.isEmpty()) {
+                // finish_reason "length" means the model hit its output-token limit mid-answer. It
+                // was previously captured only in a debug log, so a truncated round emitted a normal
+                // Result and the cut-off answer looked complete (Tier 5.3d). Surface it visibly.
+                val finalText = if (finishReason == "length") {
+                    state.partialAssistantText + TRUNCATION_NOTICE
+                } else {
+                    state.partialAssistantText
+                }
                 emit(CliEvent.Result(
-                    text = state.partialAssistantText,
+                    text = finalText,
                     isError = false,
                     costUsd = 0.0,
                     sessionId = "",
@@ -383,7 +391,7 @@ class AgentLoopController(
                     reasoningTokens = state.usage.reasoningTokens,
                     contextWindow = 0,
                 ))
-                return TurnResult(isError = false, toolRounds = toolRounds, finalText = state.partialAssistantText)
+                return TurnResult(isError = false, toolRounds = toolRounds, finalText = finalText)
             }
 
             // Tool round limit (0 = unlimited). Check BEFORE incrementing.
@@ -472,6 +480,8 @@ class AgentLoopController(
     }
 
     companion object {
+        internal const val TRUNCATION_NOTICE =
+            "\n\n_[Response truncated: the model reached its output-token limit. Ask it to continue.]_"
         private const val COMPACT_KEEP_TAIL = 6
         // Rough chars-per-token used only when a provider reports no usage but a token window is
         // known, so char-measured context can still be compared against a token budget.
