@@ -12,9 +12,6 @@
 package com.adobe.clawdea.gateway
 
 import com.google.gson.JsonParser
-import com.intellij.openapi.diagnostic.Logger
-import java.net.HttpURLConnection
-import java.net.URI
 
 /**
  * Probes Bedrock's ListInferenceProfiles endpoint via the bearer-token HTTP API.
@@ -31,32 +28,15 @@ class BedrockModelProbe(
     private val timeoutMs: Int = 5000,
 ) : ModelCatalogProbe {
 
-    private val log = Logger.getInstance(BedrockModelProbe::class.java)
 
     override fun probe(): List<ModelEntry>? {
         if (region.isBlank() || bearerToken.isBlank()) return null
-        return try {
-            val url = URI("https://bedrock.$region.amazonaws.com/inference-profiles").toURL()
-            val conn = url.openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
-                conn.setRequestProperty("Authorization", "Bearer $bearerToken")
-                conn.setRequestProperty("Accept", "application/json")
-                if (conn.responseCode != 200) {
-                    log.info("bedrock probe: http ${conn.responseCode}")
-                    return null
-                }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                parseModelsJson(body)
-            } finally {
-                conn.disconnect()
-            }
-        } catch (t: Throwable) {
-            log.info("bedrock probe: ${t.javaClass.simpleName}: ${t.message}")
-            null
-        }
+        return HttpJson.getJson(
+            uri = "https://bedrock.$region.amazonaws.com/inference-profiles",
+            headers = mapOf("Authorization" to "Bearer $bearerToken"),
+            timeoutMs = timeoutMs,
+            logTag = "bedrock",
+        )?.let { parseModelsJson(it) }
     }
 
     companion object {

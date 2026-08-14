@@ -12,42 +12,22 @@
 package com.adobe.clawdea.gateway
 
 import com.google.gson.JsonParser
-import com.intellij.openapi.diagnostic.Logger
-import java.net.HttpURLConnection
-import java.net.URI
 
 class AnthropicModelProbe(
     private val apiKey: String,
     private val timeoutMs: Int = 5000,
 ) : ModelCatalogProbe {
 
-    private val log = Logger.getInstance(AnthropicModelProbe::class.java)
 
     /** See [ModelCatalogProbe.probe]. Must be called off-EDT. */
     override fun probe(): List<ModelEntry>? {
         if (apiKey.isBlank()) return null
-        return try {
-            val conn = URI("https://api.anthropic.com/v1/models").toURL().openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
-                conn.setRequestProperty("x-api-key", apiKey)
-                conn.setRequestProperty("anthropic-version", "2023-06-01")
-                conn.setRequestProperty("Accept", "application/json")
-                if (conn.responseCode != 200) {
-                    log.info("anthropic probe: http ${conn.responseCode}")
-                    return null
-                }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                parseModelsJson(body)
-            } finally {
-                conn.disconnect()
-            }
-        } catch (t: Throwable) {
-            log.info("anthropic probe: ${t.javaClass.simpleName}: ${t.message}")
-            null
-        }
+        return HttpJson.getJson(
+            uri = "https://api.anthropic.com/v1/models",
+            headers = mapOf("x-api-key" to apiKey, "anthropic-version" to "2023-06-01"),
+            timeoutMs = timeoutMs,
+            logTag = "anthropic",
+        )?.let { parseModelsJson(it) }
     }
 
     companion object {
