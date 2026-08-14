@@ -49,6 +49,14 @@ class McpToolRouter {
     fun dispatch(toolName: String, arguments: Map<String, String>): ToolResult {
         val tool = tools[toolName]
             ?: return ToolResult("Unknown tool: $toolName", isError = true)
+        // Enforce the declared `required` list here so the published tools/list schema is
+        // load-bearing rather than advisory — previously each handler re-implemented the check by
+        // hand (53 sites), which could silently desync from the schema (Tier 4.6). Handlers keep
+        // their own blank/format validation; this only catches truly-absent required arguments.
+        val missing = tool.required.firstOrNull { it !in arguments }
+        if (missing != null) {
+            return ToolResult("Missing required argument '$missing' for tool '$toolName'", isError = true)
+        }
         return try {
             tool.handler(arguments)
         } catch (e: Exception) {

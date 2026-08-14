@@ -33,6 +33,41 @@ class McpToolRouterTest {
     }
 
     @Test
+    fun `dispatch rejects a missing required argument before invoking the handler`() {
+        val router = McpToolRouter()
+        var handlerRan = false
+        router.register(
+            name = "echo",
+            description = "Echo back",
+            properties = listOf(Triple("msg", "string", "The message")),
+            required = listOf("msg"),
+            handler = { handlerRan = true; McpToolRouter.ToolResult("ok") },
+        )
+
+        val result = router.dispatch("echo", emptyMap())
+        assertTrue(result.isError)
+        assertTrue(result.text.contains("Missing required argument 'msg'"))
+        assertFalse("handler must not run when a required arg is absent", handlerRan)
+    }
+
+    @Test
+    fun `dispatch allows a present-but-blank required argument (handler owns blank validation)`() {
+        val router = McpToolRouter()
+        router.register(
+            name = "echo",
+            description = "Echo back",
+            properties = listOf(Triple("msg", "string", "The message")),
+            required = listOf("msg"),
+            handler = { args -> McpToolRouter.ToolResult("[${args["msg"]}]") },
+        )
+
+        // Present key, blank value: presence is satisfied, so the handler runs and decides.
+        val result = router.dispatch("echo", mapOf("msg" to ""))
+        assertFalse(result.isError)
+        assertEquals("[]", result.text)
+    }
+
+    @Test
     fun `dispatch returns error for unknown tool`() {
         val router = McpToolRouter()
         val result = router.dispatch("nonexistent", emptyMap())
