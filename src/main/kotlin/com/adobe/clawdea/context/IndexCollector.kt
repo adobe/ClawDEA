@@ -27,7 +27,6 @@ import com.intellij.psi.search.searches.ClassInheritorsSearch
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import java.util.concurrent.Callable
-import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -41,9 +40,12 @@ import java.util.concurrent.TimeUnit
 class IndexCollector {
 
     private val log = Logger.getInstance(IndexCollector::class.java)
-    private val executor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "ClawDEA-index-query").apply { isDaemon = true }
-    }
+
+    // Backed by the shared application pool (no dedicated per-project thread to leak), and bounded to
+    // 2 so a single query that overruns its 500ms budget cannot block every subsequent query on the
+    // one-and-only worker — the failure mode of the former single-thread executor (Tier 6.3).
+    private val executor = com.intellij.util.concurrency.AppExecutorUtil
+        .createBoundedApplicationPoolExecutor("ClawDEA-index-query", 2)
 
     fun collect(
         editor: Editor,
@@ -203,14 +205,18 @@ class IndexCollector {
      * Runs a query with a 500ms timeout. Returns empty list on timeout or error.
      */
     private fun runWithTimeout(queryName: String, block: () -> List<ContextItem>): List<ContextItem> {
+        // Hoisted so the timeout path can cancel the *running* query, not just abandon its future —
+        // otherwise the worker stayed busy for the full search and starved the next queries (Tier 6.3).
+        val indicator = EmptyProgressIndicator()
+        val future = executor.submit(Callable {
+            ProgressManager.getInstance().runProcess(block, indicator)
+        })
         return try {
-            val future = executor.submit(Callable {
-                val indicator = EmptyProgressIndicator()
-                ProgressManager.getInstance().runProcess(block, indicator)
-            })
             future.get(500, TimeUnit.MILLISECONDS)
         } catch (e: java.util.concurrent.TimeoutException) {
             log.info("IndexCollector query '$queryName' timed out after 500ms")
+            indicator.cancel()
+            future.cancel(true)
             emptyList()
         } catch (e: java.util.concurrent.CancellationException) {
             log.debug("IndexCollector query '$queryName' was cancelled")
