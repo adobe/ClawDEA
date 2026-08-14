@@ -48,4 +48,25 @@ class WikiPathTest {
         assertEquals(root.resolve(".claude/wiki/concepts/foo.md"), wiki.concept("foo"))
         assertEquals(root.resolve(".claude/wiki/concepts/foo.md"), wiki.concept("foo.md"))
     }
+
+    @Test
+    fun `concept strips leading subdir prefix from full relative path`() {
+        val expected = root.resolve(".claude/wiki/concepts/rollout-flow.md")
+        assertEquals(expected, wiki.concept("concepts/rollout-flow.md"))
+        assertEquals(expected, wiki.concept("concepts/rollout-flow"))
+    }
+
+    @Test
+    fun `source strips leading subdir prefix from full relative path`() {
+        val expected = root.resolve(".claude/wiki/sources/runbook.md")
+        assertEquals(expected, wiki.source("sources/runbook.md"))
+        assertEquals(expected, wiki.source("sources/runbook"))
+    }
+
+    @Test
+    fun `concept still rejects traversal after prefix strip`() {
+        // A subdir prefix does not license a nested separator in the remainder.
+        assertNull(wiki.concept("concepts/foo/bar"))
+        assertNull(wiki.concept("concepts/../../etc/passwd"))
+    }
 }

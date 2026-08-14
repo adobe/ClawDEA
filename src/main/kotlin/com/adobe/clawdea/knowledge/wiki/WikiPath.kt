@@ -19,8 +19,22 @@ class WikiPath(val rootDir: Path) {
     fun source(name: String): Path? = subPath("sources", name)
 
     private fun subPath(subdir: String, name: String): Path? {
-        if (name.isBlank() || name.contains("..") || name.contains('/') || name.contains('\\')) return null
-        val safe = if (name.endsWith(".md")) name else "$name.md"
+        val trimmed = name.trim()
+        if (trimmed.isBlank() || trimmed.contains("..")) return null
+        // Normalize: strip optional "<subdir>/" prefix and ".md" suffix so callers
+        // can pass either the full markdown relative path (e.g. "concepts/cli-bridge.md")
+        // or the bare slug (e.g. "cli-bridge").
+        val subdirSlash = "$subdir/"
+        var normalized = trimmed
+        if (normalized.startsWith(subdirSlash)) {
+            normalized = normalized.substring(subdirSlash.length)
+        }
+        if (normalized.endsWith(".md")) {
+            normalized = normalized.removeSuffix(".md")
+        }
+        // Security check on the normalized name — no path separators or traversal
+        if (normalized.contains('/') || normalized.contains('\\')) return null
+        val safe = if (normalized.endsWith(".md")) normalized else "$normalized.md"
         return rootDir.resolve(subdir).resolve(safe)
     }
 }
