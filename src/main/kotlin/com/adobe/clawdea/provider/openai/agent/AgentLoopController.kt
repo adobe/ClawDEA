@@ -191,7 +191,14 @@ class AgentLoopController(
             }
 
             // Context budget: compact when over threshold (never fatal if a compactor is present).
-            val contextChars = state.messages.sumOf { (it.content?.length ?: 0) }
+            // Count tool-call argument payloads, not just content: a tool-calling assistant message
+            // has content == null and carries its bytes in toolCalls[].argumentsJson — apply_patch in
+            // particular ships full original + proposed file contents. Ignoring them undercounted the
+            // context, so compaction fired far too late and the user hit an opaque provider 400 on an
+            // edit-heavy turn (Tier 5.3c).
+            val contextChars = state.messages.sumOf { msg ->
+                (msg.content?.length ?: 0) + msg.toolCalls.sumOf { it.argumentsJson.length }
+            }
             val usageTotal = state.usage.inputTokens + state.usage.outputTokens
             val overThreshold = when (val window = contextWindowTokens) {
                 null -> contextChars >= maxContextChars * compactionThreshold
