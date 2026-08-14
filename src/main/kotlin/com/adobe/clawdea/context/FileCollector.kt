@@ -15,7 +15,6 @@ package com.adobe.clawdea.context
 import com.adobe.clawdea.buildtool.BuildToolRegistry
 import com.adobe.clawdea.util.runReadAction
 
-import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
@@ -27,7 +26,7 @@ import com.intellij.psi.PsiManager
  */
 class FileCollector {
 
-    fun collect(editor: Editor, psiFile: PsiFile, project: Project): List<ContextItem> {
+    fun collect(psiFile: PsiFile, project: Project): List<ContextItem> {
         return runReadAction {
             val items = mutableListOf<ContextItem>()
 

@@ -15,7 +15,6 @@ import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.util.runReadAction
 
 import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.progress.EmptyProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.DumbService
@@ -48,8 +47,8 @@ class IndexCollector {
         .createBoundedApplicationPoolExecutor("ClawDEA-index-query", 2)
 
     fun collect(
-        editor: Editor,
         psiFile: PsiFile,
+        offset: Int,
         project: Project,
         profile: ContextProfile,
     ): List<ContextItem> {
@@ -61,7 +60,6 @@ class IndexCollector {
         val items = mutableListOf<ContextItem>()
 
         val (containingClass, containingMethod) = runReadAction {
-            val offset = editor.caretModel.offset
             val element = psiFile.findElementAt(offset)
             val cls = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)
             val mtd = PsiTreeUtil.getParentOfType(element, PsiMethod::class.java)

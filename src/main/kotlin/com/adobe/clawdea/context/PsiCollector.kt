@@ -13,7 +13,6 @@ package com.adobe.clawdea.context
 
 import com.adobe.clawdea.util.runReadAction
 
-import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.project.Project
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
@@ -24,10 +23,9 @@ import com.intellij.psi.util.PsiTreeUtil
  */
 class PsiCollector {
 
-    fun collect(editor: Editor, psiFile: PsiFile): List<ContextItem> {
+    fun collect(psiFile: PsiFile, offset: Int): List<ContextItem> {
         return runReadAction {
             val items = mutableListOf<ContextItem>()
-            val offset = editor.caretModel.offset
 
             val element = psiFile.findElementAt(offset)
             val containingClass = PsiTreeUtil.getParentOfType(element, PsiClass::class.java)

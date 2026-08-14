@@ -12,6 +12,8 @@
 // src/main/kotlin/com/adobe/clawdea/context/ContextEngine.kt
 package com.adobe.clawdea.context
 
+import com.adobe.clawdea.util.runReadAction
+
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.editor.Editor
@@ -36,15 +38,25 @@ class ContextEngine(private val project: Project) {
      * ready for inclusion in a Claude prompt.
      */
     fun gatherContext(editor: Editor, psiFile: PsiFile, profile: ContextProfile): String {
+        val offset = runReadAction { editor.caretModel.offset }
+        return gatherContextAt(psiFile, offset, profile)
+    }
+
+    /**
+     * Editor-free variant: collect context at [offset] in [psiFile]. Lets callers that only have a
+     * file + position (e.g. the get_project_context MCP tool) gather context without an open editor
+     * and without mutating the shared editor caret from a background thread (Tier 6.3).
+     */
+    fun gatherContextAt(psiFile: PsiFile, offset: Int, profile: ContextProfile): String {
         val settings = ClawDEASettings.getInstance().state
         val allItems = mutableListOf<ContextItem>()
 
         if (profile.usePsi && settings.enablePsiCollector) {
-            allItems.addAll(psiCollector.collect(editor, psiFile))
+            allItems.addAll(psiCollector.collect(psiFile, offset))
         }
 
         if (profile.useFiles) {
-            allItems.addAll(fileCollector.collect(editor, psiFile, project))
+            allItems.addAll(fileCollector.collect(psiFile, project))
         }
 
         if (profile.useGit && settings.enableGitCollector) {
@@ -52,7 +64,7 @@ class ContextEngine(private val project: Project) {
         }
 
         if (profile.useIndex) {
-            allItems.addAll(indexCollector.collect(editor, psiFile, project, profile))
+            allItems.addAll(indexCollector.collect(psiFile, offset, project, profile))
         }
 
         val kept = assembler.assemble(allItems, profile.getTokenBudget())

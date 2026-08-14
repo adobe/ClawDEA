@@ -15,7 +15,6 @@ import com.adobe.clawdea.util.runReadAction
 
 import com.adobe.clawdea.context.ContextEngine
 import com.adobe.clawdea.context.ContextProfile
-import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiDocumentManager
@@ -50,30 +49,15 @@ class McpContextTool(private val project: Project) {
         val psiFile = PsiUtils.resolvePsiFile(project, filePath)
             ?: return McpToolRouter.ToolResult("File not found: $filePath", isError = true)
 
-        // We need an Editor to call ContextEngine. Try to find the active editor for this file,
-        // or fall back to opening it.
+        // Resolve the line to an offset from the file's own Document — no Editor needed, so this works
+        // for any file (not just the active editor) and never mutates the shared editor caret from the
+        // MCP dispatch thread (Tier 6.3).
         val result = runReadAction {
-            val editorManager = FileEditorManager.getInstance(project)
-            val editor = editorManager.selectedTextEditor
-
-            if (editor == null) {
-                return@runReadAction "No active editor available. Open the file in the editor first."
-            }
-
-            // Move caret to the requested line
-            val document = editor.document
-            val currentFile = PsiDocumentManager.getInstance(project).getPsiFile(document)
-
-            if (currentFile?.virtualFile?.path != psiFile.virtualFile.path) {
-                return@runReadAction "File $filePath is not the active editor. Open it in the editor first, or use the individual index tools (find_callers, find_usages, etc.) which don't require an active editor."
-            }
-
-            val lineIndex = (line - 1).coerceIn(0, document.lineCount - 1)
+            val document = PsiDocumentManager.getInstance(project).getDocument(psiFile)
+                ?: return@runReadAction "Could not load a document for $filePath"
+            val lineIndex = (line - 1).coerceIn(0, (document.lineCount - 1).coerceAtLeast(0))
             val offset = document.getLineStartOffset(lineIndex)
-            editor.caretModel.moveToOffset(offset)
-
-            val contextEngine = ContextEngine.getInstance(project)
-            contextEngine.gatherContext(editor, psiFile, ContextProfile.CHAT)
+            ContextEngine.getInstance(project).gatherContextAt(psiFile, offset, ContextProfile.CHAT)
         }
 
         return McpToolRouter.ToolResult(result)
