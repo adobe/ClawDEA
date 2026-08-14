@@ -35,10 +35,14 @@ object CodeRenameDetector {
     fun detect(wikiDir: Path, sourceRoots: List<Path>): List<DriftEvent> {
         if (!Files.isDirectory(wikiDir)) return emptyList()
         val out = mutableListOf<DriftEvent>()
+        // Walk the source tree ONCE into a basename -> paths index. Previously findUniqueBasenameMatch
+        // re-walked every source root for each broken link — O(brokenLinks x sourceTree), and the worst
+        // case (a stale wiki with many broken links) is exactly when it runs (Tier 6.6).
+        val sourceIndex = buildSourceIndex(sourceRoots)
         try {
             Files.walk(wikiDir).use { stream ->
                 stream.filter { Files.isRegularFile(it) && it.fileName?.toString()?.endsWith(".md") == true }
-                    .forEach { page -> scanPage(page, sourceRoots, out) }
+                    .forEach { page -> scanPage(page, sourceIndex, out) }
             }
         } catch (e: Throwable) {
             LOG.warn("CodeRenameDetector walk failed: ${e.message}")
@@ -46,7 +50,23 @@ object CodeRenameDetector {
         return out
     }
 
-    private fun scanPage(page: Path, sourceRoots: List<Path>, out: MutableList<DriftEvent>) {
+    private fun buildSourceIndex(sourceRoots: List<Path>): Map<String, List<Path>> {
+        val index = HashMap<String, MutableList<Path>>()
+        for (root in sourceRoots) {
+            if (!Files.isDirectory(root)) continue
+            try {
+                Files.walk(root, 8).use { stream ->
+                    stream.filter { Files.isRegularFile(it) }.forEach { p ->
+                        val name = p.fileName?.toString() ?: return@forEach
+                        index.getOrPut(name) { mutableListOf() }.add(p)
+                    }
+                }
+            } catch (_: Throwable) { /* skip bad subtree */ }
+        }
+        return index
+    }
+
+    private fun scanPage(page: Path, sourceIndex: Map<String, List<Path>>, out: MutableList<DriftEvent>) {
         val text = runCatching { Files.readString(page) }.getOrNull() ?: return
         for (match in LINK_RX.findAll(text)) {
             val rawTarget = match.groupValues[2].trim()
@@ -61,7 +81,7 @@ object CodeRenameDetector {
 
             // Broken link.
             val basename = resolved.fileName?.toString() ?: continue
-            val suggestion = findUniqueBasenameMatch(basename, sourceRoots, page)
+            val suggestion = findUniqueBasenameMatch(basename, sourceIndex, page)
             out += DriftEvent.CodeRename(
                 wikiPage = page,
                 brokenLink = rawTarget,
@@ -79,17 +99,8 @@ object CodeRenameDetector {
         return target
     }
 
-    private fun findUniqueBasenameMatch(basename: String, sourceRoots: List<Path>, fromPage: Path): String? {
-        val matches = mutableListOf<Path>()
-        for (root in sourceRoots) {
-            if (!Files.isDirectory(root)) continue
-            try {
-                Files.walk(root, 8).use { stream ->
-                    stream.filter { Files.isRegularFile(it) && it.fileName?.toString() == basename }
-                        .forEach { matches.add(it) }
-                }
-            } catch (_: Throwable) { /* skip bad subtree */ }
-        }
+    private fun findUniqueBasenameMatch(basename: String, sourceIndex: Map<String, List<Path>>, fromPage: Path): String? {
+        val matches = sourceIndex[basename] ?: return null
         if (matches.size != 1) return null
         // Build a path relative to the wiki page's parent directory.
         return runCatching {
