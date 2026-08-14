@@ -213,19 +213,8 @@ class InteractiveCommandDialog(
         return listOf("--mcp-config", tmpFile.absolutePath)
     }
 
-    private fun resolveCliPath(configured: String): String {
-        if (configured.isNotBlank() && configured != "claude") return configured
-        val home = System.getProperty("user.home")
-        for (candidate in listOf(
-            "$home/.local/bin/claude",
-            "$home/.nvm/versions/node/default/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        )) {
-            if (java.io.File(candidate).canExecute()) return candidate
-        }
-        return "claude"
-    }
+    private fun resolveCliPath(configured: String): String =
+        com.adobe.clawdea.cli.CliBinaryResolver.resolve("claude", configured)
 
     override fun doCancelAction() {
         killProcess()

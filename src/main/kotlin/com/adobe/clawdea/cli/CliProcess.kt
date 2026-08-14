@@ -629,55 +629,10 @@ internal fun normalizeWindowsShimPath(path: String): String {
     return path
 }
 
-fun resolveClaudeCliPath(configured: String): String {
-    if (configured.isNotBlank() && configured != "claude") {
-        return normalizeWindowsShimPath(configured)
-    }
-    val home = System.getProperty("user.home")
-    val candidates = if (isWindows()) {
-        val appDataRoaming = System.getenv("APPDATA").orEmpty()
-        val appDataLocal = System.getenv("LOCALAPPDATA").orEmpty()
-        listOfNotNull(
-            if (appDataRoaming.isNotBlank()) "$appDataRoaming\\npm\\claude.cmd" else null,
-            if (appDataLocal.isNotBlank()) "$appDataLocal\\Volta\\bin\\claude.cmd" else null,
-            "$home\\AppData\\Roaming\\npm\\claude.cmd",
-            "$home\\AppData\\Local\\Volta\\bin\\claude.cmd",
-            "$home\\.local\\bin\\claude.cmd",
-            "C:\\Program Files\\nodejs\\claude.cmd",
-        )
-    } else {
-        listOf(
-            "$home/.local/bin/claude",
-            "$home/.nvm/versions/node/default/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        )
-    }
-    for (candidate in candidates) {
-        val file = java.io.File(candidate)
-        // On Windows .cmd/.bat shims, canExecute() can return false even for a
-        // launchable file — launchability is decided by CreateProcess + PATHEXT.
-        // On Unix we still require the executable bit.
-        val usable = if (isWindows()) file.isFile else file.canExecute()
-        if (usable) {
-            resolveLog.info("Resolved claude CLI at: $candidate")
-            return candidate
-        }
-    }
-    // Windows: none of the well-known install dirs matched (e.g. fnm / nvm-for-windows
-    // / a custom prefix). ProcessBuilder on Windows does NOT replicate cmd.exe's
-    // PATH+PATHEXT search, so spawning the bare name "claude" fails with
-    // CreateProcess error=2 even when claude.cmd is on PATH. Resolve it ourselves to a
-    // fully-qualified, launchable shim before falling back.
-    if (isWindows()) {
-        findClaudeOnWindowsPath(System.getenv("PATH").orEmpty(), System.getenv("PATHEXT").orEmpty())
-            ?.let {
-                resolveLog.info("Resolved claude CLI on PATH: $it")
-                return it
-            }
-    }
-    return "claude"
-}
+fun resolveClaudeCliPath(
+    configured: String,
+    shellResolver: (String) -> String? = { CliEnvironment.resolveOnShellPath(it) },
+): String = CliBinaryResolver.resolve("claude", configured, shellResolver)
 
 /**
  * Replicate cmd.exe's PATH + PATHEXT lookup for `claude`, returning the first launchable
@@ -740,52 +695,7 @@ internal fun findExecutableOnUnixPath(
 fun resolveCodexCliPath(
     configured: String,
     shellResolver: (String) -> String? = { CliEnvironment.resolveOnShellPath(it) },
-): String {
-    if (configured.isNotBlank() && configured != "codex") {
-        return normalizeWindowsShimPath(configured)
-    }
-    val home = System.getProperty("user.home")
-    val candidates = if (isWindows()) {
-        val appDataRoaming = System.getenv("APPDATA").orEmpty()
-        val appDataLocal = System.getenv("LOCALAPPDATA").orEmpty()
-        listOfNotNull(
-            if (appDataRoaming.isNotBlank()) "$appDataRoaming\\npm\\codex.cmd" else null,
-            if (appDataLocal.isNotBlank()) "$appDataLocal\\Volta\\bin\\codex.cmd" else null,
-            "$home\\AppData\\Roaming\\npm\\codex.cmd",
-            "$home\\AppData\\Local\\Volta\\bin\\codex.cmd",
-            "$home\\.local\\bin\\codex.cmd",
-            "C:\\Program Files\\nodejs\\codex.cmd",
-        )
-    } else {
-        listOf(
-            "$home/.local/bin/codex",
-            "$home/.nvm/versions/node/default/bin/codex",
-            "/usr/local/bin/codex",
-            "/opt/homebrew/bin/codex",
-        )
-    }
-    for (candidate in candidates) {
-        val file = java.io.File(candidate)
-        val usable = if (isWindows()) file.isFile else file.canExecute()
-        if (usable) {
-            resolveLog.info("Resolved codex CLI at: $candidate")
-            return candidate
-        }
-    }
-    if (isWindows()) {
-        findBinaryOnWindowsPath("codex", System.getenv("PATH").orEmpty(), System.getenv("PATHEXT").orEmpty())
-            ?.let {
-                resolveLog.info("Resolved codex CLI on PATH: $it")
-                return it
-            }
-    } else {
-        shellResolver("codex")?.let {
-            resolveLog.info("Resolved codex CLI on shell PATH: $it")
-            return it
-        }
-    }
-    return "codex"
-}
+): String = CliBinaryResolver.resolve("codex", configured, shellResolver)
 
 /**
  * Recover `[node, <abs cli.js>]` from a Windows npm `.cmd`/`.bat` shim so we can launch the CLI

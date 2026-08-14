@@ -454,22 +454,10 @@ class ClaudeGateway {
     }
 
     private fun resolveCliPath(): String? {
-        val settings = ClawDEASettings.getInstance().state
-        if (settings.cliPath.isNotBlank() && settings.cliPath != "claude") {
-            if (java.io.File(settings.cliPath).canExecute()) return settings.cliPath
-        }
-
-        val home = System.getProperty("user.home")
-        val candidates = listOf(
-            "$home/.local/bin/claude",
-            "$home/.nvm/versions/node/default/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        )
-        for (candidate in candidates) {
-            if (java.io.File(candidate).canExecute()) return candidate
-        }
-        return null
+        val configured = ClawDEASettings.getInstance().state.cliPath
+        // Shared resolver (adds Windows shim + login-shell PATH the old Unix-only fork lacked). A
+        // bare "claude" means nothing concrete resolved — preserve the not-found -> null contract.
+        return com.adobe.clawdea.cli.CliBinaryResolver.resolve("claude", configured).takeIf { it != "claude" }
     }
 
     companion object {
