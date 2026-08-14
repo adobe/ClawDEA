@@ -42,15 +42,11 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
-import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.wm.ToolWindowAnchor
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.psi.search.FilenameIndex
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.search.PsiShortNamesCache
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefBrowserBase
 import com.intellij.ui.jcef.JBCefJSQuery
@@ -85,6 +81,7 @@ class ChatPanel(
         },
     )
     private val indexQueryHandler = IndexQueryHandler(project)
+    private val refNavigator = RefNavigator(project)
     private val commandRegistry = CommandRegistry()
 
     /**
@@ -873,7 +870,7 @@ class ChatPanel(
         // Navigate bridge: code reference links in assistant text
         navigateQuery.addHandler { ref ->
             ApplicationManager.getApplication().executeOnPooledThread {
-                navigateToRef(ref)
+                refNavigator.navigateToRef(ref)
             }
             JBCefJSQuery.Response("ok")
         }
@@ -2507,175 +2504,6 @@ class ChatPanel(
         }
         appendHtml(renderer.renderError("Response aborted by user"))
         statusLabel.text = " "
-    }
-
-    private fun navPriority(filePath: String): Int {
-        val rel = filePath.removePrefix(project.basePath ?: "")
-        return when {
-            rel.startsWith("/src/") -> 0
-            rel.startsWith("/.claude/worktrees/") || rel.startsWith("/bin/") -> 2
-            else -> 1
-        }
-    }
-
-    private fun navigateToRef(ref: String) {
-        val basePath = project.basePath ?: ""
-
-        val parsed = RefParser.parse(ref) ?: return
-        val path = parsed.path
-        val explicitLine = parsed.startLine
-        val line = explicitLine ?: 0
-        val col = parsed.column
-
-        // Try file path resolution
-        val vf = when {
-            path.startsWith("/") -> LocalFileSystem.getInstance().findFileByPath(path)
-            path.contains("/") -> LocalFileSystem.getInstance().findFileByPath("$basePath/$path")
-            path.contains(".") && !path.contains("(") -> {
-                val filename = path.substringAfterLast("/")
-                runReadAction {
-                    FilenameIndex.getVirtualFilesByName(filename, GlobalSearchScope.projectScope(project))
-                        .sortedBy { navPriority(it.path) }
-                        .firstOrNull()
-                }
-            }
-            else -> null
-        }
-        if (vf != null) {
-            ApplicationManager.getApplication().invokeLater {
-                OpenFileDescriptor(project, vf, line, col).navigate(true)
-                if (parsed.isRange) selectLineRange(vf, parsed.startLine!!, parsed.endLine!!)
-            }
-            return
-        }
-
-        // Try PSI resolution (FQCN, Class.method, or bare class name)
-        var resolved = false
-        if (com.intellij.openapi.project.DumbService.getInstance(project).isDumb) {
-            // Indexes not ready — fall through to Search Everywhere
-        } else runReadAction {
-            val cache = PsiShortNamesCache.getInstance(project)
-            val scope = GlobalSearchScope.projectScope(project)
-
-            if (path.contains(".")) {
-                val segments = path.removeSuffix("()").split(".")
-                val classIdx = segments.indexOfLast { it.firstOrNull()?.isUpperCase() == true }
-                if (classIdx >= 0) {
-                    val className = segments[classIdx]
-                    val fqn = segments.subList(0, classIdx + 1).joinToString(".")
-                    val methodName = if (classIdx + 1 < segments.size) segments[classIdx + 1] else null
-                    val classes = cache.getClassesByName(className, scope)
-                        .sortedBy { navPriority(it.containingFile?.virtualFile?.path ?: "") }
-                    val targetClass = classes.firstOrNull { it.qualifiedName == fqn }
-                        ?: classes.firstOrNull()
-                    if (targetClass != null) {
-                        val target = methodName?.let { m ->
-                            targetClass.findMethodsByName(m, false).firstOrNull()
-                        } ?: targetClass
-                        val file = target.containingFile?.virtualFile
-                        if (file != null) {
-                            resolved = true
-                            ApplicationManager.getApplication().invokeLater {
-                                val descriptor = if (explicitLine != null) {
-                                    OpenFileDescriptor(project, file, explicitLine, col)
-                                } else {
-                                    OpenFileDescriptor(project, file, target.textOffset)
-                                }
-                                descriptor.navigate(true)
-                                if (parsed.isRange) selectLineRange(file, parsed.startLine!!, parsed.endLine!!)
-                            }
-                            return@runReadAction
-                        }
-                    }
-                }
-            }
-
-            val classes = cache.getClassesByName(path, scope)
-            val cls = classes
-                .sortedBy { navPriority(it.containingFile?.virtualFile?.path ?: "") }
-                .firstOrNull() ?: return@runReadAction
-            val file = cls.containingFile?.virtualFile ?: return@runReadAction
-            resolved = true
-            ApplicationManager.getApplication().invokeLater {
-                val descriptor = if (explicitLine != null) {
-                    OpenFileDescriptor(project, file, explicitLine, col)
-                } else {
-                    OpenFileDescriptor(project, file, cls.textOffset)
-                }
-                descriptor.navigate(true)
-                if (parsed.isRange) selectLineRange(file, parsed.startLine!!, parsed.endLine!!)
-            }
-        }
-
-        if (!resolved) {
-            // Try filename-based fallback: derive ClassName.kt / ClassName.java from the path
-            val classNameForFile = path.substringAfterLast(".").removeSuffix("()")
-                .takeIf { it.firstOrNull()?.isUpperCase() == true }
-                ?: path.takeIf { it.firstOrNull()?.isUpperCase() == true && !it.contains(".") }
-            if (classNameForFile != null) {
-                val scope = GlobalSearchScope.projectScope(project)
-                val candidateExtensions = LanguageSupportRegistry.all()
-                    .flatMap { it.fileExtensions }
-                    .ifEmpty { listOf("kt", "java") }
-                val fallbackFile = runReadAction {
-                    candidateExtensions.asSequence()
-                        .map { ext -> "$classNameForFile.$ext" }
-                        .flatMap { name -> FilenameIndex.getVirtualFilesByName(name, scope).asSequence() }
-                        .sortedBy { navPriority(it.path) }
-                        .firstOrNull()
-                }
-                if (fallbackFile != null) {
-                    resolved = true
-                    ApplicationManager.getApplication().invokeLater {
-                        OpenFileDescriptor(project, fallbackFile, line, col).navigate(true)
-                        if (parsed.isRange) selectLineRange(fallbackFile, parsed.startLine!!, parsed.endLine!!)
-                    }
-                }
-            }
-        }
-
-        if (!resolved) {
-            val searchText = path.substringAfterLast(".").removeSuffix("()")
-                .ifBlank { path }
-            ApplicationManager.getApplication().invokeLater {
-                val action = com.intellij.openapi.actionSystem.ActionManager.getInstance()
-                    .getAction("SearchEverywhere") ?: return@invokeLater
-                val manager = com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager
-                    .getInstance(project)
-                if (manager.isShown) return@invokeLater
-                val dataContext = com.intellij.openapi.actionSystem.impl.SimpleDataContext.builder()
-                        .add(com.intellij.openapi.actionSystem.CommonDataKeys.PROJECT, project)
-                        .build()
-                val event = com.intellij.openapi.actionSystem.AnActionEvent.createEvent(
-                    dataContext,
-                    action.templatePresentation.clone(),
-                    com.intellij.openapi.actionSystem.ActionPlaces.UNKNOWN,
-                    com.intellij.openapi.actionSystem.ActionUiKind.NONE,
-                    null,
-                )
-                manager.show(com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl.ALL_CONTRIBUTORS_GROUP_ID, searchText, event)
-            }
-        }
-    }
-
-    /**
-     * Select lines `[startLine..endLine]` (0-based, inclusive) in whichever
-     * editor was just opened for `file`. The range is clamped to the
-     * document; the caret is parked at the start so the selection unfolds
-     * downward in the IDE.
-     */
-    private fun selectLineRange(file: com.intellij.openapi.vfs.VirtualFile, startLine: Int, endLine: Int) {
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
-        val docFile = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().getFile(editor.document)
-        if (docFile != file) return
-        val doc = editor.document
-        if (doc.lineCount == 0) return
-        val s = startLine.coerceIn(0, doc.lineCount - 1)
-        val e = endLine.coerceIn(s, doc.lineCount - 1)
-        val startOffset = doc.getLineStartOffset(s)
-        val endOffset = doc.getLineEndOffset(e)
-        editor.caretModel.moveToOffset(startOffset)
-        editor.selectionModel.setSelection(startOffset, endOffset)
     }
 
     private fun showNotification(title: String, message: String, type: NotificationType) {
