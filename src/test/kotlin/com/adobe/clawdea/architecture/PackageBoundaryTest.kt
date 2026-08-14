@@ -18,8 +18,8 @@ import org.junit.Test
 
 class PackageBoundaryTest {
     private val packagesThatMustNotDependOnChat = setOf(
-        "approval", "auth", "cli", "cost", "editreview", "gateway",
-        "knowledge", "mcp", "provider", "session", "util", "vfs",
+        "approval", "auth", "cli", "commands", "cost", "editreview", "gateway",
+        "knowledge", "language", "mcp", "provider", "session", "settings", "util", "vfs",
     )
 
     @Test

@@ -9,11 +9,8 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat
+package com.adobe.clawdea.language
 
-import com.adobe.clawdea.language.JavaLanguageSupport
-import com.adobe.clawdea.language.KotlinLanguageSupport
-import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.intellij.testFramework.fixtures.LightJavaCodeInsightFixtureTestCase
 import org.junit.Test
 

@@ -9,11 +9,9 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat
+package com.adobe.clawdea.provider
 
 import com.adobe.clawdea.gateway.ModelEntry
-import com.adobe.clawdea.provider.AgentSelection
-import com.adobe.clawdea.provider.ProviderRegistry
 
 /**
  * A single provider+model option in the chat model dropdown.

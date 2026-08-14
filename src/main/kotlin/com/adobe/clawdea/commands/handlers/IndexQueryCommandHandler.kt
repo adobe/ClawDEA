@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.commands.handlers
 
-import com.adobe.clawdea.chat.IndexQueryHandler
+import com.adobe.clawdea.language.IndexQueryHandler
 import com.adobe.clawdea.commands.CommandContext
 import com.adobe.clawdea.commands.CommandHandler
 import com.adobe.clawdea.commands.CommandInfo

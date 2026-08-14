@@ -24,8 +24,10 @@ import com.adobe.clawdea.chat.permission.AskUserQuestionRenderer
 import com.adobe.clawdea.chat.permission.PermissionRequestHandler
 import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
+import com.adobe.clawdea.language.IndexQueryHandler
 import com.adobe.clawdea.language.LanguageSupportRegistry
 import com.adobe.clawdea.mcp.McpServer
+import com.adobe.clawdea.provider.ProviderModelOption
 import com.adobe.clawdea.settings.ChatModeUi
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.adobe.clawdea.settings.ToolApprovalModeUi

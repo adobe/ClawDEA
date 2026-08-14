@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.settings.tabs
 
-import com.adobe.clawdea.chat.ProviderModelOption
-import com.adobe.clawdea.chat.ProviderModelSource
+import com.adobe.clawdea.provider.ProviderModelOption
+import com.adobe.clawdea.provider.ProviderModelSource
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.AgentRole
 import com.adobe.clawdea.provider.AgentSelection
@@ -56,7 +56,7 @@ fun computeCapabilityWarning(role: String, modelEntry: ModelEntry?, selection: A
 }
 
 /**
- * Builds the provider+model option list for a role picker. Unlike [com.adobe.clawdea.chat.buildChatOptions],
+ * Builds the provider+model option list for a role picker. Unlike [com.adobe.clawdea.provider.buildChatOptions],
  * which filters openai-compatible models to agentic-only, role pickers show ALL enabled models
  * (including completion_only) so users can explicitly choose a completion-only model for the
  * Completions role or inspect why a model might not be suitable for the Wiki role.

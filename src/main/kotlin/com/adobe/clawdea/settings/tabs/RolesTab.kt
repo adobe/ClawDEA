@@ -12,8 +12,8 @@
 package com.adobe.clawdea.settings.tabs
 
 import com.adobe.clawdea.auth.AuthManager
-import com.adobe.clawdea.chat.ProviderModelOption
-import com.adobe.clawdea.chat.ProviderModelSource
+import com.adobe.clawdea.provider.ProviderModelOption
+import com.adobe.clawdea.provider.ProviderModelSource
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.AgentRole
 import com.adobe.clawdea.provider.AgentSelection

@@ -17,7 +17,10 @@ import com.adobe.clawdea.auth.SubscriptionAuthEventListener
 import com.adobe.clawdea.gateway.ModelCatalogListener
 import com.adobe.clawdea.gateway.ModelEntry
 import com.adobe.clawdea.provider.AgentSelection
+import com.adobe.clawdea.provider.ProviderModelOption
+import com.adobe.clawdea.provider.ProviderModelSource
 import com.adobe.clawdea.provider.ProviderRegistry
+import com.adobe.clawdea.provider.buildChatOptions
 import com.adobe.clawdea.provider.openai.profile.ProfileStore
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.Disposable

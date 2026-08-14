@@ -9,16 +9,15 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat
+package com.adobe.clawdea.provider
 
 import com.adobe.clawdea.gateway.ModelEntry
-import com.adobe.clawdea.provider.ProviderRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ChatModelOptionsTest {
+class ProviderModelOptionsTest {
 
     @Test
     fun `openai-compatible source filters to agentic and enabled models only`() {
