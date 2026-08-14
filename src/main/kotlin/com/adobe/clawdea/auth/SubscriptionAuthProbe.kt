@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit
 class SubscriptionAuthProbe(
     private val cliPath: String = "claude",
     private val timeoutMillis: Long = 3000,
+    private val environmentProvider: () -> Map<String, String> = ::defaultAuthProcessEnvironment,
 ) {
     private val log = Logger.getInstance(SubscriptionAuthProbe::class.java)
 
@@ -81,10 +82,14 @@ class SubscriptionAuthProbe(
     // that may produce large output: doing so can deadlock on the OS pipe buffer.
     private fun runProcess(command: List<String>): ProcessResult {
         val pb = ProcessBuilder(command).redirectErrorStream(false)
-        // The subscription state must be read independently of any 3P-provider
-        // env vars the user may have exported globally.
-        pb.environment().remove("CLAUDE_CODE_USE_BEDROCK")
-        pb.environment().remove("CLAUDE_CODE_USE_VERTEX")
+        pb.environment().apply {
+            clear()
+            putAll(environmentProvider())
+            // The subscription state must be read independently of any 3P-provider
+            // env vars the user may have exported globally.
+            remove("CLAUDE_CODE_USE_BEDROCK")
+            remove("CLAUDE_CODE_USE_VERTEX")
+        }
         val proc = pb.start()
         val exited = proc.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
         if (!exited) {

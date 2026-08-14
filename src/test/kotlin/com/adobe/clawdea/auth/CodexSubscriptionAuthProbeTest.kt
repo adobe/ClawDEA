@@ -11,11 +11,28 @@
  */
 package com.adobe.clawdea.auth
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
+import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class CodexSubscriptionAuthProbeTest {
+
+    private lateinit var tmpDir: File
+
+    @Before
+    fun setUp() {
+        tmpDir = Files.createTempDirectory("clawdea-codex-probe-").toFile()
+    }
+
+    @After
+    fun tearDown() {
+        tmpDir.deleteRecursively()
+    }
 
     @Test
     fun `blank cli path yields Unknown`() {
@@ -30,6 +47,26 @@ class CodexSubscriptionAuthProbeTest {
             timeoutMillis = 2000,
         )
         assertEquals(AuthStatus.Unknown, probe.probe())
+    }
+
+    @Test
+    fun `probe uses supplied shell environment to resolve node shebang`() {
+        assumeFalse(System.getProperty("os.name").orEmpty().lowercase().contains("windows"))
+        val fakeNode = File(tmpDir, "node").apply {
+            writeText("#!/bin/sh\necho 'Logged in using ChatGPT'\n")
+            setExecutable(true)
+        }
+        val fakeCli = File(tmpDir, "codex").apply {
+            writeText("#!/usr/bin/env ${fakeNode.name}\n")
+            setExecutable(true)
+        }
+
+        val status = CodexSubscriptionAuthProbe(
+            cliPath = fakeCli.absolutePath,
+            environmentProvider = { mapOf("PATH" to tmpDir.absolutePath) },
+        ).probe()
+
+        assertEquals(AuthStatus.SignedIn(tier = null, email = null), status)
     }
 
     @Test

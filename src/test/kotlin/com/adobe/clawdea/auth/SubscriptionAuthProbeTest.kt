@@ -13,6 +13,7 @@ package com.adobe.clawdea.auth
 
 import org.junit.After
 import org.junit.Assert.*
+import org.junit.Assume.assumeFalse
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -48,6 +49,39 @@ class SubscriptionAuthProbeTest {
         val status = probe.probe() as AuthStatus.SignedIn
         assertEquals("enterprise", status.tier)
         assertEquals("alice@example.com", status.email)
+    }
+
+    @Test
+    fun `probe uses supplied shell environment and strips third-party provider variables`() {
+        assumeFalse(System.getProperty("os.name").orEmpty().lowercase().contains("windows"))
+        val fakeNode = File(tmpDir, "node").apply {
+            writeText(
+                """
+                #!/bin/sh
+                if [ -n "${'$'}CLAUDE_CODE_USE_BEDROCK" ] || [ -n "${'$'}CLAUDE_CODE_USE_VERTEX" ]; then
+                    exit 9
+                fi
+                echo '{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}'
+                """.trimIndent()
+            )
+            setExecutable(true)
+        }
+        val fakeCli = File(tmpDir, "claude").apply {
+            writeText("#!/usr/bin/env ${fakeNode.name}\n")
+            setExecutable(true)
+        }
+        val probe = SubscriptionAuthProbe(
+            cliPath = fakeCli.absolutePath,
+            environmentProvider = {
+                mapOf(
+                    "PATH" to tmpDir.absolutePath,
+                    "CLAUDE_CODE_USE_BEDROCK" to "1",
+                    "CLAUDE_CODE_USE_VERTEX" to "1",
+                )
+            },
+        )
+
+        assertEquals(AuthStatus.SignedIn("pro", null), probe.probe())
     }
 
     @Test

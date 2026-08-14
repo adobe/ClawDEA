@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.auth
 
+import com.adobe.clawdea.cli.CliEnvironment
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
@@ -64,9 +65,33 @@ interface ProcessRunner {
     ): ProcessOutcome = run(command, timeoutMillis)
 }
 
-internal class DefaultProcessRunner : ProcessRunner {
+internal fun defaultAuthProcessEnvironment(): Map<String, String> {
+    val env = mutableMapOf<String, String>()
+    runCatching { CliEnvironment.applyTo(env) }
+        .onFailure {
+            Logger.getInstance("com.adobe.clawdea.auth.defaultAuthProcessEnvironment")
+                .warn("Could not load login-shell environment; using the IDE environment", it)
+        }
+    for ((key, value) in System.getenv()) env.putIfAbsent(key, value)
+    return env
+}
+
+internal class DefaultProcessRunner(
+    private val environmentProvider: () -> Map<String, String> = ::defaultAuthProcessEnvironment,
+) : ProcessRunner {
+    // Source the login-shell environment so npm shims can resolve node even when IntelliJ was
+    // launched from Finder/Dock with a stripped macOS PATH.
+    private fun buildProcess(command: List<String>, redirectErrorStream: Boolean): Process {
+        val pb = ProcessBuilder(command).redirectErrorStream(redirectErrorStream)
+        pb.environment().apply {
+            clear()
+            putAll(environmentProvider())
+        }
+        return pb.start()
+    }
+
     override fun run(command: List<String>, timeoutMillis: Long): ProcessOutcome {
-        val proc = ProcessBuilder(command).redirectErrorStream(false).start()
+        val proc = buildProcess(command, redirectErrorStream = false)
         val exited = proc.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
         if (!exited) {
             proc.destroyForcibly()
@@ -84,7 +109,7 @@ internal class DefaultProcessRunner : ProcessRunner {
         timeoutMillis: Long,
         onOutput: (line: String, handle: ProcessHandle) -> Unit,
     ): ProcessOutcome {
-        val proc = ProcessBuilder(command).redirectErrorStream(true).start()
+        val proc = buildProcess(command, redirectErrorStream = true)
         val stdinWriter = proc.outputStream.bufferedWriter()
         val handle = object : ProcessHandle {
             override fun writeLine(text: String) {

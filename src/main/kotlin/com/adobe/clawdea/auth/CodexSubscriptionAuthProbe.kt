@@ -30,6 +30,7 @@ import java.util.concurrent.TimeUnit
 class CodexSubscriptionAuthProbe(
     private val cliPath: String = "codex",
     private val timeoutMillis: Long = 3000,
+    private val environmentProvider: () -> Map<String, String> = ::defaultAuthProcessEnvironment,
 ) {
     private val log = Logger.getInstance(CodexSubscriptionAuthProbe::class.java)
 
@@ -56,6 +57,10 @@ class CodexSubscriptionAuthProbe(
     // that may produce large output: doing so can deadlock on the OS pipe buffer.
     private fun runProcess(command: List<String>): ProcessResult {
         val pb = ProcessBuilder(command).redirectErrorStream(false)
+        pb.environment().apply {
+            clear()
+            putAll(environmentProvider())
+        }
         val proc = pb.start()
         val exited = proc.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
         if (!exited) {
