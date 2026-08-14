@@ -338,8 +338,13 @@ object ProfileValidator {
             )
         }
 
-        val baseUri = parseUri("$.baseUrl", profile.baseUrl, diagnostics) ?: return
-        validateScheme(baseUri, allowLocalHttp, diagnostics)
+        // parseUri already records its own diagnostic; only the scheme check needs the parsed URI.
+        // The former `?: return` aborted the whole typed pass, so one bad baseUrl hid every other
+        // diagnostic (Tier 5.4). Guard just the scheme check and keep accumulating the rest.
+        val baseUri = parseUri("$.baseUrl", profile.baseUrl, diagnostics)
+        if (baseUri != null) {
+            validateScheme(baseUri, allowLocalHttp, diagnostics)
+        }
 
         val settingIds = validateUniqueIds(
             profile.settings.map { it.id },
@@ -546,9 +551,9 @@ object ProfileValidator {
         }
     }
 
-    private fun resolveEndpoint(baseUri: URI, path: String): URI? =
+    private fun resolveEndpoint(baseUri: URI?, path: String): URI? =
         try {
-            if (path.isBlank()) null else baseUri.resolve(path)
+            if (baseUri == null || path.isBlank()) null else baseUri.resolve(path)
         } catch (_: Exception) {
             null
         }

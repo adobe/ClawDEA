@@ -38,6 +38,19 @@ class ProfileValidatorTest {
     }
 
     @Test
+    fun `a malformed baseUrl does not hide the rest of the diagnostics`() {
+        // A space makes URI parsing throw, so parseUri returns null. The former `?: return` aborted
+        // the whole typed pass; now the downstream endpoint checks still run (Tier 5.4).
+        val json = validProfileJson().replace("https://api.example.com", "http://exa mple.com")
+        val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = true) as ValidationResult.Invalid
+        assertTrue("baseUrl diagnostic present", invalid.diagnostics.any { it.path == "$.baseUrl" })
+        assertTrue(
+            "downstream endpoint diagnostics still surface",
+            invalid.diagnostics.any { it.path == "$.endpoints.models" },
+        )
+    }
+
+    @Test
     fun `hostless https URL is rejected`() {
         val json = validProfileJson().replace("https://api.example.com", "https:/api")
         val invalid = ProfileValidator.parseAndValidate(json, allowLocalHttp = false) as ValidationResult.Invalid
