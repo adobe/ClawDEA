@@ -170,18 +170,18 @@ object CliEnvironment {
         }
 
         try {
-            val pb = ProcessBuilder(shell, "-l", "-c", cmd)
-                .redirectErrorStream(true)
-
-            val proc = pb.start()
-            val output = proc.inputStream.bufferedReader().readText()
-            val exited = proc.waitFor(10, TimeUnit.SECONDS)
-
-            if (!exited) {
-                proc.destroyForcibly()
+            // Drain concurrently with the wait: `env` output can be large, and a read-before-wait
+            // would block on the pipe buffer and make the 10 s timeout unreachable (Tier 0.9/4.2).
+            val result = AgentSubprocess.run(
+                command = listOf(shell, "-l", "-c", cmd),
+                timeoutMillis = 10_000,
+                redirectErrorStream = true,
+            )
+            if (result.timedOut) {
                 log.warn("Shell env capture timed out")
                 return emptyMap()
             }
+            val output = result.stdout
 
             val env = mutableMapOf<String, String>()
             for (line in output.lines()) {

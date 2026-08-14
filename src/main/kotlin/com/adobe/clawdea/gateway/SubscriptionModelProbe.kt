@@ -17,7 +17,6 @@ import com.intellij.openapi.diagnostic.Logger
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
-import java.util.concurrent.TimeUnit
 
 /**
  * Fetches the live subscription model catalog from the Anthropic Messages API
@@ -108,24 +107,17 @@ class SubscriptionModelProbe(
             account: String,
             timeoutMs: Long = 3_000,
         ): String? {
-            val proc = try {
-                ProcessBuilder("/usr/bin/security", "find-generic-password", "-s", service, "-a", account, "-w")
-                    .redirectErrorStream(false)
-                    .start()
+            val result = try {
+                com.adobe.clawdea.cli.AgentSubprocess.run(
+                    command = listOf("/usr/bin/security", "find-generic-password", "-s", service, "-a", account, "-w"),
+                    timeoutMillis = timeoutMs,
+                )
             } catch (_: Exception) {
                 return null
             }
-            return try {
-                if (!proc.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                    proc.destroyForcibly()
-                    return null
-                }
-                if (proc.exitValue() != 0) return null
-                val stdout = proc.inputStream.bufferedReader().readText().trim()
-                if (stdout.isEmpty()) null else parseAccessTokenFromJson(stdout)
-            } catch (_: Exception) {
-                null
-            }
+            if (result.timedOut || result.exitCode != 0) return null
+            val stdout = result.stdout.trim()
+            return if (stdout.isEmpty()) null else parseAccessTokenFromJson(stdout)
         }
 
         internal fun parseAccessTokenFromJson(json: String): String? {
