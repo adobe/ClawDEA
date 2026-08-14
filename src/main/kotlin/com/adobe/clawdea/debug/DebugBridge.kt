@@ -753,7 +753,7 @@ class DebugBridge(private val project: Project) : Disposable {
     }
 
     private fun resolveAbsolutePath(file: String): String {
-        return if (file.startsWith("/")) file
+        return if (com.adobe.clawdea.util.ProjectPaths.isAbsolutePath(file)) file
         else "${project.basePath}/$file"
     }
 

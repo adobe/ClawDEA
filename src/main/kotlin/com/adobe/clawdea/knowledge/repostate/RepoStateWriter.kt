@@ -15,7 +15,6 @@ import com.adobe.clawdea.CLAWDEA_DIR
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 
 object RepoStateWriter {
 
@@ -26,19 +25,7 @@ object RepoStateWriter {
         val dir = projectRoot.resolve(CLAWDEA_DIR)
         Files.createDirectories(dir)
         val target = dir.resolve("REPO_STATE.md")
-        val temp = Files.createTempFile(dir, "REPO_STATE.md.tmp", "")
-        try {
-            Files.writeString(temp, content)
-            try {
-                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
-                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            if (Files.exists(temp)) {
-                try { Files.deleteIfExists(temp) } catch (_: Exception) {}
-            }
-        }
+        com.adobe.clawdea.util.AtomicFiles.writeAtomically(target, content)
         LOG.info("Wrote REPO_STATE.md (${content.length} bytes) to $target")
     }
 }

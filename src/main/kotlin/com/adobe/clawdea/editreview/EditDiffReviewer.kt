@@ -123,7 +123,7 @@ class EditDiffReviewer(private val project: Project) {
      * silently land off-project (or fail `mkdirs` under `/`).
      */
     private fun resolveFile(filePath: String): File {
-        if (filePath.startsWith("/")) return File(filePath)
+        if (com.adobe.clawdea.util.ProjectPaths.isAbsolutePath(filePath)) return File(filePath)
         val base = project.basePath ?: return File(filePath)
         return File(base, filePath)
     }

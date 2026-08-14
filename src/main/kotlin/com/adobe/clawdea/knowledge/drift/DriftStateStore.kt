@@ -16,7 +16,6 @@ import com.google.gson.Gson
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -205,23 +204,8 @@ object DriftStateStore {
         }
     }
 
-    private fun atomicWrite(target: Path, content: String) {
-        val parent = target.parent
-        Files.createDirectories(parent)
-        val temp = Files.createTempFile(parent, target.fileName.toString() + ".tmp", "")
-        try {
-            Files.writeString(temp, content)
-            try {
-                Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
-            }
-        } finally {
-            if (Files.exists(temp)) {
-                try { Files.deleteIfExists(temp) } catch (_: Exception) {}
-            }
-        }
-    }
+    private fun atomicWrite(target: Path, content: String) =
+        com.adobe.clawdea.util.AtomicFiles.writeAtomically(target, content)
 
     private data class TeamPart(
         val lastSyncedCommit: String = "",

@@ -85,7 +85,7 @@ class HostPatchTool(
         // sometimes emit relative paths despite the schema asking for absolute; File(relative)
         // resolves against the JVM CWD (typically `/` for a Finder-launched IDE), which would
         // wrongly fail the path-inside-project check below.
-        val input = if (rawInput.filePath.startsWith("/")) {
+        val input = if (com.adobe.clawdea.util.ProjectPaths.isAbsolutePath(rawInput.filePath)) {
             rawInput
         } else {
             rawInput.copy(filePath = File(projectBasePath, rawInput.filePath).path)

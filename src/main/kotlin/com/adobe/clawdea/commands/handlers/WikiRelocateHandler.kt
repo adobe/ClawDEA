@@ -337,20 +337,10 @@ class WikiRelocateHandler(private val project: Project) : CommandHandler {
         fun writeConfig(projectBase: Path, wikiPath: String) {
             val dir = Files.createDirectories(projectBase.resolve(".clawdea"))
             val target = dir.resolve("config.json")
-            val temp = Files.createTempFile(dir, "config.json.tmp", "")
-            try {
-                // Hand-formatted single-line JSON. No Gson — avoids pulling its
-                // pretty-printer / TypeAdapter machinery for one trivial blob.
-                val escaped = wikiPath.replace("\\", "\\\\").replace("\"", "\\\"")
-                Files.writeString(temp, """{"wikiPath":"$escaped"}""")
-                try {
-                    Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
-                }
-            } finally {
-                if (Files.exists(temp)) try { Files.deleteIfExists(temp) } catch (_: Exception) {}
-            }
+            // Hand-formatted single-line JSON. No Gson — avoids pulling its
+            // pretty-printer / TypeAdapter machinery for one trivial blob.
+            val escaped = wikiPath.replace("\\", "\\\\").replace("\"", "\\\"")
+            com.adobe.clawdea.util.AtomicFiles.writeAtomically(target, """{"wikiPath":"$escaped"}""")
         }
 
         /** Default freeform prefill when the user runs `/wiki-relocate` with no argument. */

@@ -14,7 +14,6 @@ package com.adobe.clawdea.knowledge.drift
 import com.intellij.openapi.diagnostic.Logger
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -66,21 +65,8 @@ object DriftAutoApplier {
 
     private fun atomicWrite(target: Path, content: String): Boolean {
         return try {
-            val parent = target.parent
-            val temp = Files.createTempFile(parent, target.fileName.toString() + ".tmp", "")
-            try {
-                Files.writeString(temp, content)
-                try {
-                    Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-                } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                    Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING)
-                }
-                true
-            } finally {
-                if (Files.exists(temp)) {
-                    try { Files.deleteIfExists(temp) } catch (_: Exception) {}
-                }
-            }
+            com.adobe.clawdea.util.AtomicFiles.writeAtomically(target, content)
+            true
         } catch (e: Throwable) {
             LOG.warn("DriftAutoApplier failed to write $target: ${e.message}")
             false

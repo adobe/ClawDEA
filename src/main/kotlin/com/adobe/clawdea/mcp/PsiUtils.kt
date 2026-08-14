@@ -29,7 +29,7 @@ object PsiUtils {
     fun resolvePsiFile(project: Project, filePath: String): PsiFile? {
         return runReadAction {
             val basePath = project.basePath ?: return@runReadAction null
-            val absolutePath = if (filePath.startsWith("/")) filePath else "$basePath/$filePath"
+            val absolutePath = if (com.adobe.clawdea.util.ProjectPaths.isAbsolutePath(filePath)) filePath else "$basePath/$filePath"
             val vf = LocalFileSystem.getInstance().findFileByPath(absolutePath) ?: return@runReadAction null
             PsiManager.getInstance(project).findFile(vf)
         }
