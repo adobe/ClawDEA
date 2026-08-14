@@ -46,10 +46,12 @@ object AgentSubprocess {
         timeoutMillis: Long,
         workingDir: File? = null,
         redirectErrorStream: Boolean = false,
+        redirectInput: ProcessBuilder.Redirect? = null,
         configureEnvironment: (MutableMap<String, String>) -> Unit = {},
     ): SubprocessResult {
         val pb = ProcessBuilder(command).redirectErrorStream(redirectErrorStream)
         if (workingDir != null) pb.directory(workingDir)
+        if (redirectInput != null) pb.redirectInput(redirectInput)
         pb.environment().apply(configureEnvironment)
 
         val proc = pb.start()

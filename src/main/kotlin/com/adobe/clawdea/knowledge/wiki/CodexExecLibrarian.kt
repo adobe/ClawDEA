@@ -17,9 +17,7 @@ import com.adobe.clawdea.provider.AgentSelection
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.intellij.openapi.diagnostic.Logger
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 
 /**
  * Runs ONE wiki-librarian question through a headless `codex exec --json` subprocess authenticated as
@@ -158,36 +156,24 @@ class CodexExecLibrarian(
 
     object DefaultRunner : Runner {
         override fun run(command: List<String>, projectRoot: Path, selection: AgentSelection, timeoutSeconds: Long): RunResult {
-            // Build env here (not in ask()) so production auth failures surface instead of being swallowed.
-            // Test runners never call CliEnvironment/AuthManager (they're injected), so tests remain headless.
-            val env = mutableMapOf<String, String>()
-            CliEnvironment.applyTo(env)
-            for ((k, v) in System.getenv()) env.putIfAbsent(k, v)
-            AuthManager.getInstance().applyToEnvironment(env, selection)
-
-            val pb = ProcessBuilder(command)
-                .directory(projectRoot.toFile())
-                .redirectErrorStream(false)
+            val r = com.adobe.clawdea.cli.AgentSubprocess.run(
+                command = command,
+                timeoutMillis = timeoutSeconds * 1000,
+                workingDir = projectRoot.toFile(),
                 // codex exec reads stdin as an extra `<stdin>` block and blocks on an open pipe until
                 // EOF (spike "stdin caveat") — redirect from the null device so the one-shot proceeds.
                 // Portable across OSes (`NUL` on Windows, `/dev/null` elsewhere).
-                .redirectInput(com.adobe.clawdea.util.NullDevice.inputRedirect())
-            pb.environment().apply { clear(); putAll(env) }
-            val process = pb.start()
-            val out = StringBuilder(); val err = StringBuilder()
-            val ot = drain(process.inputStream.bufferedReader(StandardCharsets.UTF_8), out)
-            val et = drain(process.errorStream.bufferedReader(StandardCharsets.UTF_8), err)
-            return if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-                process.destroyForcibly(); ot.join(500); et.join(500)
-                RunResult(-1, out.toString(), err.toString(), timedOut = true)
-            } else {
-                ot.join(500); et.join(500)
-                RunResult(process.exitValue(), out.toString(), err.toString(), timedOut = false)
+                redirectInput = com.adobe.clawdea.util.NullDevice.inputRedirect(),
+            ) { env ->
+                // Build env here (not in ask()) so production auth failures surface instead of being
+                // swallowed. Test runners never call this (they inject a fake Runner), so tests stay headless.
+                env.clear()
+                CliEnvironment.applyTo(env)
+                for ((k, v) in System.getenv()) env.putIfAbsent(k, v)
+                AuthManager.getInstance().applyToEnvironment(env, selection)
             }
+            return RunResult(r.exitCode, r.stdout, r.stderr, r.timedOut)
         }
-
-        private fun drain(reader: java.io.BufferedReader, sink: StringBuilder): Thread =
-            Thread { reader.useLines { for (l in it) sink.appendLine(l) } }.apply { isDaemon = true; start() }
     }
 
     companion object {

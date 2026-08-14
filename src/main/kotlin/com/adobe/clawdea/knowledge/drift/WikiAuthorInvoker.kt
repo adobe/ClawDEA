@@ -24,10 +24,7 @@ import com.adobe.clawdea.provider.openai.catalog.ModelCapability
 import com.intellij.openapi.diagnostic.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.nio.charset.StandardCharsets
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 
 /**
  * Invokes the wiki-author subagent on a digest of drift events. Strategy (b)
@@ -196,38 +193,22 @@ class DefaultWikiAuthorInvoker(
      */
     class DefaultProcessRunner(private val selection: AgentSelection? = null) : ProcessRunner {
         override fun run(command: List<String>, projectRoot: Path, timeoutSeconds: Long): ProcessResult {
-            val pb = ProcessBuilder(command)
-                .directory(projectRoot.toFile())
-                .redirectErrorStream(false)
+            val r = com.adobe.clawdea.cli.AgentSubprocess.run(
+                command = command,
+                timeoutMillis = timeoutSeconds * 1000,
+                workingDir = projectRoot.toFile(),
                 // `claude -p` blocks on an open stdin pipe until EOF; the null device gives it
                 // immediate EOF. Portable across OSes (`NUL` on Windows, `/dev/null` elsewhere).
-                .redirectInput(com.adobe.clawdea.util.NullDevice.inputRedirect())
-            val merged = mutableMapOf<String, String>()
-            com.adobe.clawdea.cli.CliEnvironment.applyTo(merged)
-            for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)
-            val auth = com.adobe.clawdea.auth.AuthManager.getInstance()
-            if (selection != null) auth.applyToEnvironment(merged, selection) else auth.applyToEnvironment(merged)
-            val env = pb.environment()
-            env.clear()
-            env.putAll(merged)
-            val process = pb.start()
-            val stdout = StringBuilder()
-            val stderr = StringBuilder()
-            val out = drain(process.inputStream.bufferedReader(StandardCharsets.UTF_8), stdout)
-            val err = drain(process.errorStream.bufferedReader(StandardCharsets.UTF_8), stderr)
-            return if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
-                process.destroyForcibly()
-                out.join(500); err.join(500)
-                ProcessResult(-1, stdout.toString(), stderr.toString(), timedOut = true)
-            } else {
-                out.join(500); err.join(500)
-                ProcessResult(process.exitValue(), stdout.toString(), stderr.toString(), timedOut = false)
+                redirectInput = com.adobe.clawdea.util.NullDevice.inputRedirect(),
+            ) { env ->
+                env.clear()
+                com.adobe.clawdea.cli.CliEnvironment.applyTo(env)
+                for ((k, v) in System.getenv()) env.putIfAbsent(k, v)
+                val auth = com.adobe.clawdea.auth.AuthManager.getInstance()
+                if (selection != null) auth.applyToEnvironment(env, selection) else auth.applyToEnvironment(env)
             }
+            return ProcessResult(r.exitCode, r.stdout, r.stderr, r.timedOut)
         }
-
-        private fun drain(reader: BufferedReader, output: StringBuilder): Thread =
-            Thread { reader.useLines { lines -> for (line in lines) output.appendLine(line) } }
-                .apply { isDaemon = true; start() }
     }
 
     companion object {

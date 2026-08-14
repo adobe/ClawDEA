@@ -14,10 +14,6 @@ package com.adobe.clawdea.auth
 import com.adobe.clawdea.cli.CliEnvironment
 import com.adobe.clawdea.cli.resolveClaudeCliPath
 import com.adobe.clawdea.settings.ClawDEASettings
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
 
 class BedrockAuthProvider(
     private val region: () -> String,
@@ -84,31 +80,26 @@ internal object CliConnectionProbe {
         }
 
         val command = listOf(cliPath, "-p", "--max-turns", "1", "--output-format", "text", "respond with ok")
-        val pb = ProcessBuilder(command)
-            .redirectErrorStream(true)
-
-        val merged = mutableMapOf<String, String>()
-        CliEnvironment.applyTo(merged)
-        for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)
-        provider.applyToEnvironment(merged)
-        val env = pb.environment()
-        env.clear()
-        env.putAll(merged)
-
         val start = System.currentTimeMillis()
         return try {
-            val proc = pb.start()
-            val output = BufferedReader(InputStreamReader(proc.inputStream, StandardCharsets.UTF_8))
-                .use { it.readText().trim() }
-            val finished = proc.waitFor(30, TimeUnit.SECONDS)
+            val result = com.adobe.clawdea.cli.AgentSubprocess.run(
+                command = command,
+                timeoutMillis = 30_000,
+                redirectErrorStream = true,
+            ) { env ->
+                env.clear()
+                CliEnvironment.applyTo(env)
+                for ((k, v) in System.getenv()) env.putIfAbsent(k, v)
+                provider.applyToEnvironment(env)
+            }
             val latency = System.currentTimeMillis() - start
 
-            if (!finished) {
-                proc.destroyForcibly()
+            if (result.timedOut) {
                 return ConnectionTestResult(false, "CLI timed out after 30s.")
             }
 
-            if (proc.exitValue() == 0 && output.isNotBlank()) {
+            val output = result.stdout.trim()
+            if (result.exitCode == 0 && output.isNotBlank()) {
                 ConnectionTestResult(true, "Connected via CLI (${latency}ms)", latency)
             } else {
                 val detail = output.lines().takeLast(3).joinToString(" ").take(200)

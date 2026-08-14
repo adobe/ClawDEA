@@ -22,8 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -378,52 +376,36 @@ class ClaudeGateway {
 
         try {
             val outcome = withContext(Dispatchers.IO) {
-                val pb = ProcessBuilder(command)
-                    .redirectErrorStream(false)
+                val result = com.adobe.clawdea.cli.AgentSubprocess.run(
+                    command = command,
+                    timeoutMillis = request.timeoutSeconds * 1000,
+                ) { env ->
+                    env.clear()
+                    CliEnvironment.applyTo(env)
+                    for ((k, v) in System.getenv()) env.putIfAbsent(k, v)
+                    AuthManager.getInstance().applyToEnvironment(env)
+                }
 
-                val merged = mutableMapOf<String, String>()
-                CliEnvironment.applyTo(merged)
-                for ((k, v) in System.getenv()) merged.putIfAbsent(k, v)
-                AuthManager.getInstance().applyToEnvironment(merged)
-                val env = pb.environment()
-                env.clear()
-                env.putAll(merged)
-
-                val proc = pb.start()
-                val reader = BufferedReader(InputStreamReader(proc.inputStream, StandardCharsets.UTF_8))
+                // The `claude -p` stream-json output is fully buffered by AgentSubprocess (which
+                // drains concurrently); parse the collected NDJSON afterwards — equivalent to the
+                // former inline parse, which also consumed every line before returning.
                 val cliParser = com.adobe.clawdea.cli.CliEventParser()
                 val collected = StringBuilder()
-                val stderrBuffer = StringBuilder()
-
-                // Drain stderr on a separate thread to avoid blocking the CLI process.
-                val stderrThread = Thread {
-                    BufferedReader(InputStreamReader(proc.errorStream, StandardCharsets.UTF_8)).useLines { lines ->
-                        for (line in lines) stderrBuffer.appendLine(line)
-                    }
-                }.apply { isDaemon = true; start() }
-
-                reader.useLines { lines ->
-                    for (line in lines) {
-                        if (line.isBlank()) continue
-                        val event = cliParser.parse(line)
-                        when (event) {
-                            is com.adobe.clawdea.cli.CliEvent.TextDelta -> collected.append(event.text)
-                            is com.adobe.clawdea.cli.CliEvent.AssistantMessage ->
-                                if (event.text.isNotBlank()) collected.append(event.text)
-                            is com.adobe.clawdea.cli.CliEvent.Result ->
-                                if (event.isError) collected.append(event.text)
-                            else -> {}
-                        }
+                for (line in result.stdout.lineSequence()) {
+                    if (line.isBlank()) continue
+                    when (val event = cliParser.parse(line)) {
+                        is com.adobe.clawdea.cli.CliEvent.TextDelta -> collected.append(event.text)
+                        is com.adobe.clawdea.cli.CliEvent.AssistantMessage ->
+                            if (event.text.isNotBlank()) collected.append(event.text)
+                        is com.adobe.clawdea.cli.CliEvent.Result ->
+                            if (event.isError) collected.append(event.text)
+                        else -> {}
                     }
                 }
 
-                val finished = proc.waitFor(request.timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
-                if (!finished) proc.destroyForcibly()
-                stderrThread.join(500)
-                val exitCode = if (finished) proc.exitValue() else -1
-
+                val exitCode = if (result.timedOut) -1 else result.exitCode
                 // Keep stderr brief but useful in the error message.
-                val stderrTail = stderrBuffer.toString().lines().filter { it.isNotBlank() }.takeLast(5).joinToString("\n")
+                val stderrTail = result.stderr.lines().filter { it.isNotBlank() }.takeLast(5).joinToString("\n")
                 CliOutcome(collected.toString(), stderrTail, exitCode)
             }
 
