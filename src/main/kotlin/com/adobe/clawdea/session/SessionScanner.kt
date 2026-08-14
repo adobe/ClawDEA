@@ -486,30 +486,8 @@ object SessionScanner {
         if (colonIndex == -1) return null
         val afterColon = json.substring(colonIndex + 1).trimStart()
         if (afterColon.isEmpty() || afterColon[0] != '"') return null
-        val sb = StringBuilder()
-        var i = 1
-        while (i < afterColon.length) {
-            val c = afterColon[i]
-            if (c == '\\' && i + 1 < afterColon.length) {
-                val next = afterColon[i + 1]
-                when (next) {
-                    '"' -> sb.append('"')
-                    '\\' -> sb.append('\\')
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    '/' -> sb.append('/')
-                    else -> { sb.append('\\'); sb.append(next) }
-                }
-                i += 2
-            } else if (c == '"') {
-                break
-            } else {
-                sb.append(c)
-                i++
-            }
-        }
-        return sb.toString()
+        val end = com.adobe.clawdea.util.FastJson.findStringEnd(afterColon, 1) ?: return null
+        return com.adobe.clawdea.util.FastJson.unescape(afterColon.substring(1, end))
     }
 
     private fun parseTimestamp(ts: String): Instant? {

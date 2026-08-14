@@ -12,7 +12,10 @@
 package com.adobe.clawdea.util
 
 internal object JsonScan {
-    /** Extract a string value from a JSON object by key. Minimal parser, no dependencies. */
+    /**
+     * Extract a string value from a JSON object by (bare) key. Escape-aware via [FastJson]; a blank
+     * result is normalized to null (this helper's long-standing contract). Minimal, no dependencies.
+     */
     fun string(json: String, key: String): String? {
         val searchKey = "\"$key\""
         val keyIndex = json.indexOf(searchKey)
@@ -21,29 +24,7 @@ internal object JsonScan {
         if (colonIndex == -1) return null
         val afterColon = json.substring(colonIndex + 1).trimStart()
         if (afterColon.isEmpty() || afterColon[0] != '"') return null
-        val sb = StringBuilder()
-        var i = 1
-        while (i < afterColon.length) {
-            val c = afterColon[i]
-            if (c == '\\' && i + 1 < afterColon.length) {
-                when (afterColon[i + 1]) {
-                    '"' -> sb.append('"')
-                    '\\' -> sb.append('\\')
-                    'n' -> sb.append('\n')
-                    'r' -> sb.append('\r')
-                    't' -> sb.append('\t')
-                    '/' -> sb.append('/')
-                    else -> { sb.append('\\'); sb.append(afterColon[i + 1]) }
-                }
-                i += 2
-            } else if (c == '"') {
-                break
-            } else {
-                sb.append(c)
-                i++
-            }
-        }
-        val result = sb.toString()
-        return if (result.isNotBlank()) result else null
+        val end = FastJson.findStringEnd(afterColon, 1) ?: return null
+        return FastJson.unescape(afterColon.substring(1, end)).ifBlank { null }
     }
 }
