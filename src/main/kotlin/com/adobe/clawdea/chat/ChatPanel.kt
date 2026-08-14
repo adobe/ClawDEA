@@ -2399,8 +2399,20 @@ class ChatPanel(
     }
 
     private fun clearQueuedPrompt() {
-        pendingPromptController.clear()
-        refreshPendingPromptStatus()
+        // Touches Swing (statusLabel via refreshPendingPromptStatus). Most callers are already on the
+        // EDT; the combo managers' restartBridge lambda calls it from their Dispatchers.IO scope
+        // (Tier 6.3). Run synchronously when on the EDT so on-EDT callers keep their ordering, and
+        // marshal otherwise.
+        val app = ApplicationManager.getApplication()
+        if (app.isDispatchThread) {
+            pendingPromptController.clear()
+            refreshPendingPromptStatus()
+        } else {
+            app.invokeLater {
+                pendingPromptController.clear()
+                refreshPendingPromptStatus()
+            }
+        }
     }
 
     private fun refreshPendingPromptStatus() {
