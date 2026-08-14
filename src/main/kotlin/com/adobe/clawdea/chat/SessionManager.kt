@@ -48,10 +48,19 @@ class SessionManager(
      * Swing component (issue #36); the manager only decides *when* to trigger it.
      */
     private val onWakeRecovery: () -> Unit,
+    /** Ties [scope] to the owning ChatPanel's lifetime — see the init block. */
+    parentDisposable: com.intellij.openapi.Disposable,
 ) {
 
     private val log = com.intellij.openapi.diagnostic.Logger.getInstance(SessionManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // Cancel the scope when the ChatPanel is disposed. Without this, closing a tab mid-resume
+        // left bridge.start running against a disposed panel, calling appendHtml on a disposed
+        // browser (Tier 6.3). ModelComboManager already follows this precedent.
+        com.intellij.openapi.util.Disposer.register(parentDisposable) { scope.cancel() }
+    }
 
     fun suggestSeedWikiIfMissing() {
         val basePath = project.basePath ?: return

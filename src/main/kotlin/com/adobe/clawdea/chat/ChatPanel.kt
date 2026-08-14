@@ -506,6 +506,7 @@ class ChatPanel(
                     }
                 }
             },
+            parentDisposable = this@ChatPanel,
             onWakeRecovery = { recreateBrowserAndReplay("wake-recovery") },
         )
 
