@@ -15,7 +15,7 @@ The chat input supports two distinct completion mechanisms. **Mentions** (`@`) a
 - [MentionCompletionProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/MentionCompletionProvider.kt) — initial items (open tabs + recently git-modified) and prefix search
 - [MentionPickerDialog.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/MentionPickerDialog.kt) — `@` then Tab opens the full Files + Symbols picker
 - [RefParser.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/RefParser.kt) — `{[ref:type|payload]}` chat-only ref syntax used in cards (not in markdown files)
-- [IndexQueryHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/chat/IndexQueryHandler.kt) — backs the `/callers`, `/usages`, `/implementations`, `/supertypes` slash commands
+- [IndexQueryHandler.kt](../../../src/main/kotlin/com/adobe/clawdea/language/IndexQueryHandler.kt) — backs the `/callers`, `/usages`, `/implementations`, `/supertypes` slash commands
 
 ### Inline completions (Tab in editor)
 - [ClawDEACompletionProvider.kt](../../../src/main/kotlin/com/adobe/clawdea/completions/ClawDEACompletionProvider.kt) — IntelliJ `DebouncedInlineCompletionProvider` registration; `isEnabled` gate

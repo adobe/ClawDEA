@@ -17,7 +17,7 @@
 2. **registerTools** — instantiates each tool group and calls `registerAll(router)`. Groups: index, search-text, IDE (diagnostics + resolve), context, primer, wiki, workspace, edit-review, debug, profiling, permission-prompt.
 3. **start** — creates an `HttpServer` on `InetSocketAddress("127.0.0.1", 0)`, captures the assigned port, mounts the JSON-RPC handler, starts the server.
 4. **CLI startup** — `CliProcess` writes `mcpClientConfigJson(port)` to a temp file and passes `--mcp-config <path>`. The CLI now knows where to call back.
-5. **Tool call (per request)** — CLI POSTs JSON-RPC, the HTTP handler hands the request to the dispatch executor. Executor calls `router.dispatch(toolName, args)`. Handler runs, returns `ToolResult`, response goes back to the CLI.
+5. **Tool call (per request)** — CLI POSTs JSON-RPC, the HTTP handler hands the request to the dispatch executor. Executor calls `router.dispatch(toolName, args)`. The router enforces the declared `required` list (commit 2c459142): any missing required arg returns `"Missing required argument '…' for tool '…'"` before the handler runs. Handler runs on the rest of the args, returns `ToolResult`, response goes back to the CLI.
 6. **Project close** — `Disposable.dispose()` stops the HTTP server, shuts down the dispatch executor.
 
 ## Request authentication
