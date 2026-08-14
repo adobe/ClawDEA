@@ -9,7 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat.permission
+package com.adobe.clawdea.approval
 
 import com.adobe.clawdea.approval.HandlerQuestionResolver
 import com.intellij.openapi.components.Service
@@ -27,8 +27,8 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * Lifecycle:
  *  - [register] generates a requestId and parks the resolver. Caller passes
- *    that id to [AskUserQuestionRenderer.renderCard] to produce the HTML.
- *  - On JCEF submit, [PermissionRequestHandler] sees [owns] return true and
+ *    that id to [com.adobe.clawdea.chat.permission.AskUserQuestionRenderer.renderCard] to produce the HTML.
+ *  - On JCEF submit, [com.adobe.clawdea.chat.permission.PermissionRequestHandler] sees [owns] return true and
  *    forwards to [submit] (or [cancel] for Skip). The resolver fires once
  *    and is removed.
  *  - If the user navigates away or the panel disposes before submitting,

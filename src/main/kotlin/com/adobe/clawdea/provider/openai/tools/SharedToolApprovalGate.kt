@@ -11,9 +11,9 @@
  */
 package com.adobe.clawdea.provider.openai.tools
 
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRequest
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRequest
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import com.intellij.openapi.diagnostic.Logger
 
 /**

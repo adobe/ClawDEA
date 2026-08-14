@@ -12,14 +12,14 @@
 package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.CLAUDE_DIR
+import com.adobe.clawdea.approval.ClaudePermissionSettingsWriter
+import com.adobe.clawdea.approval.HandlerQuestionService
+import com.adobe.clawdea.approval.PermissionDispatcher
+import com.adobe.clawdea.approval.PermissionRouter
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import com.adobe.clawdea.chat.editreview.EditReviewCoordinator
 import com.adobe.clawdea.chat.editreview.EditReviewHandler
 import com.adobe.clawdea.chat.permission.AskUserQuestionRenderer
-import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsWriter
-import com.adobe.clawdea.chat.permission.HandlerQuestionService
-import com.adobe.clawdea.chat.permission.PermissionDispatcher
-import com.adobe.clawdea.chat.permission.PermissionRouter
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
 import com.adobe.clawdea.chat.permission.PermissionRequestHandler
 import com.adobe.clawdea.chat.permission.PermissionRequestRenderer
 import com.adobe.clawdea.cli.CliBridge
@@ -430,7 +430,7 @@ class ChatPanel(
             onShowErrorNotification = { msg -> showNotification("ClawDEA", msg, NotificationType.ERROR) },
             onTurnSucceeded = { consecutivePromptStalls = 0 },
             consumeAutoAllow = { toolUseId, toolName, inputJson ->
-                val signal = com.adobe.clawdea.chat.permission.AutoAllowSignal.getInstance(project)
+                val signal = com.adobe.clawdea.approval.AutoAllowSignal.getInstance(project)
                 signal.consume(toolUseId) || signal.consume(toolName, inputJson)
             },
             isToolAutoAllowed = { toolName ->

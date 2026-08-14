@@ -11,9 +11,9 @@
  */
 package com.adobe.clawdea.cli
 
-import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
+import com.adobe.clawdea.approval.ClaudePermissionSettingsReader
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import com.adobe.clawdea.mcp.McpServer
 import com.adobe.clawdea.provider.openai.tools.MissingRouteBehavior
 import com.adobe.clawdea.provider.openai.tools.SharedToolApprovalGate
@@ -25,7 +25,7 @@ import java.nio.file.Path
 /**
  * Decides whether a `codex app-server` approval request (a shell command or a file patch)
  * should be accepted, routing the decision through the *same* permission gate the Claude
- * backend uses ([PermissionRouterRegistry] → [com.adobe.clawdea.chat.permission.PermissionDispatcher]).
+ * backend uses ([PermissionRouterRegistry] → [com.adobe.clawdea.approval.PermissionDispatcher]).
  *
  * This is Phase C of the app-server migration: it replaces the blanket auto-approve in
  * [CodexAppServerProcess] with ClawDEA's approval flow, so codex's own shell/patch calls honor

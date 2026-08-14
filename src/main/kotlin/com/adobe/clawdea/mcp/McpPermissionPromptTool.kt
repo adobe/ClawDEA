@@ -11,17 +11,17 @@
  */
 package com.adobe.clawdea.mcp
 
-import com.adobe.clawdea.chat.permission.PermissionDispatcher
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRequest
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
-import com.adobe.clawdea.chat.permission.PermissionToolInput
+import com.adobe.clawdea.approval.PermissionDispatcher
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRequest
+import com.adobe.clawdea.approval.PermissionRouterRegistry
+import com.adobe.clawdea.approval.PermissionToolInput
 import com.intellij.openapi.diagnostic.Logger
 
 /**
  * Notified when a tool call is auto-allowed by "Allow all" mode (or trusted-MCP)
  * so the matching ChatPanel can flag the tool block as auto-allowed once its
- * `ToolUse` event arrives. See [com.adobe.clawdea.chat.permission.AutoAllowSignal].
+ * `ToolUse` event arrives. See [com.adobe.clawdea.approval.AutoAllowSignal].
  *
  * `toolUseId` is the CLI-assigned id Claude Code passes alongside the tool call
  * (see qpK in claude-code 2.1.x — `H.call({tool_name, input, tool_use_id}, ...)`).

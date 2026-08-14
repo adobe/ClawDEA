@@ -11,10 +11,10 @@
  */
 package com.adobe.clawdea.mcp
 
-import com.adobe.clawdea.chat.permission.AutoAllowSignal
-import com.adobe.clawdea.chat.permission.ClaudePermissionSettingsReader
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
+import com.adobe.clawdea.approval.AutoAllowSignal
+import com.adobe.clawdea.approval.ClaudePermissionSettingsReader
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import com.adobe.clawdea.debug.McpDebugTools
 import com.adobe.clawdea.language.scala.ScalaPsiBridge
 import com.adobe.clawdea.mcp.coexistence.CollidingToolNames

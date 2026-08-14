@@ -9,7 +9,7 @@
  * OF ANY KIND, either express or implied. See the License for the specific language
  * governing permissions and limitations under the License.
  */
-package com.adobe.clawdea.chat.permission
+package com.adobe.clawdea.approval
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicLong
  * (toolName, inputJson) skips the prompt entirely.
  *
  * Auto-allow notifications (e.g. "Allow all" silent-allow) flow through
- * [com.adobe.clawdea.chat.permission.AutoAllowSignal] instead — they are
+ * [com.adobe.clawdea.approval.AutoAllowSignal] instead — they are
  * panel-routed via the matching `ToolUse` event so multi-tab projects don't
  * render the marker in the wrong tab.
  */

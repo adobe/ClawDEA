@@ -38,8 +38,8 @@ data class CommandContext(
      * inputs map; `onResolve(null)` indicates the user clicked Skip / cancelled.
      */
     val askQuestion: ((
-        input: com.adobe.clawdea.chat.permission.AskUserQuestionInput,
-        onResolve: (com.adobe.clawdea.chat.permission.HandlerQuestionAnswers?) -> Unit,
+        input: com.adobe.clawdea.approval.AskUserQuestionInput,
+        onResolve: (com.adobe.clawdea.approval.HandlerQuestionAnswers?) -> Unit,
     ) -> Unit)? = null,
     /**
      * Optional bridge dispatch — sends [text] to the CLI as a regular user

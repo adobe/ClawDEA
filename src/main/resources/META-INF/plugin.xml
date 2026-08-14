@@ -573,7 +573,7 @@ backend, on equal footing with Claude Code and OpenAI Codex.</p>
 
         <!-- Handler-initiated Question Service (parks resolvers for /wiki-relocate etc.) -->
         <projectService
-            serviceImplementation="com.adobe.clawdea.chat.permission.HandlerQuestionService"/>
+            serviceImplementation="com.adobe.clawdea.approval.HandlerQuestionService"/>
 
         <!-- Debug Bridge -->
         <projectService

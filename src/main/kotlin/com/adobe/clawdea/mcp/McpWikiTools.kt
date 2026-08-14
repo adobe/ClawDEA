@@ -283,7 +283,7 @@ class McpWikiTools(private val project: Project) {
             toolApprovalMode = { settings.state.toolApprovalMode },
             policy = { null },
             route = { toolName, inputJson, toolUseId ->
-                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project)
+                com.adobe.clawdea.approval.PermissionRouterRegistry(project)
                     .route(toolName, inputJson, toolUseId)
             },
             promptTimeoutMs = 300_000,

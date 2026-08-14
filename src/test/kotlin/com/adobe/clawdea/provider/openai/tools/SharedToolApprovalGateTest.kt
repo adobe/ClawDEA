@@ -11,11 +11,11 @@
  */
 package com.adobe.clawdea.provider.openai.tools
 
-import com.adobe.clawdea.chat.permission.ClaudePermissionSettings
-import com.adobe.clawdea.chat.permission.PermissionDispatcher
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRequest
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
+import com.adobe.clawdea.approval.ClaudePermissionSettings
+import com.adobe.clawdea.approval.PermissionDispatcher
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRequest
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -49,7 +49,7 @@ class SharedToolApprovalGateTest {
     fun `policy DENY denies`() {
         val denySettings = ClaudePermissionSettings(
             deny = listOf(
-                com.adobe.clawdea.chat.permission.ClaudePermissionRule("Bash", "Bash", null),
+                com.adobe.clawdea.approval.ClaudePermissionRule("Bash", "Bash", null),
             ),
         )
         val denyPolicy = PermissionPolicy { denySettings }
@@ -67,7 +67,7 @@ class SharedToolApprovalGateTest {
     fun `policy ALLOW allows`() {
         val allowSettings = ClaudePermissionSettings(
             allow = listOf(
-                com.adobe.clawdea.chat.permission.ClaudePermissionRule("Bash", "Bash", null),
+                com.adobe.clawdea.approval.ClaudePermissionRule("Bash", "Bash", null),
             ),
         )
         val allowPolicy = PermissionPolicy { allowSettings }

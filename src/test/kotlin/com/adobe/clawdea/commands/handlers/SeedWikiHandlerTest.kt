@@ -11,8 +11,8 @@
  */
 package com.adobe.clawdea.commands.handlers
 
-import com.adobe.clawdea.chat.permission.AskUserQuestionInput
-import com.adobe.clawdea.chat.permission.HandlerQuestionAnswers
+import com.adobe.clawdea.approval.AskUserQuestionInput
+import com.adobe.clawdea.approval.HandlerQuestionAnswers
 import com.adobe.clawdea.commands.CommandContext
 import com.intellij.openapi.project.Project
 import org.junit.Assert.assertEquals

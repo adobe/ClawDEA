@@ -11,6 +11,7 @@
  */
 package com.adobe.clawdea.chat.permission
 
+import com.adobe.clawdea.approval.PermissionRequest
 import com.adobe.clawdea.chat.MessageRenderer
 import org.junit.Assert.assertTrue
 import org.junit.Test

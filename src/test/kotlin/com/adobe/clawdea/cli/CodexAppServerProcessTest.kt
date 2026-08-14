@@ -87,8 +87,8 @@ class CodexAppServerProcessTest {
     }
 
     /** A gate whose interactive route always resolves to [decision] (no UI). */
-    private fun gateReturning(decision: com.adobe.clawdea.chat.permission.PermissionRequest.Decision): CodexApprovalGate {
-        val dispatcher = object : com.adobe.clawdea.chat.permission.PermissionDispatcher(onRender = {}) {
+    private fun gateReturning(decision: com.adobe.clawdea.approval.PermissionRequest.Decision): CodexApprovalGate {
+        val dispatcher = object : com.adobe.clawdea.approval.PermissionDispatcher(onRender = {}) {
             override fun submit(toolName: String, inputJson: String, timeoutMs: Long, toolUseId: String?) =
                 Result(decision)
         }
@@ -97,7 +97,7 @@ class CodexAppServerProcessTest {
             autoAcceptEdits = { false },
             policy = { null },
             route = { _, _, toolUseId ->
-                com.adobe.clawdea.chat.permission.PermissionRouterRegistry.Routed(dispatcher, toolUseId)
+                com.adobe.clawdea.approval.PermissionRouterRegistry.Routed(dispatcher, toolUseId)
             },
         )
     }
@@ -263,7 +263,7 @@ class CodexAppServerProcessTest {
 
     @Test(timeout = 10_000)
     fun `command approval is routed through the gate and can be denied`() {
-        val h = Harness(approvalGate = gateReturning(com.adobe.clawdea.chat.permission.PermissionRequest.Decision.DENY))
+        val h = Harness(approvalGate = gateReturning(com.adobe.clawdea.approval.PermissionRequest.Decision.DENY))
         h.process.start(resumeSessionId = null, skills = emptyList())
         handshake(h)
 
@@ -279,7 +279,7 @@ class CodexAppServerProcessTest {
 
     @Test(timeout = 10_000)
     fun `command approval is routed through the gate and can be accepted`() {
-        val h = Harness(approvalGate = gateReturning(com.adobe.clawdea.chat.permission.PermissionRequest.Decision.ALLOW))
+        val h = Harness(approvalGate = gateReturning(com.adobe.clawdea.approval.PermissionRequest.Decision.ALLOW))
         h.process.start(resumeSessionId = null, skills = emptyList())
         handshake(h)
 
@@ -346,7 +346,7 @@ class CodexAppServerProcessTest {
 
     @Test(timeout = 10_000)
     fun `command approval is still answered after a stop-start restart`() {
-        val h = RestartHarness(gateReturning(com.adobe.clawdea.chat.permission.PermissionRequest.Decision.ALLOW))
+        val h = RestartHarness(gateReturning(com.adobe.clawdea.approval.PermissionRequest.Decision.ALLOW))
 
         h.process.start(resumeSessionId = null, skills = emptyList())
         h.handshake()

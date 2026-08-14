@@ -11,7 +11,12 @@
  */
 package com.adobe.clawdea.chat.permission
 
+import com.adobe.clawdea.approval.AskUserQuestionInput
+import com.adobe.clawdea.approval.ClaudePermissionSettingsWriter
 import com.adobe.clawdea.approval.HandlerQuestionResolver
+import com.adobe.clawdea.approval.PermissionDispatcher
+import com.adobe.clawdea.approval.PermissionRequest
+import com.adobe.clawdea.approval.PermissionToolInput
 import com.adobe.clawdea.chat.ChatBrowserRenderer
 import com.adobe.clawdea.mcp.McpPermissionPromptTool
 import com.google.gson.JsonObject

@@ -11,7 +11,7 @@
  */
 package com.adobe.clawdea.cli.backend
 
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
+import com.adobe.clawdea.approval.PermissionRouterRegistry
 import com.adobe.clawdea.cli.CliEventParser
 import com.adobe.clawdea.cli.CliProcess
 import com.adobe.clawdea.cli.CodexAppServerParser

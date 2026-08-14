@@ -46,7 +46,7 @@ class EventStreamHandler(
     private val onShowErrorNotification: (message: String) -> Unit,
     private val onTurnSucceeded: () -> Unit = {},
     /**
-     * Consults the project-level [com.adobe.clawdea.chat.permission.AutoAllowSignal].
+     * Consults the project-level [com.adobe.clawdea.approval.AutoAllowSignal].
      * Returns true (and consumes the signal) when the (toolName, inputJson) pair was
      * silently allowed by "Allow all" — used to flag the matching tool block.
      * Routing through the ToolUse event guarantees the marker lands in this panel,
@@ -170,7 +170,7 @@ class EventStreamHandler(
 
     /**
      * Recent ToolUse events keyed by `(toolName + 0x00 + inputJson)` so the
-     * project-level [com.adobe.clawdea.chat.permission.PermissionRouterRegistry]
+     * project-level [com.adobe.clawdea.approval.PermissionRouterRegistry]
      * can ask "is this call yours?" when the MCP `request_permission` arrives.
      * The CLI emits `ToolUse` to stream-json before invoking
      * `request_permission`, so the lookup races cleanly: the panel that just

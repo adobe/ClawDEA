@@ -11,12 +11,12 @@
  */
 package com.adobe.clawdea.mcp
 
-import com.adobe.clawdea.chat.permission.PermissionDispatcher
-import com.adobe.clawdea.chat.permission.PermissionPolicy
-import com.adobe.clawdea.chat.permission.PermissionRequest
-import com.adobe.clawdea.chat.permission.PermissionRouterRegistry
-import com.adobe.clawdea.chat.permission.ClaudePermissionRule
-import com.adobe.clawdea.chat.permission.ClaudePermissionSettings
+import com.adobe.clawdea.approval.PermissionDispatcher
+import com.adobe.clawdea.approval.PermissionPolicy
+import com.adobe.clawdea.approval.PermissionRequest
+import com.adobe.clawdea.approval.PermissionRouterRegistry
+import com.adobe.clawdea.approval.ClaudePermissionRule
+import com.adobe.clawdea.approval.ClaudePermissionSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

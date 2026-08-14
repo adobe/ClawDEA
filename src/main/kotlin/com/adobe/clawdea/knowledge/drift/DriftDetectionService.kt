@@ -214,7 +214,7 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             toolApprovalMode = { settings.state.toolApprovalMode },
             policy = { null },
             route = { toolName, inputJson, toolUseId ->
-                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
+                com.adobe.clawdea.approval.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
             },
             promptTimeoutMs = 300_000,
         )
@@ -383,7 +383,7 @@ class DriftDetectionService(private val project: Project, private val cs: Corout
             toolApprovalMode = { settings.state.toolApprovalMode },
             policy = { null },
             route = { toolName, inputJson, toolUseId ->
-                com.adobe.clawdea.chat.permission.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
+                com.adobe.clawdea.approval.PermissionRouterRegistry(project).route(toolName, inputJson, toolUseId)
             },
             promptTimeoutMs = 300_000,
         )
