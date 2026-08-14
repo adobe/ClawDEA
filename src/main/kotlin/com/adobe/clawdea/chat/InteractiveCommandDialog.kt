@@ -13,7 +13,6 @@ package com.adobe.clawdea.chat
 
 import com.adobe.clawdea.cli.CliEnvironment
 import com.adobe.clawdea.mcp.McpServer
-import com.adobe.clawdea.mcp.buildMcpClientConfigJson
 import com.adobe.clawdea.settings.ClawDEASettings
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
@@ -207,9 +206,7 @@ class InteractiveCommandDialog(
         val server = McpServer.getInstance(project)
         val port = server.port
         if (port <= 0) return emptyList()
-        val tmpFile = File.createTempFile("clawdea-mcp-cc-", ".json")
-        tmpFile.deleteOnExit()
-        tmpFile.writeText(buildMcpClientConfigJson(port, server.authToken))
+        val tmpFile = com.adobe.clawdea.mcp.writeMcpConfigTempFile("clawdea-mcp-cc-", port, server.authToken)
         return listOf("--mcp-config", tmpFile.absolutePath)
     }
 

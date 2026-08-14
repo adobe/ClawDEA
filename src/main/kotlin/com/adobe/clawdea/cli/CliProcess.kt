@@ -150,10 +150,7 @@ class CliProcess(
             command.addAll(listOf("--permission-prompt-tool", "mcp__clawdea-intellij__request_permission"))
 
             val mcpToken = project?.let { McpServer.getInstance(it).authToken } ?: ""
-            val mcpJson = com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken)
-            val tmpFile = java.io.File.createTempFile("clawdea-mcp-", ".json")
-            tmpFile.deleteOnExit()
-            tmpFile.writeText(mcpJson)
+            val tmpFile = com.adobe.clawdea.mcp.writeMcpConfigTempFile("clawdea-mcp-", mcpPort, mcpToken)
             tempFiles.add(tmpFile)
             log.info("Wrote MCP config to ${tmpFile.absolutePath}")
 

@@ -51,10 +51,7 @@ class ClaudeWikiPromptRunner(
     override suspend fun run(prompt: String): WikiPromptRunner.Result {
         val mcpConfigFile = if (mcpPort > 0) {
             try {
-                val tmp = java.io.File.createTempFile("clawdea-mcp-seed-wiki-", ".json")
-                tmp.deleteOnExit()
-                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken))
-                tmp
+                com.adobe.clawdea.mcp.writeMcpConfigTempFile("clawdea-mcp-seed-wiki-", mcpPort, mcpToken)
             } catch (e: Throwable) {
                 LOG.warn("seed-wiki failed to write MCP config: ${e.message}", e); null
             }

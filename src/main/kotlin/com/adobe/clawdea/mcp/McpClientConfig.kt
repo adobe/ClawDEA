@@ -34,6 +34,18 @@ internal fun buildMcpClientConfigJson(port: Int, token: String = ""): String {
 }
 
 /**
+ * Write the MCP client config for [port]/[token] to a fresh temp file (deleted on JVM exit), the
+ * repeated createTempFile + deleteOnExit + writeText dance every CLI/wiki-subprocess spawn performed
+ * by hand (Tier 4.5). [prefix] names the temp file so logs stay legible per caller.
+ */
+internal fun writeMcpConfigTempFile(prefix: String, port: Int, token: String = ""): java.io.File {
+    val tmp = java.io.File.createTempFile(prefix, ".json")
+    tmp.deleteOnExit()
+    tmp.writeText(buildMcpClientConfigJson(port, token))
+    return tmp
+}
+
+/**
  * The MCP server name codex uses to namespace ClawDEA's tools (`mcp__<name>__<tool>`).
  * Deliberately hyphen-free: codex `-c` overrides parse the key as a dotted TOML path, and a
  * hyphenated bare segment (`clawdea-intellij`) is not a valid unquoted TOML key.

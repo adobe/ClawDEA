@@ -97,10 +97,7 @@ class DefaultWikiAuthorInvoker(
         val digest = WikiAuthorDigestBuilder.build(events, wikiDir)
         val mcpConfigFile = if (mcpPort > 0) {
             try {
-                val tmp = java.io.File.createTempFile("clawdea-mcp-wiki-author-", ".json")
-                tmp.deleteOnExit()
-                tmp.writeText(com.adobe.clawdea.mcp.buildMcpClientConfigJson(mcpPort, mcpToken))
-                tmp
+                com.adobe.clawdea.mcp.writeMcpConfigTempFile("clawdea-mcp-wiki-author-", mcpPort, mcpToken)
             } catch (e: Throwable) {
                 LOG.warn("wiki-author failed to write MCP config: ${e.message}", e)
                 null
