@@ -13,11 +13,15 @@ package com.adobe.clawdea.profiling.analysis
 
 import com.adobe.clawdea.profiling.model.Recording
 import com.adobe.clawdea.profiling.model.Source
+import java.util.concurrent.ConcurrentHashMap
 
 class AnalysisService {
 
-    private val recordings = mutableMapOf<String, Recording>()
-    private val cache = mutableMapOf<String, Any>()
+    // Written and read from two different thread pools (the MCP dispatch pool registers recordings;
+    // analysis runs elsewhere), so plain HashMaps risked a torn read / ConcurrentModificationException
+    // (Tier 6.5). JfrBackend.sessions is already ConcurrentHashMap for the same reason.
+    private val recordings = ConcurrentHashMap<String, Recording>()
+    private val cache = ConcurrentHashMap<String, Any>()
 
     fun register(id: String, recording: Recording) {
         recordings[id] = recording

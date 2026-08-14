@@ -58,7 +58,12 @@ class JfrBackend(private val project: Project) : CaptureBackend {
             null
         }
         session.state = SessionState.DONE
+        // Both temp files were leaked before — only jfcPath was deleted, so every profiling run left
+        // a .jfr of up to the 500 MB cap in the temp dir forever (Tier 6.5). The recording has been
+        // fully imported into memory by now, so the on-disk .jfr is no longer needed. The DONE
+        // session entry is kept (small) so a repeated stop still reports DONE rather than "not found".
         Files.deleteIfExists(session.jfcPath)
+        Files.deleteIfExists(session.jfrPath)
         return recording
     }
 
