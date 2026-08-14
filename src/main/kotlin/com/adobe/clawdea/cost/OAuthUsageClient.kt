@@ -52,25 +52,18 @@ object OAuthUsageClient {
             return SubscriptionUsage.UNAVAILABLE
         }
         return try {
-            val conn = java.net.URI(USAGE_URL).toURL().openConnection() as java.net.HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.setRequestProperty("anthropic-beta", "oauth-2025-04-20")
-                conn.setRequestProperty("Accept", "application/json")
-                val code = conn.responseCode
-                if (code != 200) {
-                    log.info("oauth/usage: HTTP $code; reporting unavailable")
-                    return SubscriptionUsage.UNAVAILABLE
-                }
-                parse(conn.inputStream.bufferedReader().use { it.readText() })
-            } finally {
-                conn.disconnect()
-            }
+            // Token never logged (only the failure class/message inside HttpJson).
+            com.adobe.clawdea.gateway.HttpJson.getJson(
+                uri = USAGE_URL,
+                headers = mapOf(
+                    "Authorization" to "Bearer $token",
+                    "anthropic-beta" to "oauth-2025-04-20",
+                ),
+                timeoutMs = timeoutMs,
+                logTag = "oauth/usage",
+            )?.let { parse(it) } ?: SubscriptionUsage.UNAVAILABLE
         } catch (t: Throwable) {
-            // Token never logged; only the failure class/message (e.g. SocketTimeoutException).
+            // Guards parse() (HttpJson already handles transport errors and returns null).
             log.info("oauth/usage: ${t.javaClass.simpleName}: ${t.message}")
             SubscriptionUsage.UNAVAILABLE
         }

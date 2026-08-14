@@ -15,8 +15,6 @@ import com.adobe.clawdea.CLAUDE_DIR
 import com.google.gson.JsonParser
 import com.intellij.openapi.diagnostic.Logger
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URI
 
 /**
  * Fetches the live subscription model catalog from the Anthropic Messages API
@@ -41,29 +39,16 @@ class SubscriptionModelProbe(
             log.info("subscription probe: no OAuth token available (file or keychain)")
             return null
         }
-        return try {
-            val conn = URI("https://api.anthropic.com/v1/models").toURL().openConnection() as HttpURLConnection
-            try {
-                conn.requestMethod = "GET"
-                conn.connectTimeout = timeoutMs
-                conn.readTimeout = timeoutMs
-                conn.setRequestProperty("Authorization", "Bearer $token")
-                conn.setRequestProperty("anthropic-version", "2023-06-01")
-                conn.setRequestProperty("anthropic-beta", "oauth-2025-04-20")
-                conn.setRequestProperty("Accept", "application/json")
-                if (conn.responseCode != 200) {
-                    log.info("subscription probe: http ${conn.responseCode}")
-                    return null
-                }
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                AnthropicModelProbe.parseModelsJson(body)
-            } finally {
-                conn.disconnect()
-            }
-        } catch (t: Throwable) {
-            log.info("subscription probe: ${t.javaClass.simpleName}: ${t.message}")
-            null
-        }
+        return HttpJson.getJson(
+            uri = "https://api.anthropic.com/v1/models",
+            headers = mapOf(
+                "Authorization" to "Bearer $token",
+                "anthropic-version" to "2023-06-01",
+                "anthropic-beta" to "oauth-2025-04-20",
+            ),
+            timeoutMs = timeoutMs,
+            logTag = "subscription",
+        )?.let { AnthropicModelProbe.parseModelsJson(it) }
     }
 
     companion object {
