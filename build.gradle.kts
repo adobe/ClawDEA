@@ -24,7 +24,7 @@ dependencies {
         testFramework(org.jetbrains.intellij.platform.gradle.TestFrameworkType.Plugin.Java)
     }
 
-    implementation("com.google.code.gson:gson:2.14.0")
+    implementation("com.google.code.gson:gson:2.15.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test")
     // Provides kotlinx.coroutines.test.runTest for suspend-function unit tests (steering primitives,
